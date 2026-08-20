@@ -1,0 +1,95 @@
+{
+  "name": "quadqr-js",
+  "version": "0.7.0",
+  "description": "QuadQR: experimental four-state RGBW matrix code with Spectrum ECC, browser/Node scanning, CDN builds, and optional AES-256-GCM secure payloads.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "browser": "./dist/browser.js",
+  "types": "./types/index.d.ts",
+  "unpkg": "./dist/quadqr.min.js",
+  "jsdelivr": "./dist/quadqr.min.js",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./types/index.d.ts",
+      "import": "./dist/browser.js",
+      "default": "./dist/browser.js"
+    },
+    "./node": {
+      "types": "./types/node.d.ts",
+      "import": "./dist/node.js",
+      "require": "./dist/node.cjs",
+      "default": "./dist/node.js"
+    },
+    "./benchmark": {
+      "types": "./types/benchmark.d.ts",
+      "import": "./dist/benchmark.js",
+      "require": "./dist/benchmark.cjs",
+      "default": "./dist/benchmark.js"
+    },
+    "./quadqr.js": "./dist/quadqr.js",
+    "./quadqr.min.js": "./dist/quadqr.min.js",
+    "./wasm/quadqr-core.wasm": "./dist/wasm/quadqr-core.wasm",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "types",
+    "bin",
+    "docs",
+    "FORMAT.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "quadqr": "./bin/quadqr.js"
+  },
+  "scripts": {
+    "build": "node scripts/build.js",
+    "start": "node scripts/serve.js",
+    "demo": "node scripts/serve.js",
+    "docs": "node scripts/serve.js --docs",
+    "test": "node tests/self-test.js && node tests/package-test.js",
+    "benchmark": "node scripts/benchmark.js",
+    "pack:check": "npm run build && npm pack --dry-run",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akanshsirohi/QuadQR.git"
+  },
+  "bugs": {
+    "url": "https://github.com/akanshsirohi/QuadQR/issues"
+  },
+  "homepage": "https://github.com/akanshsirohi/QuadQR#readme",
+  "author": "Akansh Sirohi",
+  "license": "AGPL-3.0-only",
+  "keywords": [
+    "quadqr",
+    "qr",
+    "rgb",
+    "rgbw",
+    "matrix-code",
+    "barcode",
+    "reed-solomon",
+    "ecc",
+    "scanner",
+    "camera-scanner",
+    "encryption",
+    "aes-gcm",
+    "wasm"
+  ],
+  "sideEffects": false
+}

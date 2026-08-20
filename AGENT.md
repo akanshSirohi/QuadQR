@@ -1,0 +1,191 @@
+# AGENT.md
+
+## Goal
+
+Develop and experimentally validate the QuadQR custom 2D code.
+
+The current format is intentionally RGBW-only. Do not add legacy RGB/ternary compatibility unless explicitly requested.
+
+## Non-negotiable format decisions
+
+- Overall symbol remains square.
+- Individual modules remain square.
+- Data alphabet is exactly four states: red, green, blue, white.
+- Mapping is red=`00`, green=`01`, blue=`10`, white=`11`.
+- Each data cell therefore stores exactly 2 raw bits.
+- ECC is GF(256) Reed-Solomon over byte symbols with errors+erasures support.
+- One encoded byte maps to exactly four RGBW cells.
+- New encoding uses zero-overhead spectral-spatial cell interleaving; do not replace it with contiguous placement without explicit compatibility work.
+- Image scanning must retain per-cell classification confidence so uncertain byte symbols can be promoted to RS erasures.
+- Structural black remains separate from the four data-state values.
+- Structural white and data white may share the same visible/internal value because position determines semantics.
+- Secure Payload is optional and must remain layered above the matrix/ECC codec. Never make encryption mandatory for normal QuadQR symbols.
+- Secure Payload v1 uses AES-256-GCM. Password mode currently uses PBKDF2-HMAC-SHA-256; raw-key mode requires exactly 32 bytes.
+- Header bit 3 marks a secure envelope. Preserve backward decoding for existing unencrypted Format v5 symbols.
+
+## Geometry
+
+Keep exactly three primary 7×7 black/white finder patterns. Version 1 keeps its legacy 5×5 bottom-right bootstrap alignment marker. Versions 2–40 follow the standard QR alignment-center schedule, omitting the three positions occupied by primary finder corners. The bottom-right primary alignment marker is 5×5; every other distributed alignment marker is a compact 3×3 black ring with a white center.
+
+The camera scanner depends on these structures for finder detection, version estimation, and homography.
+
+## Calibration
+
+Reserved red, green, and blue swatches are sampled from the captured image.
+
+Black and white references come from known structural cells. White is a data state, so changes to white classification must be tested carefully under exposure, glare, and warm/cool lighting.
+
+## ECC
+
+Current field:
+
+```text
+GF(2^8) = GF(256)
+primitive polynomial = 0x11d
+```
+
+ECC profiles:
+
+- L: 12 parity bytes, correct up to 6 byte symbols per block
+- M: 24 parity bytes, correct up to 12 byte symbols per block
+- Q: 36 parity bytes, correct up to 18 byte symbols per block
+- H: 48 parity bytes, correct up to 24 byte symbols per block
+
+Do not replace GF(256) with a ternary field. The whole point of RGBW is direct 2-bit/byte alignment. Confidence-aware recovery must reuse the existing parity budget rather than silently increasing ECC overhead and reducing capacity.
+
+## Required tests after codec changes
+
+Run:
+
+```bash
+npm test
+```
+
+Tests should cover:
+
+1. exact byte-to-four-cell mapping;
+2. GF(256) RS syndrome and correction;
+3. UTF-8 and binary round trips;
+4. all ECC profiles;
+5. all four RGBW data states;
+6. rotation;
+7. capacity boundaries;
+8. protected-header correction;
+9. body RS correction and failure beyond correction limits;
+10. error + erasure RS recovery;
+11. spectral-spatial permutation uniqueness;
+12. confidence-assisted recovery beyond the hard-decision error limit;
+13. clean rendered image scanning;
+14. perspective distortion plus camera-style color cast;
+15. password-mode secure encode/decode/decrypt;
+16. wrong-password authentication failure;
+17. raw 256-bit key mode, automatic key ID, and wrong-key failure;
+18. secure rendered-image scanning followed by decryption.
+
+Do not accept a codec change that only passes direct matrix decoding but fails rendered image scanning.
+
+## Secure Payload
+
+Keep security framing in `library/security.js`. The RGBW matrix codec should only know that secure body bytes are opaque payload and that header flag bit 3 is set.
+
+Current envelope version: `1`. Current authenticated encryption: `AES-256-GCM`.
+
+Password mode:
+
+```text
+password -> PBKDF2-HMAC-SHA-256 -> 256-bit AES key
+```
+
+Default PBKDF2 iterations: `600000`. A 16-byte random salt and 12-byte random nonce are required per encryption.
+
+Raw-key mode accepts exactly 32 bytes. The default 8-byte SHA-256 fingerprint is a key selector only. Never put the actual raw key into the symbol.
+
+Any future Argon2id or public-key mode should use a new security/KDF/mode id while retaining the versioned envelope approach. Do not change Spectrum ECC parity solely because a payload is encrypted.
+
+## Demo UX
+
+Keep the live camera scanner separate from the generator view.
+
+Current demo navigation:
+
+- Generator & image scan
+- Camera scanner
+
+Do not put the live camera panel back into the main generator grid unless explicitly requested. Stop the camera stream when leaving the camera view.
+
+## Claims
+
+It is valid to state:
+
+```text
+4 states = log2(4) = 2 raw bits per data cell
+```
+
+Do not claim the completed format always stores exactly 2x the user payload of standard QR at the same size. Structural overhead, ECC, headers, calibration, and standard QR's specialized encoding modes affect the final comparison.
+
+## Priorities for future work
+
+1. Repeatable benchmark/torture-test framework.
+2. Real phone-camera dataset.
+3. Print tests under multiple printers/papers.
+4. Color-state confusion matrix and confidence-threshold tuning from real captures.
+5. Better local/adaptive color calibration for uneven lighting.
+6. Spatial damage/interleaving benchmarks and burst-damage comparison against legacy placement.
+7. Standard QR comparison at matched physical dimensions and recovery targets.
+8. Local/non-projective distortion correction using the distributed alignment grid.
+
+
+## Version 1 compact small-symbol profile
+
+Version 1 (21×21) intentionally uses different framing from versions 2–40. Do not replace it with the normal 10+8-byte protected header or normal M/Q/H body parity without re-running capacity and camera tests.
+
+- compact logical header: 4 bytes
+- compact header RS parity: 4 bytes
+- CRC remains CRC-32
+- v1 body parity L/M/Q/H: 4/8/12/16 bytes
+- current v1-M user capacity: 24 bytes
+- normal v2+ framing and ECC remain unchanged
+
+Any change to this profile must keep exact-capacity encode/decode, ECC corruption recovery, image scan, and benchmark tests passing.
+
+## Rendering styles
+
+Rendering styles are presentation-only. Keep wire-format matrix values unchanged. `classic`, `depth`, `soft`, and `inset` are implemented in `library/quadqr.js`. Styled data cells may vary visually, but finder, timing, alignment, and calibration cells must remain solid and scanner-safe. For `inset`, keep the center sample region at the exact encoded color and never let effects spill into adjacent modules. Add a scan round-trip test for any new renderer style.
+
+## Library distribution
+
+QuadQR is now distributed as a multi-runtime JavaScript package. Keep one codec implementation and thin runtime adapters.
+
+Public package entry points:
+
+- `quadqr`: core API and optional WASM loader;
+- `quadqr/browser`: browser ESM entry;
+- `quadqr/node`: Node PNG/file helpers plus core API;
+- `quadqr/benchmark`: benchmark helpers;
+- `dist/quadqr.min.js`: classic CDN/global build exposing `globalThis.QuadQR`.
+
+Do not fork the codec into separate browser and Node implementations. `scanImageData()` and `renderToImageData()` are the runtime-neutral pixel boundary.
+
+`dist/` is generated by `npm run build`; do not hand-edit files under `dist/`. The checked-in `wasm/quadqr-core.wasm` is the prebuilt fallback used when a maintainer does not have clang installed. Consumers never need clang or a WASM compiler.
+
+Node's dependency-free image path must continue to support PNG generation and PNG scanning. Optional formats may use a host-provided `sharp`, but QuadQR itself should not acquire a mandatory native image dependency without explicit justification.
+
+After package/distribution changes run:
+
+```bash
+npm run build
+npm test
+npm run benchmark
+npm run pack:check
+```
+
+Package tests must cover ESM, CommonJS, CDN/global loading, WASM initialization, Node PNG generation/scanning, and secure Node image round trips.
+
+## Documentation
+
+Keep both documentation surfaces updated when public APIs change:
+
+- `docs-site/`: standalone static documentation website;
+- `docs/`: Markdown documentation for repositories, npm consumers, and offline reading.
+
+The interactive product demo remains under `demo/`; do not merge it into the documentation site.

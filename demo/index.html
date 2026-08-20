@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>QuadQR Demo</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">EXPERIMENTAL FOUR-STATE 2D CODE</p>
+        <h1>QuadQR</h1>
+        <p class="sub">
+          Red, green, blue, and white data cells with exactly 2 bits per cell,
+          zero-overhead spectral interleaving, confidence-aware Reed-Solomon ECC, and camera color calibration.
+        </p>
+      </div>
+      <div class="badge"><span>QuadQR</span><span>RGBW</span><span>format v5</span></div>
+    </header>
+
+    <nav class="tabs" aria-label="Demo sections">
+      <button class="tab active" data-tab="lab" type="button" aria-label="Generator and image scanner">Generator</button>
+      <button class="tab" data-tab="camera" type="button" aria-label="Camera scanner">Camera</button>
+      <button class="tab" data-tab="benchmark" type="button">Benchmark</button>
+    </nav>
+
+    <section id="labView" class="tab-view active" data-view="lab">
+      <div class="grid">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="kicker">Generator</p>
+              <h2>Create QuadQR code</h2>
+            </div>
+            <span id="verificationPill" class="pill neutral">Not generated</span>
+          </div>
+
+          <label for="payload">Payload</label>
+          <textarea id="payload" rows="8">QuadQR: four colors, two bits per data cell, Spectrum ECC with confidence-aware recovery.</textarea>
+
+          <div class="row generator-options">
+            <label class="field">
+              <span>Version</span>
+              <select id="version">
+                <option value="auto">Auto smallest</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>ECC profile</span>
+              <select id="eccLevel">
+                <option value="L">L · 12 parity bytes</option>
+                <option value="M" selected>M · 24 parity bytes</option>
+                <option value="Q">Q · 36 parity bytes</option>
+                <option value="H">H · 48 parity bytes</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Module size</span>
+              <select id="moduleSize">
+                <option value="8">8 px</option>
+                <option value="10">10 px</option>
+                <option value="12" selected>12 px</option>
+                <option value="16">16 px</option>
+                <option value="20">20 px</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Render style</span>
+              <select id="renderStyle">
+                <option value="classic">Classic · solid</option>
+                <option value="depth">Depth · layered</option>
+                <option value="soft">Soft · rounded</option>
+                <option value="inset">Inset · pressed</option>
+              </select>
+            </label>
+          </div>
+          <p id="styleHint" class="style-hint">Classic keeps every module fully solid. Styles only change rendering, never the encoded data.</p>
+
+          <div class="security-box">
+            <div class="security-head">
+              <div>
+                <p class="kicker">SECURE PAYLOAD</p>
+                <strong>Optional authenticated encryption</strong>
+              </div>
+              <span class="security-badge">AES-256-GCM</span>
+            </div>
+
+            <label class="field">
+              <span>Security mode</span>
+              <select id="securityMode">
+                <option value="none" selected>None · standard QuadQR</option>
+                <option value="password">Password · PBKDF2 + AES-256-GCM</option>
+                <option value="raw-key">Raw 256-bit key · AES-256-GCM</option>
+              </select>
+            </label>
+
+            <div id="passwordSecurityFields" class="security-fields hidden">
+              <label class="field">
+                <span>Password</span>
+                <input id="securityPassword" type="password" autocomplete="new-password" placeholder="Enter encryption password" />
+              </label>
+            </div>
+
+            <div id="rawKeySecurityFields" class="security-fields hidden">
+              <label class="field">
+                <span>Raw 256-bit key</span>
+                <input id="securityRawKey" type="text" autocomplete="off" spellcheck="false" placeholder="64 hexadecimal characters" />
+              </label>
+              <button id="generateRawKeyBtn" class="secondary compact" type="button">Generate secure key</button>
+            </div>
+
+            <p id="securityHint" class="style-hint">Standard mode stores the payload normally. Security is opt-in and does not alter QuadQR scanning or Spectrum ECC.</p>
+          </div>
+
+          <div class="actions">
+            <button id="generateBtn" class="primary">Generate + verify</button>
+            <button id="downloadBtn" class="secondary" disabled>Download PNG</button>
+          </div>
+
+          <div id="errorBox" class="error hidden"></div>
+        </article>
+
+        <article class="panel preview-panel">
+          <div class="panel-head">
+            <div>
+              <p class="kicker">Output</p>
+              <h2>Code</h2>
+            </div>
+          </div>
+
+          <div class="canvas-wrap">
+            <canvas id="qrCanvas" aria-label="Generated QuadQR code"></canvas>
+          </div>
+
+          <dl id="stats" class="stats">
+            <div><dt>Matrix</dt><dd>--</dd></div>
+            <div><dt>Payload</dt><dd>--</dd></div>
+            <div><dt>Capacity</dt><dd>--</dd></div>
+            <div><dt>Density</dt><dd>--</dd></div>
+            <div><dt>ECC</dt><dd>--</dd></div>
+            <div><dt>Alignment</dt><dd>--</dd></div>
+            <div><dt>RS blocks</dt><dd>--</dd></div>
+            <div><dt>Mask</dt><dd>--</dd></div>
+            <div><dt>Utilization</dt><dd>--</dd></div>
+            <div><dt>Security</dt><dd>--</dd></div>
+            <div><dt>CRC-32</dt><dd>--</dd></div>
+          </dl>
+        </article>
+
+        <article class="panel scanner-panel wide">
+          <div class="panel-head">
+            <div>
+              <p class="kicker">Image scanner</p>
+              <h2>Scan an exported image or photograph</h2>
+            </div>
+          </div>
+
+          <label class="drop" for="scanFile">
+            <input id="scanFile" type="file" accept="image/*" />
+            <strong>Choose an image</strong>
+            <span>Angled photographs are supported. Keep all three large finder patterns visible. Larger versions also use distributed alignment patterns across the matrix.</span>
+          </label>
+
+          <p class="secure-scan-note"><strong>Secure scanning supported.</strong> Password and raw 256-bit-key QuadQR codes are detected automatically. The encrypted payload remains locked until the correct credential is entered in the scan result.</p>
+          <div id="scanResult" class="scan-result empty">No image scanned yet.</div>
+        </article>
+
+        <article class="panel info-panel wide">
+          <p class="kicker">QUADQR FORMAT</p>
+          <h2>Four states, exactly two bits per data cell</h2>
+          <div class="feature-grid">
+            <p><strong>Direct 2-bit mapping.</strong> Red = 00, green = 01, blue = 10, and white = 11. One byte occupies exactly four data cells.</p>
+            <p><strong>Spectrum ECC.</strong> GF(256) Reed-Solomon first tries normal correction, then uses low-confidence RGBW byte symbols as known erasures when hard decoding is not enough.</p>
+            <p><strong>Spectral-spatial interleaving.</strong> Logical codeword cells are scattered across distant physical modules with a reversible zero-overhead permutation, improving resistance to localized damage without reducing capacity.</p>
+            <p><strong>Perspective geometry.</strong> Three large finder patterns stay fixed. Larger versions keep one 5×5 primary alignment reference and add compact 3×3 secondary markers for stronger geometry and version validation with less capacity overhead.</p>
+            <p><strong>Adaptive color confidence.</strong> RGB swatches plus known structural black/white cells calibrate the palette, while nearest-vs-second-nearest distance gives every sampled data cell a confidence score for ECC.</p>
+            <p><strong>Secure Payload v1.</strong> Optional AES-256-GCM authenticated encryption supports password-derived keys and exact raw 256-bit keys. Encryption sits above Spectrum ECC, so standard symbols keep their existing scan path.</p>
+            <p><strong>Compact v1.</strong> The 21×21 symbol uses a reduced protected header and size-appropriate ECC, giving v1-M 24 payload bytes while retaining CRC-32.</p>
+          </div>
+          <p class="warning">This is a custom experimental symbology. Standard QR scanner apps cannot decode it.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="cameraView" class="tab-view" data-view="camera" hidden>
+      <div class="camera-page">
+        <article class="panel camera-panel camera-only">
+          <div class="panel-head">
+            <div>
+              <p class="kicker">Camera scanner</p>
+              <h2>Live QuadQR scan</h2>
+            </div>
+            <span id="cameraPill" class="pill neutral">Stopped</span>
+          </div>
+
+          <div class="camera-stage">
+            <video id="cameraVideo" playsinline muted></video>
+            <div class="camera-guide" aria-hidden="true">
+              <span></span><span></span><span></span><span></span>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="startCameraBtn" class="primary">Start camera</button>
+            <button id="stopCameraBtn" class="secondary" disabled>Stop</button>
+          </div>
+
+          <p class="camera-note">Camera access requires HTTPS or localhost. Fill most of the guide, keep the code flat when possible, and avoid glare over white or colored cells.</p>
+          <p class="secure-scan-note"><strong>Secure scanning supported.</strong> Live scanning automatically recognizes password and raw 256-bit-key payloads, stops on a verified symbol, and asks for the matching credential before revealing the plaintext.</p>
+          <div id="cameraResult" class="scan-result empty">No camera result yet.</div>
+        </article>
+      </div>
+    </section>
+
+    <section id="benchmarkView" class="tab-view" data-view="benchmark" hidden>
+      <div class="benchmark-page">
+        <article class="panel benchmark-panel">
+          <div class="panel-head">
+            <div>
+              <p class="kicker">Benchmark</p>
+              <h2>Capacity and codec performance</h2>
+            </div>
+            <span id="benchmarkPill" class="pill neutral">Not run</span>
+          </div>
+
+          <p class="benchmark-intro">
+            Compare usable QuadQR payload capacity with standard QR byte-mode capacity at the same matrix size,
+            then measure QuadQR encode/decode speed in this browser. ECC letters are nominal only and do not imply equal recovery strength.
+          </p>
+
+          <div class="row benchmark-controls">
+            <label class="field">
+              <span>ECC profile</span>
+              <select id="benchmarkEcc">
+                <option value="L">L</option>
+                <option value="M" selected>M</option>
+                <option value="Q">Q</option>
+                <option value="H">H</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Iterations</span>
+              <select id="benchmarkIterations">
+                <option value="10">10</option>
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="runBenchmarkBtn" class="primary">Run benchmark</button>
+          </div>
+
+          <h3>Same-size capacity</h3>
+          <div class="table-wrap">
+            <table class="benchmark-table">
+              <thead>
+                <tr><th>Version</th><th>Matrix</th><th>QuadQR</th><th>Standard QR</th><th>Difference</th><th>Ratio</th></tr>
+              </thead>
+              <tbody id="capacityBenchmarkBody"></tbody>
+            </table>
+          </div>
+
+          <h3>QuadQR codec speed</h3>
+          <div class="table-wrap">
+            <table class="benchmark-table">
+              <thead>
+                <tr><th>Payload</th><th>Matrix</th><th>Encode mean</th><th>Encode p95</th><th>Decode mean</th><th>Decode p95</th></tr>
+              </thead>
+              <tbody id="speedBenchmarkBody">
+                <tr><td colspan="6" class="muted-cell">Run the benchmark to measure this browser.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p class="benchmark-note">For repeatable CLI output run <code>npm run benchmark</code>. For clean JSON use <code>npm run --silent benchmark -- --json</code>.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

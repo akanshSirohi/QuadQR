@@ -1,0 +1,41 @@
+# QuadQR Documentation
+
+QuadQR is an experimental four-state RGBW matrix symbology. Each data cell carries exactly two bits using red, green, blue, or white. The JavaScript library supports encoding, rendering, matrix decoding, image and camera scanning, Spectrum ECC, optional authenticated encryption, Node.js PNG workflows, CDN usage, a CLI, TypeScript declarations, and optional prebuilt WebAssembly acceleration.
+
+## Live links
+
+- [Documentation Site](https://akanshsirohi.github.io/QuadQR/docs-site/)
+- [Interactive Demo](https://akanshsirohi.github.io/QuadQR/demo/)
+- [quadqr-js on npm](https://www.npmjs.com/package/quadqr-js)
+- [GitHub Repository](https://github.com/akanshsirohi/QuadQR)
+
+## Documentation
+
+- [Getting Started](./GETTING_STARTED.md)
+- [API Reference](./API.md)
+- [Browser and CDN](./BROWSER_CDN.md)
+- [Node.js](./NODE.md)
+- [CLI](./CLI.md)
+- [Secure Payloads](./SECURITY.md)
+- [WebAssembly](./WASM.md)
+- [Wire Format](../FORMAT.md)
+
+## Package entry points
+
+| Entry | Purpose |
+| --- | --- |
+| `quadqr-js` | Runtime-neutral core API, rendering, scanning, secure payloads, utilities, and optional WASM |
+| `quadqr-js/browser` | Browser ESM entry for canvas, files, video, and camera workflows |
+| `quadqr-js/node` | Node.js core plus PNG, file, and buffer helpers |
+| `quadqr-js/benchmark` | Capacity and codec benchmark helpers |
+| `quadqr-js/quadqr.min.js` | Classic browser global bundle for CDN/script-tag usage |
+
+The matrix codec is shared across runtimes. Browser and Node.js adapters only handle environment-specific input and output.
+
+## Compatibility note
+
+QuadQR is a custom experimental format, not ISO QR Code. Standard QR scanner applications cannot decode QuadQR symbols.
+
+## License
+
+QuadQR is licensed under AGPL-3.0. See [`LICENSE`](../LICENSE).

@@ -1,0 +1,101 @@
+# Dependencies
+node_modules/
+
+# npm package archives
+*.tgz
+
+# npm / yarn / pnpm logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test / coverage output
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+.cache/
+*.tmp
+*.temp
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Local configuration
+*.local
+
+# Build caches
+.esbuild/
+.rollup.cache/
+.vite/
+
+# TypeScript cache, if tooling generates it
+*.tsbuildinfo
+
+# IDEs / editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+
+# Windows
+*.stackdump
+
+# Logs
+logs/
+*.log
+
+# Runtime files
+*.pid
+*.pid.lock
+
+# Backup files
+*.bak
+*.backup
+*~
+*.swp
+*.swo
+
+# Generated test artifacts
+test-output/
+tests/output/
+tests/tmp/
+
+# Local package testing directories
+pack-test/
+package-test/
+npm-test/
+.local-test/
+
+# Documentation site generated output
+docs-site/node_modules/
+docs-site/.cache/
+docs-site/.vite/
+
+# Demo dependencies/cache if added later
+demo/node_modules/
+demo/.cache/
+demo/.vite/
+
+# Optional native/WASM build intermediates
+wasm-src/build/
+wasm-src/target/
+wasm-src/*.o
+wasm-src/*.obj
+
+# Keep package-lock.json committed
+# Keep dist/ committed because QuadQR ships prebuilt artifacts
