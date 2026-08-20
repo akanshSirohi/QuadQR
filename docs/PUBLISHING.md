@@ -86,8 +86,8 @@ npx quadqr-js decode hello.png
 After npm and CDN caches update, test:
 
 ```text
-https://cdn.jsdelivr.net/npm/quadqr-js@0.7.0/dist/quadqr.min.js
-https://unpkg.com/quadqr-js@0.7.0/dist/quadqr.min.js
+https://cdn.jsdelivr.net/npm/quadqr-js@1.0.0/dist/quadqr.min.js
+https://unpkg.com/quadqr-js@1.0.0/dist/quadqr.min.js
 ```
 
 Then call `QuadQR.encodeText(...)` from a plain HTML page.
