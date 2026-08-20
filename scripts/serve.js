@@ -55,7 +55,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`QuadQR ${docsMode ? "docs" : "demo"}: http://localhost:${port}/`);
   console.log(`Demo: http://localhost:${port}/demo/`);
   console.log(`Docs: http://localhost:${port}/docs-site/`);
 });
