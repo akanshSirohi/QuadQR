@@ -1,6 +1,6 @@
 {
   "name": "quadqr-js",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "QuadQR: experimental four-state RGBW matrix code with Spectrum ECC, browser/Node scanning, CDN builds, and optional AES-256-GCM secure payloads.",
   "type": "module",
   "main": "./dist/index.cjs",
