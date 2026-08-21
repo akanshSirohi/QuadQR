@@ -83,7 +83,7 @@ The global browser build exposes `window.QuadQR` / `globalThis.QuadQR`.
 
 ```html
 <canvas id="qr"></canvas>
-<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.0.0/dist/quadqr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.0.1/dist/quadqr.min.js"></script>
 <script>
   const code = QuadQR.encodeText("Hello CDN");
 
@@ -97,7 +97,7 @@ The global browser build exposes `window.QuadQR` / `globalThis.QuadQR`.
 ## unpkg
 
 ```html
-<script src="https://unpkg.com/quadqr-js@1.0.0/dist/quadqr.min.js"></script>
+<script src="https://unpkg.com/quadqr-js@1.0.1/dist/quadqr.min.js"></script>
 ```
 
 ## Direct CDN ESM
@@ -107,7 +107,7 @@ The global browser build exposes `window.QuadQR` / `globalThis.QuadQR`.
   import {
     encodeText,
     renderToCanvas
-  } from "https://cdn.jsdelivr.net/npm/quadqr-js@1.0.0/dist/browser.js";
+  } from "https://cdn.jsdelivr.net/npm/quadqr-js@1.0.1/dist/browser.js";
 
   const code = encodeText("ES module CDN");
   renderToCanvas(code, document.querySelector("#qr"));
@@ -134,4 +134,4 @@ WASM is optional. The normal JavaScript implementation remains available if it c
 
 ## Production recommendation
 
-Pin a concrete package version such as `@1.0.0` in CDN URLs so an existing site does not silently change when a newer package version becomes available.
+Pin a concrete package version such as `@1.0.1` in CDN URLs so an existing site does not silently change when a newer package version becomes available.

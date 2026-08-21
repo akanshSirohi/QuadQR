@@ -593,7 +593,7 @@ console.log(result.text);
 The `quadqr-js` package can be loaded directly from npm-backed CDNs:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.0.0/dist/quadqr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.0.1/dist/quadqr.min.js"></script>
 <script>
   const code = QuadQR.encodeText("Hello from a script tag");
 </script>
