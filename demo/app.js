@@ -454,7 +454,7 @@ startCameraBtn.addEventListener("click", async () => {
   try {
     cameraController = await startCameraScanner(cameraVideo, {
       scanInterval: 160,
-      maxDimension: 900,
+      maxDimension: 1080,
       stopOnResult: true,
       onResult(result) {
         formatResult(cameraResultEl, result, "Camera scan verified", {

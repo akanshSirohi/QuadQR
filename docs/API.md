@@ -139,7 +139,7 @@ Returns runtime-neutral RGBA pixels:
 
 ### `scanImageData(imageData, options?)`
 
-Scans an ImageData-like RGBA object:
+Scans an ImageData-like RGBA object. Clean frames use the normal observed-RGB path first. Difficult frames then get bounded fallback attempts using per-channel white balancing, spatial black/white normalization, tighter centre sampling, and sub-module geometry micro-refinement before the scan is rejected.
 
 ```js
 const result = scanImageData({
@@ -148,6 +148,8 @@ const result = scanImageData({
   data
 });
 ```
+
+Useful scanner options include `sampleRadius`, `robustSampleRadius`, `adaptiveSampling`, `spatialColorNormalization`, `geometryRefinement`, `refinementOffset`, `structureTolerance`, and `maxErasureConfidence`. Geometry refinement is enabled by default, but only runs after a strong detected symbol fails the normal scan path.
 
 ### Browser `scanFile(file, options?)`
 
@@ -167,16 +169,18 @@ const result = scanVideoFrame(video);
 
 ### `startCameraScanner(video, options?)`
 
-Starts live camera scanning.
+Starts live camera scanning. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. Consecutive failed frames can also be combined with confidence-weighted module voting before the scanner reports a miss.
 
 ```js
 const scanner = await startCameraScanner(video, {
   scanInterval: 120,
-  onDecode(result) {
+  multiFrame: true,
+  multiFrameWindow: 4,
+  onResult(result) {
     console.log(result);
   },
-  onError(error) {
-    console.error(error);
+  onScanMiss() {
+    // Keep searching.
   }
 });
 

@@ -62,7 +62,7 @@ let scanner;
 scanner = await startCameraScanner(
   document.querySelector("#video"),
   {
-    onDecode(result) {
+    onResult(result) {
       console.log(result);
       scanner.stop();
     }

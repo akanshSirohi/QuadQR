@@ -577,33 +577,66 @@ export function detectCodeGeometry(imageData, options = {}) {
   return deduped;
 }
 
+function median(values) {
+  if (!values.length) return 0;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function robustRgb(values) {
+  if (!values.length) throw new Error("No RGB samples available.");
+  return {
+    r: median(values.map((rgb) => rgb.r)),
+    g: median(values.map((rgb) => rgb.g)),
+    b: median(values.map((rgb) => rgb.b))
+  };
+}
+
 function averageProjectedSample(imageData, homography, moduleX, moduleY, radius = 0.16) {
   const offsets = radius > 0
     ? [[0, 0], [-radius, 0], [radius, 0], [0, -radius], [0, radius]]
     : [[0, 0]];
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  let count = 0;
+  const values = [];
   for (const [dx, dy] of offsets) {
     const point = projectPoint(homography, moduleX + dx, moduleY + dy);
     if (point.x < 0 || point.y < 0 || point.x >= imageData.width || point.y >= imageData.height) continue;
-    const rgb = bilinearRgb(imageData, point.x, point.y);
-    r += rgb.r;
-    g += rgb.g;
-    b += rgb.b;
-    count++;
+    values.push(bilinearRgb(imageData, point.x, point.y));
   }
-  if (!count) return { r: 255, g: 255, b: 255 };
-  return { r: r / count, g: g / count, b: b / count };
+  if (!values.length) return { r: 255, g: 255, b: 255 };
+  return averageRgb(values);
+}
+
+function robustProjectedSample(imageData, homography, moduleX, moduleY, radius = 0.12) {
+  // Fallback for dirty/soft-focus camera frames. A compact 3x3 patch stays
+  // away from module edges and median aggregation rejects glare/speckles.
+  const offsets = radius > 0 ? [-radius, 0, radius] : [0];
+  const values = [];
+  for (const dy of offsets) {
+    for (const dx of offsets) {
+      const point = projectPoint(homography, moduleX + dx, moduleY + dy);
+      if (point.x < 0 || point.y < 0 || point.x >= imageData.width || point.y >= imageData.height) continue;
+      values.push(bilinearRgb(imageData, point.x, point.y));
+    }
+  }
+  return values.length ? robustRgb(values) : { r: 255, g: 255, b: 255 };
 }
 
 export function samplePerspectiveMatrix(imageData, homography, size, options = {}) {
   const rgbGrid = Array.from({ length: size }, () => new Array(size));
-  const radius = options.sampleRadius ?? 0.16;
+  const mode = options.sampleMode ?? "cross";
+  const radius = options.sampleRadius ?? (mode === "median" ? 0.12 : 0.16);
+  const offsetX = Number.isFinite(options.sampleOffsetX) ? options.sampleOffsetX : 0;
+  const offsetY = Number.isFinite(options.sampleOffsetY) ? options.sampleOffsetY : 0;
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
-      rgbGrid[r][c] = averageProjectedSample(imageData, homography, c + 0.5, r + 0.5, radius);
+      const moduleX = c + 0.5 + offsetX;
+      const moduleY = r + 0.5 + offsetY;
+      rgbGrid[r][c] = mode === "median"
+        ? robustProjectedSample(imageData, homography, moduleX, moduleY, radius)
+        : averageProjectedSample(imageData, homography, moduleX, moduleY, radius);
     }
   }
   return { rgbGrid };
@@ -634,13 +667,14 @@ function pickCalibrationSamples(rgbGrid, positions, limit = 24) {
   return out;
 }
 
-export function sampleObservedPalette(rgbGrid, calibration) {
+export function sampleObservedPalette(rgbGrid, calibration, options = {}) {
+  const aggregate = options.robust ? robustRgb : averageRgb;
   const palette = {
-    black: averageRgb(pickCalibrationSamples(rgbGrid, calibration.black, 36)),
-    white: averageRgb(pickCalibrationSamples(rgbGrid, calibration.white, 36)),
-    red: averageRgb(pickCalibrationSamples(rgbGrid, calibration.red, 12)),
-    green: averageRgb(pickCalibrationSamples(rgbGrid, calibration.green, 12)),
-    blue: averageRgb(pickCalibrationSamples(rgbGrid, calibration.blue, 12))
+    black: aggregate(pickCalibrationSamples(rgbGrid, calibration.black, 36)),
+    white: aggregate(pickCalibrationSamples(rgbGrid, calibration.white, 36)),
+    red: aggregate(pickCalibrationSamples(rgbGrid, calibration.red, 12)),
+    green: aggregate(pickCalibrationSamples(rgbGrid, calibration.green, 12)),
+    blue: aggregate(pickCalibrationSamples(rgbGrid, calibration.blue, 12))
   };
 
   // All five observed classes must remain separated enough for reliable RGBW
@@ -658,6 +692,71 @@ export function sampleObservedPalette(rgbGrid, calibration) {
   }
   if (Math.min(...distances) < 28) throw new Error("RGBW calibration references are not separable in this image.");
   return palette;
+}
+
+function calibrationReferencePoints(rgbGrid, positions, limit = 64) {
+  if (!positions?.length) return [];
+  const step = Math.max(1, Math.floor(positions.length / limit));
+  const refs = [];
+  for (let i = 0; i < positions.length; i += step) {
+    const [row, col] = positions[i];
+    refs.push({ row, col, rgb: rgbGrid[row][col] });
+    if (refs.length >= limit) break;
+  }
+  return refs;
+}
+
+function estimateLocalReference(refs, row, col) {
+  if (!refs.length) return { r: 0, g: 0, b: 0 };
+  let wr = 0;
+  let wg = 0;
+  let wb = 0;
+  let total = 0;
+  for (const ref of refs) {
+    const dr = row - ref.row;
+    const dc = col - ref.col;
+    const distanceSq = dr * dr + dc * dc;
+    if (distanceSq < 1e-9) return ref.rgb;
+    // Smooth inverse-distance weighting. The +4 prevents one slightly blurred
+    // structural cell from dominating the local estimate.
+    const weight = 1 / (distanceSq + 4);
+    wr += ref.rgb.r * weight;
+    wg += ref.rgb.g * weight;
+    wb += ref.rgb.b * weight;
+    total += weight;
+  }
+  return {
+    r: wr / total,
+    g: wg / total,
+    b: wb / total
+  };
+}
+
+export function spatiallyNormalizeRgbGrid(rgbGrid, calibration, options = {}) {
+  const size = rgbGrid.length;
+  const limit = options.referenceLimit ?? 64;
+  const blackRefs = calibrationReferencePoints(rgbGrid, calibration.black, limit);
+  const whiteRefs = calibrationReferencePoints(rgbGrid, calibration.white, limit);
+  if (!blackRefs.length || !whiteRefs.length) throw new Error("Black/white references are required for spatial color normalization.");
+
+  const normalized = Array.from({ length: size }, () => new Array(size));
+  for (let row = 0; row < size; row++) {
+    for (let col = 0; col < size; col++) {
+      const rgb = rgbGrid[row][col];
+      const black = estimateLocalReference(blackRefs, row, col);
+      const white = estimateLocalReference(whiteRefs, row, col);
+      const normalizeChannel = (value, low, high) => {
+        const range = Math.max(28, high - low);
+        return clamp((value - low) * 255 / range, -96, 384);
+      };
+      normalized[row][col] = {
+        r: normalizeChannel(rgb.r, black.r, white.r),
+        g: normalizeChannel(rgb.g, black.g, white.g),
+        b: normalizeChannel(rgb.b, black.b, white.b)
+      };
+    }
+  }
+  return normalized;
 }
 
 export function rectifyImageData(imageData, homography, size, moduleSize = 8) {

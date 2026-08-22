@@ -390,7 +390,7 @@ White → (255, 255, 255)
 
 Real camera input is not expected to match those exact values.
 
-QuadQR includes calibration and nearest-color classification so the scanner can work with observed colors after lighting, camera processing, perspective changes, and other image transformations.
+QuadQR includes calibration and nearest-color classification so the scanner can work with observed colors after lighting, camera processing, perspective changes, and other image transformations. The clean-frame path stays fast: QuadQR tries the normal detected geometry and observed palette first, and only runs the heavier color and sub-module geometry recovery steps after an otherwise strong symbol fails to decode.
 
 ---
 
@@ -457,6 +457,10 @@ homography / perspective correction
 distributed alignment-grid validation
   ↓
 module-grid reconstruction
+  ↓
+fast observed-RGB decode attempt
+  ↓ (only if needed)
+adaptive color recovery + sub-module geometry refinement
   ↓
 RGB + structural black/white calibration
   ↓
@@ -872,7 +876,7 @@ This is also useful for tests and non-DOM workflows.
 
 ### `scanImageData(imageData, options?)`
 
-Runs the complete perspective-aware and color-aware image scanner. The scanner automatically computes RGBW confidence values and uses confidence-guided erasure decoding only when ordinary hard-decision ECC is insufficient.
+Runs the complete perspective-aware and color-aware image scanner. The scanner first tries the normal detected geometry with the observed RGB palette, preserving the fast path for clean images. Only after that fails does it fall back to per-channel white balancing, spatial black/white normalization, tighter centre sampling, and a bounded sub-module geometry micro-refinement for blurred frames where finder detection is correct but the effective color-module centres have shifted slightly. RGBW confidence values are carried into Reed-Solomon so ambiguous cells can be treated as erasures when ordinary hard-decision ECC is insufficient.
 
 ### `scanFile(file, options?)`
 
@@ -884,7 +888,7 @@ Scans one frame from an HTML video element.
 
 ### `startCameraScanner(video, options?)`
 
-Starts a reusable live-camera scanning loop.
+Starts a reusable live-camera scanning loop. On supported browsers it requests continuous focus/exposure/white-balance camera modes, and it can combine several consecutive classified frames before giving up on a difficult scan. Multi-frame voting is enabled by default with a four-frame history and can be controlled with `multiFrame`, `multiFrameWindow`, and `multiFrameMinFrames`.
 
 ### `getVersionInfo(version, options?)`
 
@@ -923,6 +927,8 @@ The current test suite covers areas including:
 - generated-image scanning;
 - perspective distortion;
 - color-cast scanning;
+- dirty-camera stress scanning with strong yellow cast, haze, blue-channel suppression, and blur;
+- multi-frame classification voting;
 - benchmark reference data;
 - timed codec round trips;
 - password-mode secure round trips and wrong-password rejection;
@@ -966,8 +972,8 @@ The project should currently be treated as a research and experimental implement
 - [ ] Automated camera torture-test suite
 - [ ] Blur, JPEG, noise, perspective, and lighting benchmarks
 - [ ] Print-and-rescan dataset
-- [ ] Confidence-based RGBW classification
-- [ ] Improved adaptive color calibration
+- [x] Confidence-based RGBW classification
+- [x] Improved adaptive color calibration
 - [x] Distributed alignment patterns for large versions
 - [ ] Interleaving tuned for localized physical damage
 - [ ] Real-device benchmark dataset

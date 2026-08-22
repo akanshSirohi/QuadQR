@@ -134,6 +134,105 @@ function warpWithColorCast(image, width, height, quad) {
   return { width, height, data };
 }
 
+function gaussianBlurImage(image, passes = 1) {
+  const { width, height } = image;
+  const weights = [1, 4, 6, 4, 1];
+  const norm = 16;
+  let source = new Uint8ClampedArray(image.data);
+
+  for (let pass = 0; pass < passes; pass++) {
+    const horizontal = new Uint8ClampedArray(source.length);
+    const vertical = new Uint8ClampedArray(source.length);
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const out = (y * width + x) * 4;
+        for (let channel = 0; channel < 3; channel++) {
+          let sum = 0;
+          for (let k = -2; k <= 2; k++) {
+            const xx = Math.max(0, Math.min(width - 1, x + k));
+            sum += source[(y * width + xx) * 4 + channel] * weights[k + 2];
+          }
+          horizontal[out + channel] = sum / norm;
+        }
+        horizontal[out + 3] = 255;
+      }
+    }
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const out = (y * width + x) * 4;
+        for (let channel = 0; channel < 3; channel++) {
+          let sum = 0;
+          for (let k = -2; k <= 2; k++) {
+            const yy = Math.max(0, Math.min(height - 1, y + k));
+            sum += horizontal[(yy * width + x) * 4 + channel] * weights[k + 2];
+          }
+          vertical[out + channel] = sum / norm;
+        }
+        vertical[out + 3] = 255;
+      }
+    }
+
+    source = vertical;
+  }
+
+  return { width, height, data: source };
+}
+
+function warpWithDirtyWarmCamera(image, width, height, quad) {
+  const homography = computeHomography(
+    [
+      { x: 0, y: 0 },
+      { x: image.width - 1, y: 0 },
+      { x: 0, y: image.height - 1 },
+      { x: image.width - 1, y: image.height - 1 }
+    ],
+    quad
+  );
+
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const p = i * 4;
+    data[p] = 230;
+    data[p + 1] = 215;
+    data[p + 2] = 175;
+    data[p + 3] = 255;
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const source = projectPoint(homography, x, y);
+      if (
+        source.x < 0 || source.y < 0 ||
+        source.x >= image.width - 1 || source.y >= image.height - 1
+      ) continue;
+
+      let [r, g, b] = bilinearRgb(image, source.x, source.y);
+      const nx = x / width;
+      const ny = y / height;
+      const haze = 0.10 + 0.18 * Math.max(0, Math.sin((nx * 1.7 + ny * 1.2) * Math.PI));
+
+      // Strong yellow/warm camera cast with a heavily suppressed blue channel,
+      // similar to a dirty lens + poor auto white balance on a phone camera.
+      r = r * 1.15 + 8;
+      g = g * 0.75 + 28;
+      b = b * 0.18 + 70;
+      r = r * (1 - haze) + 232 * haze;
+      g = g * (1 - haze) + 214 * haze;
+      b = b * (1 - haze) + 171 * haze;
+
+      const p = (y * width + x) * 4;
+      data[p] = Math.max(0, Math.min(255, r));
+      data[p + 1] = Math.max(0, Math.min(255, g));
+      data[p + 2] = Math.max(0, Math.min(255, b));
+      data[p + 3] = 255;
+    }
+  }
+
+  return gaussianBlurImage({ width, height, data }, 2);
+}
+
 console.log("Running QuadQR self-tests...");
 
 // 2-bit color mapping is exact: one byte occupies exactly four cells.
@@ -475,6 +574,133 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   assert.ok(decoded.erasureSymbols > 0);
   assert.ok(decoded.correctedBodySymbols >= 16);
   assert.ok(decoded.lowConfidenceCells >= 16);
+}
+
+// Dirty camera stress test: perspective + warm/yellow cast + blue-channel
+// suppression + lens haze + blur. The scanner should fall back to per-channel
+// white balancing and still recover the payload without changing the format.
+{
+  const text = "Dirty yellow camera blur robustness test for QuadQR";
+  const encoded = encodeText(text, { ecc: "M" });
+  const clean = renderToImageData(encoded, { moduleSize: 6, quietZone: 4 });
+  const scaledWidth = Math.round(clean.width * 1.25);
+  const scaledHeight = Math.round(clean.height * 1.25);
+  const dirty = warpWithDirtyWarmCamera(
+    clean,
+    scaledWidth + 60,
+    scaledHeight + 50,
+    [
+      { x: 30, y: 18 },
+      { x: scaledWidth + 18, y: 27 },
+      { x: 22, y: scaledHeight + 20 },
+      { x: scaledWidth + 28, y: scaledHeight + 28 }
+    ]
+  );
+
+  const decoded = scanImageData(dirty, {
+    minVersion: encoded.version,
+    maxVersion: encoded.version
+  });
+  assert.equal(decoded.text, text);
+  assert.equal(decoded.colorNormalization, "white-balanced");
+  assert.ok(decoded.correctedSymbols > 0);
+}
+
+// Directional lens/chromatic-shift regression. Keep the structural black/white
+// locator geometry fixed while shifting colored data energy to the right by a
+// little over half a module. The ordinary detected centres are then wrong, but
+// the bounded sub-module geometry refinement should recover the payload.
+{
+  const text = "Submodule lens shift recovery regression";
+  const encoded = encodeText(text, { version: 4, ecc: "M" });
+  const moduleSize = 8;
+  const quietZone = 4;
+  const clean = renderToImageData(encoded, { moduleSize, quietZone, style: "classic" });
+  const damaged = {
+    width: clean.width,
+    height: clean.height,
+    data: new Uint8ClampedArray(clean.data)
+  };
+  const layout = internals.createLayout(encoded.version);
+  const palette = {
+    [CELL.RED]: [0xef, 0x23, 0x3c],
+    [CELL.GREEN]: [0x16, 0xa3, 0x4a],
+    [CELL.BLUE]: [0x25, 0x63, 0xeb]
+  };
+  const shift = 5;
+
+  function fillRect(x0, y0, width, height, rgb) {
+    const minX = Math.max(0, x0);
+    const minY = Math.max(0, y0);
+    const maxX = Math.min(damaged.width, x0 + width);
+    const maxY = Math.min(damaged.height, y0 + height);
+    for (let y = minY; y < maxY; y++) {
+      for (let x = minX; x < maxX; x++) {
+        const offset = (y * damaged.width + x) * 4;
+        damaged.data[offset] = rgb[0];
+        damaged.data[offset + 1] = rgb[1];
+        damaged.data[offset + 2] = rgb[2];
+        damaged.data[offset + 3] = 255;
+      }
+    }
+  }
+
+  for (const [row, col] of layout.dataPositions) {
+    const cell = encoded.matrix[row][col];
+    if (cell === CELL.WHITE) continue;
+    const x = (quietZone + col) * moduleSize;
+    const y = (quietZone + row) * moduleSize;
+    fillRect(x, y, moduleSize, moduleSize, [255, 255, 255]);
+    fillRect(x + shift, y, moduleSize, moduleSize, palette[cell]);
+  }
+
+  assert.throws(() => scanImageData(damaged, {
+    minVersion: 4,
+    maxVersion: 4,
+    geometryRefinement: false
+  }));
+
+  const decoded = scanImageData(damaged, { minVersion: 4, maxVersion: 4 });
+  assert.equal(decoded.text, text);
+  assert.equal(decoded.geometryRefined, true);
+  assert.equal(decoded.samplingMode, "refined-center");
+  assert.ok(Math.abs(decoded.samplingOffset.x) >= 0.19);
+}
+
+// Multi-frame voting: each observation has a different set of badly classified
+// data cells. No one damaged location has a majority, so the combined matrix
+// should reconstruct the original symbol and decode cleanly.
+{
+  const payload = new Uint8Array(Array.from({ length: 100 }, (_, i) => (i * 29 + 3) & 0xff));
+  const encoded = encodeBytes(payload, { ecc: "M" });
+  const layout = internals.createLayout(encoded.version);
+  const bodyStart = internals.getHeaderPlan(encoded.version).codewordCells;
+  const observations = [];
+
+  for (let frame = 0; frame < 3; frame++) {
+    const matrix = cloneMatrix(encoded.matrix);
+    const confidence = Array.from({ length: matrix.length }, () => Array(matrix.length).fill(0.92));
+    for (let i = 0; i < 16; i++) {
+      const logicalCell = bodyStart + (frame * 16 + i) * 4;
+      const physicalIndex = internals.spectralPermutation(layout.dataPositions.length, layout.version)[logicalCell];
+      const [row, col] = layout.dataPositions[physicalIndex];
+      const current = matrix[row][col];
+      matrix[row][col] = (current + 1) & 3;
+      confidence[row][col] = 0.20;
+    }
+    observations.push({
+      version: encoded.version,
+      matrix,
+      confidence,
+      structureScore: 1,
+      averageCellConfidence: 0.9
+    });
+  }
+
+  const combined = internals.combineFrameObservations(observations);
+  assert.ok(combined);
+  const decoded = decodeMatrix(combined.matrix, { cellConfidence: combined.confidence });
+  bytesEqual(decoded.payload, payload);
 }
 
 // Clean image scan uses perspective geometry and observed color calibration.

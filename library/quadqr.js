@@ -32,6 +32,7 @@ import {
   samplePerspectiveMatrix,
   rectifyImageData,
   sampleObservedPalette,
+  spatiallyNormalizeRgbGrid,
   findActiveBounds,
   sampleAxisAlignedGrid
 } from "./vision.js";
@@ -1592,14 +1593,55 @@ export function renderToImageData(codeOrMatrix, options = {}) {
   return { width: pixelSize, height: pixelSize, data };
 }
 
-function classifierFromPaletteRgb(observed) {
-  return [
-    { cell: CELL.BLACK, rgb: observed.black },
-    { cell: CELL.WHITE, rgb: observed.white },
-    { cell: CELL.RED, rgb: observed.red },
-    { cell: CELL.GREEN, rgb: observed.green },
-    { cell: CELL.BLUE, rgb: observed.blue }
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function identityColorTransform(rgb) {
+  return rgb;
+}
+
+function makeWhiteBalanceTransform(observed) {
+  const black = observed.black;
+  const white = observed.white;
+  const ranges = {
+    r: Math.max(32, white.r - black.r),
+    g: Math.max(32, white.g - black.g),
+    b: Math.max(32, white.b - black.b)
+  };
+
+  return (rgb) => ({
+    // Normalize the camera's observed black/white points per channel. This
+    // boosts a suppressed blue channel under warm/yellow illumination without
+    // changing the QuadQR palette or payload capacity.
+    r: clampNumber((rgb.r - black.r) * 255 / ranges.r, -96, 384),
+    g: clampNumber((rgb.g - black.g) * 255 / ranges.g, -96, 384),
+    b: clampNumber((rgb.b - black.b) * 255 / ranges.b, -96, 384)
+  });
+}
+
+function classifierFromPaletteRgb(observed, mode = "raw") {
+  const transform = mode === "balanced" || mode === "hue"
+    ? makeWhiteBalanceTransform(observed)
+    : identityColorTransform;
+  const entries = [
+    { cell: CELL.BLACK, rgb: transform(observed.black) },
+    { cell: CELL.WHITE, rgb: transform(observed.white) },
+    { cell: CELL.RED, rgb: transform(observed.red) },
+    { cell: CELL.GREEN, rgb: transform(observed.green) },
+    { cell: CELL.BLUE, rgb: transform(observed.blue) }
   ];
+  const colored = entries.filter(({ cell }) => cell === CELL.RED || cell === CELL.GREEN || cell === CELL.BLUE);
+  const chroma = (rgb) => Math.max(rgb.r, rgb.g, rgb.b) - Math.min(rgb.r, rgb.g, rgb.b);
+  const minimumColorChroma = Math.min(...colored.map(({ rgb }) => chroma(rgb)));
+  return {
+    entries,
+    transform,
+    mode,
+    dataMode: mode === "hue" ? "hue" : "distance",
+    whiteChroma: chroma(entries.find(({ cell }) => cell === CELL.WHITE).rgb),
+    minimumColorChroma
+  };
 }
 
 function colorDistanceSq(a, b) {
@@ -1610,12 +1652,13 @@ function colorDistanceSq(a, b) {
 }
 
 function classifyRgb(rgb, classifier) {
+  const transformed = classifier.transform(rgb);
   let best = null;
   let bestDistanceSq = Infinity;
   let secondDistanceSq = Infinity;
 
-  for (const candidate of classifier) {
-    const distanceSq = colorDistanceSq(rgb, candidate.rgb);
+  for (const candidate of classifier.entries) {
+    const distanceSq = colorDistanceSq(transformed, candidate.rgb);
     if (distanceSq < bestDistanceSq) {
       secondDistanceSq = bestDistanceSq;
       bestDistanceSq = distanceSq;
@@ -1627,17 +1670,47 @@ function classifyRgb(rgb, classifier) {
 
   const distance = Math.sqrt(bestDistanceSq);
   const secondDistance = Number.isFinite(secondDistanceSq) ? Math.sqrt(secondDistanceSq) : distance + 1;
-  // Confidence is the normalized separation between the nearest and second
-  // nearest calibrated palette states. 1 means unambiguous, 0 means tied.
   const confidence = Math.max(0, Math.min(1, (secondDistance - distance) / Math.max(secondDistance, 1e-6)));
   return { cell: best.cell, distance, confidence };
+}
+
+
+function classifyDataHue(rgb, classifier) {
+  const transformed = classifier.transform(rgb);
+  const channels = [
+    { cell: CELL.RED, value: transformed.r },
+    { cell: CELL.GREEN, value: transformed.g },
+    { cell: CELL.BLUE, value: transformed.b }
+  ].sort((a, b) => b.value - a.value);
+  const maxValue = channels[0].value;
+  const secondValue = channels[1].value;
+  const minValue = channels[2].value;
+  const chroma = maxValue - minValue;
+  const whiteThreshold = Math.max(18, Math.min(58, classifier.minimumColorChroma * 0.34));
+
+  if (chroma <= whiteThreshold) {
+    const confidence = clampNumber((whiteThreshold - chroma) / Math.max(whiteThreshold, 1), 0, 1);
+    return { cell: CELL.WHITE, distance: chroma, confidence: 0.35 + confidence * 0.65 };
+  }
+
+  const margin = maxValue - secondValue;
+  const hueConfidence = clampNumber(margin / Math.max(chroma, 1), 0, 1);
+  const saturationConfidence = clampNumber((chroma - whiteThreshold) / Math.max(classifier.minimumColorChroma - whiteThreshold, 1), 0, 1);
+  return {
+    cell: channels[0].cell,
+    distance: Math.max(0, classifier.minimumColorChroma - chroma),
+    confidence: clampNumber(0.18 + hueConfidence * 0.52 + saturationConfidence * 0.30, 0, 1)
+  };
 }
 
 function classifySampledRgbGrid(rgbGrid, classifier, layout = null) {
   const size = rgbGrid.length;
   const matrix = make2D(size, CELL.WHITE);
   const confidence = make2D(size, 1);
-  const dataClassifier = classifier.filter(({ cell }) => cell !== CELL.BLACK);
+  const dataClassifier = {
+    ...classifier,
+    entries: classifier.entries.filter(({ cell }) => cell !== CELL.BLACK)
+  };
   let distanceSum = 0;
   let confidenceSum = 0;
   let minimumConfidence = 1;
@@ -1648,8 +1721,11 @@ function classifySampledRgbGrid(rgbGrid, classifier, layout = null) {
       // Black is structural only. Restricting data modules to RGBW keeps a
       // shadowed/blurred data sample representable so confidence-aware ECC can
       // promote it to an erasure instead of aborting before RS gets a chance.
-      const candidates = layout && !layout.reserved[r][c] ? dataClassifier : classifier;
-      const classified = classifyRgb(rgbGrid[r][c], candidates);
+      const isDataCell = layout && !layout.reserved[r][c];
+      const candidates = isDataCell ? dataClassifier : classifier;
+      const classified = isDataCell && classifier.dataMode === "hue"
+        ? classifyDataHue(rgbGrid[r][c], classifier)
+        : classifyRgb(rgbGrid[r][c], candidates);
       matrix[r][c] = classified.cell;
       confidence[r][c] = classified.confidence;
       distanceSum += classified.distance;
@@ -1668,6 +1744,32 @@ function classifySampledRgbGrid(rgbGrid, classifier, layout = null) {
   };
 }
 
+function structuralAccuracy(matrix, layout) {
+  let matches = 0;
+  let total = 0;
+  for (let r = 0; r < layout.size; r++) {
+    for (let c = 0; c < layout.size; c++) {
+      if (!layout.reserved[r][c]) continue;
+      total++;
+      if (matrix[r][c] === layout.matrix[r][c]) matches++;
+    }
+  }
+  return total ? matches / total : 0;
+}
+
+function pushObservation(options, observation) {
+  if (!Array.isArray(options._observationCollector)) return;
+  options._observationCollector.push(observation);
+}
+
+function paletteClassifierAttempts(observedPalette) {
+  return [
+    { classifier: classifierFromPaletteRgb(observedPalette, "raw"), colorNormalization: "observed-rgb" },
+    { classifier: classifierFromPaletteRgb(observedPalette, "balanced"), colorNormalization: "white-balanced" },
+    { classifier: classifierFromPaletteRgb(observedPalette, "hue"), colorNormalization: "white-balanced-hue" }
+  ];
+}
+
 function tryPerspectiveScan(imageData, options) {
   const geometryCandidates = detectCodeGeometry(imageData, {
     minVersion: options.minVersion ?? MIN_VERSION,
@@ -1677,37 +1779,214 @@ function tryPerspectiveScan(imageData, options) {
   const results = [];
 
   for (const geometry of geometryCandidates) {
-    try {
-      const layout = createLayout(geometry.version);
-      const sampled = samplePerspectiveMatrix(imageData, geometry.homography, layout.size, {
-        sampleRadius: options.sampleRadius ?? 0.16
+    const layout = createLayout(geometry.version);
+    const sampleProfiles = [{
+      sampleMode: options.sampleMode ?? "cross",
+      sampleRadius: options.sampleRadius ?? 0.16,
+      robustCalibration: false
+    }];
+    if (options.adaptiveSampling !== false) {
+      sampleProfiles.push({
+        sampleMode: "median",
+        sampleRadius: options.robustSampleRadius ?? 0.12,
+        robustCalibration: true
       });
-      const observedPalette = sampleObservedPalette(sampled.rgbGrid, layout.calibration);
-      const classifier = classifierFromPaletteRgb(observedPalette);
-      const classified = classifySampledRgbGrid(sampled.rgbGrid, classifier, layout);
-      const decoded = decodeMatrix(classified.matrix, {
-        structureTolerance: options.structureTolerance ?? 0.18,
-        cellConfidence: classified.confidence,
-        maxErasureConfidence: options.maxErasureConfidence
-      });
-      if (decoded.version !== geometry.version) continue;
+    }
 
-      results.push({
-        ...decoded,
-        perspectiveCorrected: true,
-        colorCalibrated: true,
-        geometry,
-        observedPalette,
-        averageColorDistance: classified.averageColorDistance,
-        averageCellConfidence: classified.averageCellConfidence,
-        minimumCellConfidence: classified.minimumCellConfidence,
-        lowConfidenceCells: classified.lowConfidenceCells,
-        rectified: options.includeRectified
-          ? rectifyImageData(imageData, geometry.homography, layout.size, options.rectifiedModuleSize ?? 8)
-          : undefined
-      });
-    } catch {
-      // Continue trying geometry hypotheses.
+    let geometryDecoded = false;
+    let bestStructureScore = 0;
+    for (const profile of sampleProfiles) {
+      let sampled;
+      let observedPalette;
+      try {
+        sampled = samplePerspectiveMatrix(imageData, geometry.homography, layout.size, profile);
+        observedPalette = sampleObservedPalette(sampled.rgbGrid, layout.calibration, {
+          robust: profile.robustCalibration
+        });
+      } catch {
+        continue;
+      }
+
+      const tryAttempt = (attempt, rgbGrid) => {
+        const classified = classifySampledRgbGrid(rgbGrid, attempt.classifier, layout);
+        const structureScore = structuralAccuracy(classified.matrix, layout);
+        bestStructureScore = Math.max(bestStructureScore, structureScore);
+        pushObservation(options, {
+          version: geometry.version,
+          matrix: classified.matrix,
+          confidence: classified.confidence,
+          geometry,
+          observedPalette,
+          samplingMode: profile.sampleMode,
+          colorNormalization: attempt.colorNormalization,
+          structureScore,
+          averageCellConfidence: classified.averageCellConfidence,
+          lowConfidenceCells: classified.lowConfidenceCells
+        });
+
+        try {
+          const decoded = decodeMatrix(classified.matrix, {
+            structureTolerance: options.structureTolerance ?? 0.18,
+            cellConfidence: classified.confidence,
+            maxErasureConfidence: options.maxErasureConfidence
+          });
+          if (decoded.version !== geometry.version) return false;
+
+          results.push({
+            ...decoded,
+            perspectiveCorrected: true,
+            colorCalibrated: true,
+            colorNormalization: attempt.colorNormalization,
+            samplingMode: profile.sampleMode,
+            geometry,
+            observedPalette,
+            averageColorDistance: classified.averageColorDistance,
+            averageCellConfidence: classified.averageCellConfidence,
+            minimumCellConfidence: classified.minimumCellConfidence,
+            lowConfidenceCells: classified.lowConfidenceCells,
+            rectified: options.includeRectified
+              ? rectifyImageData(imageData, geometry.homography, layout.size, options.rectifiedModuleSize ?? 8)
+              : undefined
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      // Fast path: preserve the original observed-RGB classifier first, then
+      // try per-channel white balancing. Most clean frames stop here without
+      // paying for the more expensive spatial normalization fallback.
+      for (const attempt of paletteClassifierAttempts(observedPalette)) {
+        if (tryAttempt(attempt, sampled.rgbGrid)) {
+          geometryDecoded = true;
+          break;
+        }
+      }
+
+      if (!geometryDecoded && options.spatialColorNormalization !== false) {
+        try {
+          const normalizedGrid = spatiallyNormalizeRgbGrid(sampled.rgbGrid, layout.calibration);
+          const normalizedPalette = sampleObservedPalette(normalizedGrid, layout.calibration, { robust: true });
+          geometryDecoded = tryAttempt({
+            classifier: classifierFromPaletteRgb(normalizedPalette, "raw"),
+            colorNormalization: "spatial-white-balanced"
+          }, normalizedGrid);
+        } catch {
+          // Continue to the robust centre-sampling profile.
+        }
+      }
+
+      if (geometryDecoded) break;
+    }
+
+    // Slow-path geometry micro-refinement. Finder/alignment detection can be
+    // correct while a soft-focus or smeared camera shifts the effective module
+    // centres by a small fraction of a cell. Clean scans never reach this code.
+    // On a strong-but-undecodable symbol, probe a tiny 3x3 offset neighbourhood
+    // using centre-only samples and attempt decoding from the best candidates.
+    if (
+      !geometryDecoded &&
+      options.geometryRefinement !== false &&
+      bestStructureScore >= (options.refinementStructureThreshold ?? 0.90)
+    ) {
+      const step = clampNumber(options.refinementOffset ?? 0.20, 0.05, 0.35);
+      const refinementOffsets = [
+        [step, 0], [-step, 0], [0, -step], [0, step],
+        [step, -step], [step, step], [-step, -step], [-step, step]
+      ];
+      const refinementCandidates = [];
+
+      for (const [offsetX, offsetY] of refinementOffsets) {
+        let sampled;
+        let observedPalette;
+        try {
+          sampled = samplePerspectiveMatrix(imageData, geometry.homography, layout.size, {
+            sampleMode: "cross",
+            sampleRadius: 0,
+            sampleOffsetX: offsetX,
+            sampleOffsetY: offsetY
+          });
+          observedPalette = sampleObservedPalette(sampled.rgbGrid, layout.calibration, { robust: true });
+        } catch {
+          continue;
+        }
+
+        // Raw observed-palette classification is deliberately first here too.
+        // It is cheap, and it handles the common case where blur biased the
+        // geometry slightly but the camera colors themselves remain usable.
+        const attempts = paletteClassifierAttempts(observedPalette);
+        for (const attempt of attempts) {
+          const classified = classifySampledRgbGrid(sampled.rgbGrid, attempt.classifier, layout);
+          const structureScore = structuralAccuracy(classified.matrix, layout);
+          bestStructureScore = Math.max(bestStructureScore, structureScore);
+          pushObservation(options, {
+            version: geometry.version,
+            matrix: classified.matrix,
+            confidence: classified.confidence,
+            geometry,
+            observedPalette,
+            samplingMode: "refined-center",
+            samplingOffset: { x: offsetX, y: offsetY },
+            colorNormalization: attempt.colorNormalization,
+            structureScore,
+            averageCellConfidence: classified.averageCellConfidence,
+            lowConfidenceCells: classified.lowConfidenceCells
+          });
+
+          // Do not spend RS work on a refinement that made the known finder /
+          // alignment structure worse. This keeps the recovery path bounded.
+          if (structureScore < (options.refinementDecodeThreshold ?? 0.95)) continue;
+          refinementCandidates.push({
+            attempt,
+            classified,
+            observedPalette,
+            offsetX,
+            offsetY,
+            structureScore
+          });
+        }
+      }
+
+      refinementCandidates.sort((a, b) =>
+        (b.structureScore - a.structureScore) ||
+        (b.classified.averageCellConfidence - a.classified.averageCellConfidence) ||
+        (a.classified.averageColorDistance - b.classified.averageColorDistance)
+      );
+
+      const decodeLimit = Math.max(1, Math.min(8, Math.round(options.refinementDecodeCandidates ?? 4)));
+      for (const candidate of refinementCandidates.slice(0, decodeLimit)) {
+        try {
+          const decoded = decodeMatrix(candidate.classified.matrix, {
+            structureTolerance: options.structureTolerance ?? 0.18,
+            cellConfidence: candidate.classified.confidence,
+            maxErasureConfidence: options.maxErasureConfidence
+          });
+          if (decoded.version !== geometry.version) continue;
+          results.push({
+            ...decoded,
+            perspectiveCorrected: true,
+            geometryRefined: true,
+            samplingOffset: { x: candidate.offsetX, y: candidate.offsetY },
+            colorCalibrated: true,
+            colorNormalization: candidate.attempt.colorNormalization,
+            samplingMode: "refined-center",
+            geometry,
+            observedPalette: candidate.observedPalette,
+            averageColorDistance: candidate.classified.averageColorDistance,
+            averageCellConfidence: candidate.classified.averageCellConfidence,
+            minimumCellConfidence: candidate.classified.minimumCellConfidence,
+            lowConfidenceCells: candidate.classified.lowConfidenceCells,
+            rectified: options.includeRectified
+              ? rectifyImageData(imageData, geometry.homography, layout.size, options.rectifiedModuleSize ?? 8)
+              : undefined
+          });
+          geometryDecoded = true;
+          break;
+        } catch {
+          // Try the next high-scoring micro-refinement.
+        }
+      }
     }
   }
 
@@ -1721,7 +2000,7 @@ function tryPerspectiveScan(imageData, options) {
 
 function tryAxisAlignedScan(imageData, options) {
   const bounds = options.bounds ?? findActiveBounds(imageData, options.whiteThreshold ?? 238);
-  const fixedClassifier = classifierFromPaletteRgb(paletteRgb(options.palette));
+  const fixedPalette = paletteRgb(options.palette);
   const minVersion = options.minVersion ?? MIN_VERSION;
   const maxVersion = options.maxVersion ?? MAX_VERSION;
   const candidates = [];
@@ -1734,49 +2013,95 @@ function tryAxisAlignedScan(imageData, options) {
     const aspectError = Math.abs(moduleW - moduleH) / Math.max(moduleW, moduleH);
     if (aspectError > (options.maxModuleAspectError ?? 0.16)) continue;
 
-    try {
-      const sampled = sampleAxisAlignedGrid(imageData, bounds, size, options.sampleRadius ?? 0.18);
-      const classifierAttempts = [];
-      const layout = createLayout(version);
-      try {
-        const observedPalette = sampleObservedPalette(sampled.rgbGrid, layout.calibration);
-        classifierAttempts.push({ classifier: classifierFromPaletteRgb(observedPalette), calibrated: true });
-      } catch {
-        // Fixed palette fallback below.
-      }
-      classifierAttempts.push({ classifier: fixedClassifier, calibrated: false });
+    const radiusProfiles = [options.sampleRadius ?? 0.18];
+    if (options.adaptiveSampling !== false) radiusProfiles.push(options.robustSampleRadius ?? 0.10);
+    let accepted = false;
 
-      let accepted = false;
-      for (const attempt of classifierAttempts) {
+    for (let profileIndex = 0; profileIndex < radiusProfiles.length && !accepted; profileIndex++) {
+      try {
+        const sampled = sampleAxisAlignedGrid(imageData, bounds, size, radiusProfiles[profileIndex]);
+        const layout = createLayout(version);
+        const classifierAttempts = [];
         try {
-          const classified = classifySampledRgbGrid(sampled.rgbGrid, attempt.classifier, layout);
-          const decoded = decodeMatrix(classified.matrix, {
-            structureTolerance: options.structureTolerance ?? 0.12,
-            cellConfidence: classified.confidence,
-            maxErasureConfidence: options.maxErasureConfidence
+          const observedPalette = sampleObservedPalette(sampled.rgbGrid, layout.calibration, {
+            robust: profileIndex > 0
           });
-          candidates.push({
-            ...decoded,
-            bounds,
-            sampledVersion: version,
-            moduleWidth: moduleW,
-            moduleHeight: moduleH,
-            perspectiveCorrected: false,
-            colorCalibrated: attempt.calibrated,
-            averageColorDistance: classified.averageColorDistance,
-            averageCellConfidence: classified.averageCellConfidence,
-            minimumCellConfidence: classified.minimumCellConfidence,
-            lowConfidenceCells: classified.lowConfidenceCells
-          });
-          accepted = true;
-          break;
+          classifierAttempts.push(...paletteClassifierAttempts(observedPalette).map((attempt) => ({
+            ...attempt,
+            calibrated: true,
+            observedPalette,
+            rgbGrid: sampled.rgbGrid
+          })));
+          if (options.spatialColorNormalization !== false) {
+            try {
+              const normalizedGrid = spatiallyNormalizeRgbGrid(sampled.rgbGrid, layout.calibration);
+              const normalizedPalette = sampleObservedPalette(normalizedGrid, layout.calibration, { robust: true });
+              classifierAttempts.push({
+                classifier: classifierFromPaletteRgb(normalizedPalette, "raw"),
+                calibrated: true,
+                colorNormalization: "spatial-white-balanced",
+                observedPalette,
+                rgbGrid: normalizedGrid
+              });
+            } catch {
+              // Continue with global calibration/fixed palette.
+            }
+          }
         } catch {
-          // Try next classifier.
+          // Fixed palette fallback below.
         }
+        classifierAttempts.push({
+          classifier: classifierFromPaletteRgb(fixedPalette, "raw"),
+          calibrated: false,
+          colorNormalization: "fixed-rgb",
+          observedPalette: fixedPalette,
+          rgbGrid: sampled.rgbGrid
+        });
+
+        for (const attempt of classifierAttempts) {
+          try {
+            const classified = classifySampledRgbGrid(attempt.rgbGrid ?? sampled.rgbGrid, attempt.classifier, layout);
+            const structureScore = structuralAccuracy(classified.matrix, layout);
+            pushObservation(options, {
+              version,
+              matrix: classified.matrix,
+              confidence: classified.confidence,
+              bounds,
+              samplingMode: profileIndex === 0 ? "axis" : "axis-center",
+              colorNormalization: attempt.colorNormalization,
+              structureScore,
+              averageCellConfidence: classified.averageCellConfidence,
+              lowConfidenceCells: classified.lowConfidenceCells
+            });
+            const decoded = decodeMatrix(classified.matrix, {
+              structureTolerance: options.structureTolerance ?? 0.12,
+              cellConfidence: classified.confidence,
+              maxErasureConfidence: options.maxErasureConfidence
+            });
+            candidates.push({
+              ...decoded,
+              bounds,
+              sampledVersion: version,
+              moduleWidth: moduleW,
+              moduleHeight: moduleH,
+              perspectiveCorrected: false,
+              colorCalibrated: attempt.calibrated,
+              colorNormalization: attempt.colorNormalization,
+              samplingMode: profileIndex === 0 ? "axis" : "axis-center",
+              averageColorDistance: classified.averageColorDistance,
+              averageCellConfidence: classified.averageCellConfidence,
+              minimumCellConfidence: classified.minimumCellConfidence,
+              lowConfidenceCells: classified.lowConfidenceCells
+            });
+            accepted = true;
+            break;
+          } catch {
+            // Try next classifier/profile.
+          }
+        }
+      } catch {
+        // Try a narrower centre sample, then next version.
       }
-      if (!accepted) throw new Error("Axis-aligned candidate did not decode.");
-    } catch {
-      // Try next version.
     }
   }
 
@@ -1849,6 +2174,82 @@ export function scanVideoFrame(video, options = {}) {
   return scanImageData(ctx.getImageData(0, 0, width, height), options);
 }
 
+function selectBestFrameObservation(observations) {
+  if (!observations?.length) return null;
+  return observations
+    .filter((item) => item?.matrix && item.structureScore >= 0.82)
+    .sort((a, b) =>
+      (b.structureScore - a.structureScore) ||
+      (b.averageCellConfidence - a.averageCellConfidence) ||
+      ((b.geometry?.score ?? 0) - (a.geometry?.score ?? 0))
+    )[0] ?? null;
+}
+
+function combineFrameObservations(observations) {
+  if (!observations?.length) return null;
+  const version = observations[0].version;
+  const size = observations[0].matrix.length;
+  if (!observations.every((item) => item.version === version && item.matrix.length === size)) return null;
+
+  const matrix = make2D(size, CELL.WHITE);
+  const confidence = make2D(size, 0);
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const votes = new Map();
+      const confidenceByCell = new Map();
+      for (const observation of observations) {
+        const cell = observation.matrix[r][c];
+        const sourceConfidence = clampNumber(observation.confidence?.[r]?.[c] ?? 0.5, 0, 1);
+        const weight = 0.35 + sourceConfidence * 0.65;
+        votes.set(cell, (votes.get(cell) ?? 0) + weight);
+        const stats = confidenceByCell.get(cell) ?? { weighted: 0, weight: 0 };
+        stats.weighted += sourceConfidence * weight;
+        stats.weight += weight;
+        confidenceByCell.set(cell, stats);
+      }
+
+      const ranked = Array.from(votes.entries()).sort((a, b) => b[1] - a[1]);
+      const [bestCell, bestWeight] = ranked[0];
+      const secondWeight = ranked[1]?.[1] ?? 0;
+      const totalWeight = ranked.reduce((sum, item) => sum + item[1], 0);
+      const sourceStats = confidenceByCell.get(bestCell);
+      const sourceConfidence = sourceStats?.weight ? sourceStats.weighted / sourceStats.weight : 0.5;
+      const support = totalWeight ? bestWeight / totalWeight : 0;
+      const margin = totalWeight ? (bestWeight - secondWeight) / totalWeight : 0;
+      const agreement = 0.5 * support + 0.5 * margin;
+
+      matrix[r][c] = bestCell;
+      // Do not become overconfident just because several blurry frames agree.
+      // Retaining source uncertainty lets Reed-Solomon treat repeated ambiguous
+      // cells as erasures instead of hard, supposedly-certain errors.
+      confidence[r][c] = clampNumber(sourceConfidence * 0.58 + agreement * 0.42, 0, 1);
+    }
+  }
+  return { version, matrix, confidence };
+}
+
+async function improveCameraTrack(stream) {
+  const track = stream.getVideoTracks?.()[0];
+  if (!track?.applyConstraints || !track.getCapabilities) return;
+  try {
+    const capabilities = track.getCapabilities();
+    const advanced = {};
+    if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes("continuous")) {
+      advanced.focusMode = "continuous";
+    }
+    if (Array.isArray(capabilities.exposureMode) && capabilities.exposureMode.includes("continuous")) {
+      advanced.exposureMode = "continuous";
+    }
+    if (Array.isArray(capabilities.whiteBalanceMode) && capabilities.whiteBalanceMode.includes("continuous")) {
+      advanced.whiteBalanceMode = "continuous";
+    }
+    if (Object.keys(advanced).length) await track.applyConstraints({ advanced: [advanced] });
+  } catch {
+    // Browsers expose different subsets of camera controls. Scanner-side
+    // calibration remains the primary path when these hints are unsupported.
+  }
+}
+
 export async function startCameraScanner(video, options = {}) {
   assert(typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia, "Camera API is unavailable.");
   assert(video, "A video element is required.");
@@ -1858,11 +2259,13 @@ export async function startCameraScanner(video, options = {}) {
       audio: false,
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30 }
       }
     }
   );
+  await improveCameraTrack(stream);
 
   video.srcObject = stream;
   video.setAttribute("playsinline", "");
@@ -1871,6 +2274,10 @@ export async function startCameraScanner(video, options = {}) {
 
   const scanInterval = Math.max(80, options.scanInterval ?? 180);
   const scratchCanvas = document.createElement("canvas");
+  const multiFrameEnabled = options.multiFrame !== false;
+  const multiFrameWindow = Math.max(2, Math.min(8, Math.round(options.multiFrameWindow ?? 4)));
+  const multiFrameMinFrames = Math.max(2, Math.min(multiFrameWindow, Math.round(options.multiFrameMinFrames ?? 2)));
+  const observationHistory = new Map();
   let stopped = false;
   let busy = false;
   let timer = null;
@@ -1878,25 +2285,84 @@ export async function startCameraScanner(video, options = {}) {
   const stop = () => {
     stopped = true;
     if (timer) clearTimeout(timer);
+    observationHistory.clear();
     for (const track of stream.getTracks()) track.stop();
     if (video.srcObject === stream) video.srcObject = null;
   };
 
-  const scanNow = () => scanVideoFrame(video, { ...options, canvas: scratchCanvas });
+  const scanNow = () => scanVideoFrame(video, {
+    ...options,
+    maxDimension: options.maxDimension ?? 1080,
+    canvas: scratchCanvas
+  });
+
+  const emitResult = (result) => {
+    options.onResult?.(result);
+    options.onDecode?.(result);
+    if (options.stopOnResult ?? true) {
+      stop();
+      return true;
+    }
+    return false;
+  };
+
+  const tryMultiFrameDecode = (observations) => {
+    if (!multiFrameEnabled) return null;
+    const best = selectBestFrameObservation(observations);
+    if (!best) return null;
+    const history = observationHistory.get(best.version) ?? [];
+    history.push(best);
+    while (history.length > multiFrameWindow) history.shift();
+    observationHistory.set(best.version, history);
+    if (history.length < multiFrameMinFrames) return null;
+
+    const combined = combineFrameObservations(history);
+    if (!combined) return null;
+    try {
+      const decoded = decodeMatrix(combined.matrix, {
+        structureTolerance: options.structureTolerance ?? 0.20,
+        cellConfidence: combined.confidence,
+        maxErasureConfidence: options.maxErasureConfidence
+      });
+      if (decoded.version !== best.version) return null;
+      return {
+        ...decoded,
+        perspectiveCorrected: Boolean(best.geometry),
+        colorCalibrated: true,
+        colorNormalization: "multi-frame-vote",
+        samplingMode: "multi-frame-vote",
+        multiFrameCombined: history.length,
+        geometry: best.geometry,
+        observedPalette: best.observedPalette,
+        averageCellConfidence: best.averageCellConfidence,
+        lowConfidenceCells: best.lowConfidenceCells
+      };
+    } catch {
+      return null;
+    }
+  };
 
   const loop = async () => {
     if (stopped) return;
     if (!busy && video.readyState >= 2) {
       busy = true;
+      const observations = [];
       try {
-        const result = scanNow();
-        options.onResult?.(result);
-        if (options.stopOnResult ?? true) {
-          stop();
-          return;
-        }
+        const result = scanVideoFrame(video, {
+          ...options,
+          maxDimension: options.maxDimension ?? 1080,
+          canvas: scratchCanvas,
+          _observationCollector: observations
+        });
+        observationHistory.clear();
+        if (emitResult(result)) return;
       } catch (error) {
-        options.onScanMiss?.(error);
+        const combined = tryMultiFrameDecode(observations);
+        if (combined) {
+          if (emitResult(combined)) return;
+        } else {
+          options.onScanMiss?.(error);
+        }
       } finally {
         busy = false;
       }
@@ -1954,6 +2420,8 @@ export const internals = Object.freeze({
   decodeRsAdaptive,
   encodeProtectedHeader,
   decodeProtectedHeader,
+  selectBestFrameObservation,
+  combineFrameObservations,
   HEADER_CODEWORD_CELLS,
   COMPACT_HEADER_CODEWORD_CELLS,
   CELLS_PER_BYTE,

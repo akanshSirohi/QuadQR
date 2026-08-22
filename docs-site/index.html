@@ -103,7 +103,7 @@ console.log(imageResult.text);
 // Live camera
 let scanner;
 scanner = await startCameraScanner(document.querySelector("#video"), {
-  onDecode(result) {
+  onResult(result) {
     console.log(result);
     scanner.stop();
   }
@@ -137,7 +137,7 @@ console.log(result.text);</code></pre></div>
         <div class="cards three">
           <article><strong>RGBA pixels</strong><code>scanImageData()</code><p>Runtime-neutral scanning when your app already has decoded pixels.</p></article>
           <article><strong>Browser files</strong><code>scanFile()</code><p>Scan uploaded images directly from a browser <code>File</code> or <code>Blob</code>.</p></article>
-          <article><strong>Live camera</strong><code>startCameraScanner()</code><p>Continuously scan video frames and receive decoded results through a callback.</p></article>
+          <article><strong>Live camera</strong><code>startCameraScanner()</code><p>Uses the fast normal scan first, then adaptive color/geometry recovery and multi-frame voting only when difficult camera conditions require it.</p></article>
         </div>
         <p>Image and camera scanning use the same secure-aware decoding behavior. An encrypted symbol is detected normally, but plaintext is not exposed until the correct credential is supplied.</p>
       </section>

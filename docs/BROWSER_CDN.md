@@ -47,12 +47,12 @@ const video = document.querySelector("#camera");
 
 const scanner = await startCameraScanner(video, {
   scanInterval: 120,
-  async onDecode(result) {
+  async onResult(result) {
     console.log(result);
     scanner.stop();
   },
-  onError(error) {
-    console.error(error);
+  onScanMiss() {
+    // Keep searching.
   }
 });
 ```

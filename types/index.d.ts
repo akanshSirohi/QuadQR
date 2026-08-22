@@ -95,7 +95,31 @@ export interface ScanOptions {
   maxVersion?: number;
   perspective?: boolean;
   axisAlignedFallback?: boolean;
+  maxDimension?: number;
+  sampleRadius?: number;
+  robustSampleRadius?: number;
+  adaptiveSampling?: boolean;
+  spatialColorNormalization?: boolean;
+  structureTolerance?: number;
+  maxErasureConfidence?: number;
+  geometryRefinement?: boolean;
+  refinementOffset?: number;
+  refinementStructureThreshold?: number;
+  refinementDecodeThreshold?: number;
+  refinementDecodeCandidates?: number;
   [key: string]: unknown;
+}
+
+export interface CameraScanOptions extends ScanOptions {
+  scanInterval?: number;
+  stopOnResult?: boolean;
+  multiFrame?: boolean;
+  multiFrameWindow?: number;
+  multiFrameMinFrames?: number;
+  constraints?: MediaStreamConstraints;
+  onResult?: (result: DecodeResult) => void | Promise<void>;
+  onDecode?: (result: DecodeResult) => void | Promise<void>;
+  onScanMiss?: (error: Error) => void;
 }
 
 export const FORMAT_VERSION: number;
@@ -122,7 +146,7 @@ export function renderToImageData(codeOrMatrix: QuadQRCode | number[][], options
 export function scanImageData(imageData: ImageDataLike, options?: ScanOptions): DecodeResult;
 export function scanFile(file: Blob, options?: ScanOptions): Promise<DecodeResult>;
 export function scanVideoFrame(video: HTMLVideoElement, options?: ScanOptions): DecodeResult;
-export function startCameraScanner(video: HTMLVideoElement, options?: ScanOptions & { onDecode?: (result: DecodeResult) => void | Promise<void>; onError?: (error: Error) => void; scanInterval?: number; constraints?: MediaStreamConstraints }): Promise<{ stop(): void; scanNow(): DecodeResult; stream: MediaStream }>;
+export function startCameraScanner(video: HTMLVideoElement, options?: CameraScanOptions): Promise<{ stop(): void; scanNow(): DecodeResult; stream: MediaStream; video: HTMLVideoElement }>;
 export function rectifyDetectedCode(imageData: ImageDataLike, options?: Record<string, unknown>): ImageDataLike;
 export function rotateMatrix(matrix: number[][], quarterTurns?: number): number[][];
 export function getVersionInfo(version: number, options?: { ecc?: EccLevel }): Record<string, unknown>;
