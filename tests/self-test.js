@@ -26,6 +26,7 @@ import {
   rsSyndromes
 } from "../library/reed-solomon.js";
 import {
+  autoColorImageData,
   computeHomography,
   projectPoint
 } from "../library/vision.js";
@@ -231,6 +232,27 @@ function warpWithDirtyWarmCamera(image, width, height, quad) {
   }
 
   return gaussianBlurImage({ width, height, data }, 2);
+}
+
+
+function flattenWarmCameraLevels(image) {
+  const data = new Uint8ClampedArray(image.data.length);
+  for (let i = 0; i < image.width * image.height; i++) {
+    const p = i * 4;
+    let r = 150 + image.data[p] * 0.28;
+    let g = 145 + image.data[p + 1] * 0.22;
+    let b = 120 + image.data[p + 2] * 0.14;
+    const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    // Camera haze/processing often reduces saturation together with contrast.
+    r = y + (r - y) * 0.72;
+    g = y + (g - y) * 0.72;
+    b = y + (b - y) * 0.72;
+    data[p] = r;
+    data[p + 1] = g;
+    data[p + 2] = b;
+    data[p + 3] = 255;
+  }
+  return gaussianBlurImage({ width: image.width, height: image.height, data }, 2);
 }
 
 console.log("Running QuadQR self-tests...");
@@ -576,6 +598,48 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   assert.ok(decoded.lowConfidenceCells >= 16);
 }
 
+// Progressive Auto Tone / Auto Contrast / Auto Color-style recovery. The
+// ordinary scanner is intentionally unable to decode this low-contrast warm
+// frame, while the fallback should restore enough dynamic range/color
+// separation to decode it without changing the encoded symbol or capacity.
+{
+  const text = "Auto tone contrast color camera recovery validation payload 1234567890";
+  const encoded = encodeText(text, { ecc: "M", version: 4 });
+  const clean = renderToImageData(encoded, { moduleSize: 9, quietZone: 4 });
+  const flattened = flattenWarmCameraLevels(clean);
+
+  assert.throws(() => scanImageData(flattened, { autoEnhanceRecovery: false }));
+  const recovered = scanImageData(flattened);
+  assert.equal(recovered.text, text);
+  assert.equal(recovered.version, 4);
+  assert.equal(recovered.autoEnhanced, true);
+  assert.equal(recovered.recoveryMode, "auto-tone-contrast-color");
+}
+
+// Camera Auto Color-only regression. This mirrors the real phone observation:
+// the normal frame cannot decode under the warm/compressed channel cast, while
+// a per-channel Auto Color levels correction alone makes the exact same pixels
+// immediately scannable. Keep this separate from the stronger Tone/Contrast
+// recovery so camera finder recovery does not accidentally depend on it.
+{
+  const text = "Camera Auto Color only recovery regression payload 123456";
+  const encoded = encodeText(text, { ecc: "M", version: 4 });
+  const clean = renderToImageData(encoded, { moduleSize: 9, quietZone: 4 });
+  const flattened = flattenWarmCameraLevels(clean);
+
+  assert.throws(() => scanImageData(flattened, { autoEnhanceRecovery: false }));
+  const corrected = autoColorImageData(flattened, {
+    blackClip: 0.0001,
+    highlightPercentile: 0.95,
+    outputHighlight: 190,
+    analysisInset: 0.04,
+    minimumInputRange: 72
+  });
+  const recovered = scanImageData(corrected, { autoEnhanceRecovery: false });
+  assert.equal(recovered.text, text);
+  assert.equal(recovered.version, 4);
+}
+
 // Dirty camera stress test: perspective + warm/yellow cast + blue-channel
 // suppression + lens haze + blur. The scanner should fall back to per-channel
 // white balancing and still recover the payload without changing the format.
@@ -657,14 +721,40 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   assert.throws(() => scanImageData(damaged, {
     minVersion: 4,
     maxVersion: 4,
-    geometryRefinement: false
+    geometryRefinement: false,
+    autoEnhanceRecovery: false
   }));
 
-  const decoded = scanImageData(damaged, { minVersion: 4, maxVersion: 4 });
+  const decoded = scanImageData(damaged, {
+    minVersion: 4,
+    maxVersion: 4,
+    autoEnhanceRecovery: false
+  });
   assert.equal(decoded.text, text);
   assert.equal(decoded.geometryRefined, true);
   assert.equal(decoded.samplingMode, "refined-center");
   assert.ok(Math.abs(decoded.samplingOffset.x) >= 0.19);
+}
+
+// Mobile camera preview crop regression. The demo uses a portrait video box
+// with object-fit: cover while many phone camera streams are landscape. The
+// scanner must analyze the same central source region the user sees, instead
+// of the much wider hidden sensor frame.
+{
+  const source = internals.visibleVideoSourceRect({
+    videoWidth: 1920,
+    videoHeight: 1080,
+    clientWidth: 360,
+    clientHeight: 480
+  }, {
+    videoObjectFit: "cover",
+    videoObjectPosition: "50% 50%"
+  });
+  assert.equal(source.cropped, true);
+  assert.ok(Math.abs(source.x - 555) < 1e-6);
+  assert.ok(Math.abs(source.y) < 1e-6);
+  assert.ok(Math.abs(source.width - 810) < 1e-6);
+  assert.ok(Math.abs(source.height - 1080) < 1e-6);
 }
 
 // Multi-frame voting: each observation has a different set of badly classified
@@ -710,13 +800,19 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   assert.equal(new TextEncoder().encode(text).length, 24);
   assert.equal(encoded.version, 1, "24-byte v1-M capacity should be used by auto selection.");
   const image = renderToImageData(encoded, { moduleSize: 10, quietZone: 4 });
+  const diagnostics = { passes: [] };
   const decoded = scanImageData(image, {
     minVersion: encoded.version,
-    maxVersion: encoded.version
+    maxVersion: encoded.version,
+    _visionDiagnostics: diagnostics
   });
   assert.equal(decoded.text, text);
   assert.equal(decoded.perspectiveCorrected, true);
   assert.equal(decoded.colorCalibrated, true);
+  assert.ok(diagnostics.passes.length >= 1, "Scanner diagnostics should expose the finder pass.");
+  assert.equal(diagnostics.passes[0].finderMethod, "rgb-value-otsu");
+  assert.ok(diagnostics.passes[0].finderCount >= 3, "Scanner diagnostics should expose finder candidates.");
+  assert.equal(diagnostics.passes[0].geometries[0].version, encoded.version);
 }
 
 // Rendering styles are presentation-only and must remain scanner-safe.

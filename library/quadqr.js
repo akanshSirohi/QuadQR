@@ -33,6 +33,9 @@ import {
   rectifyImageData,
   sampleObservedPalette,
   spatiallyNormalizeRgbGrid,
+  autoToneContrastColorRgbGrid,
+  autoToneContrastColorImageData,
+  autoColorImageData,
   findActiveBounds,
   sampleAxisAlignedGrid
 } from "./vision.js";
@@ -1774,8 +1777,19 @@ function tryPerspectiveScan(imageData, options) {
   const geometryCandidates = detectCodeGeometry(imageData, {
     minVersion: options.minVersion ?? MIN_VERSION,
     maxVersion: options.maxVersion ?? MAX_VERSION,
-    maxCandidates: options.maxGeometryCandidates ?? 8
+    maxCandidates: options.maxGeometryCandidates ?? 8,
+    finderRecovery: options.finderRecovery,
+    finderAutoColorBlackClip: options.finderAutoColorBlackClip,
+    finderAutoColorWhiteClip: options.finderAutoColorWhiteClip,
+    finderAutoColorHighlightPercentile: options.finderAutoColorHighlightPercentile,
+    finderAutoColorOutputHighlight: options.finderAutoColorOutputHighlight,
+    finderAutoColorAnalysisInset: options.finderAutoColorAnalysisInset,
+    finderAutoColorMinimumInputRange: options.finderAutoColorMinimumInputRange,
+    finderAutoColorTargetSamples: options.finderAutoColorTargetSamples,
+    diagnostics: options._visionDiagnostics,
+    diagnosticLabel: options._diagnosticLabel ?? "normal"
   });
+  if (Array.isArray(options._geometryCollector)) options._geometryCollector.push(...geometryCandidates);
   const results = [];
 
   for (const geometry of geometryCandidates) {
@@ -1807,7 +1821,9 @@ function tryPerspectiveScan(imageData, options) {
         continue;
       }
 
-      const tryAttempt = (attempt, rgbGrid) => {
+      const tryAttempt = (attempt, rgbGrid, metadata = {}) => {
+        const activeObservedPalette = metadata.observedPalette ?? observedPalette;
+        const activeSamplingMode = metadata.samplingMode ?? profile.sampleMode;
         const classified = classifySampledRgbGrid(rgbGrid, attempt.classifier, layout);
         const structureScore = structuralAccuracy(classified.matrix, layout);
         bestStructureScore = Math.max(bestStructureScore, structureScore);
@@ -1816,8 +1832,8 @@ function tryPerspectiveScan(imageData, options) {
           matrix: classified.matrix,
           confidence: classified.confidence,
           geometry,
-          observedPalette,
-          samplingMode: profile.sampleMode,
+          observedPalette: activeObservedPalette,
+          samplingMode: activeSamplingMode,
           colorNormalization: attempt.colorNormalization,
           structureScore,
           averageCellConfidence: classified.averageCellConfidence,
@@ -1837,9 +1853,11 @@ function tryPerspectiveScan(imageData, options) {
             perspectiveCorrected: true,
             colorCalibrated: true,
             colorNormalization: attempt.colorNormalization,
-            samplingMode: profile.sampleMode,
+            samplingMode: activeSamplingMode,
             geometry,
-            observedPalette,
+            observedPalette: activeObservedPalette,
+            autoEnhanced: metadata.autoEnhanced || undefined,
+            recoveryMode: metadata.recoveryMode,
             averageColorDistance: classified.averageColorDistance,
             averageCellConfidence: classified.averageCellConfidence,
             minimumCellConfidence: classified.minimumCellConfidence,
@@ -1873,7 +1891,96 @@ function tryPerspectiveScan(imageData, options) {
             colorNormalization: "spatial-white-balanced"
           }, normalizedGrid);
         } catch {
-          // Continue to the robust centre-sampling profile.
+          // Continue to the recovery profile below.
+        }
+      }
+
+      // Very cheap Photoshop-like recovery on the already-sampled module grid.
+      // Normal camera frames never reach this path. The transform approximates
+      // Auto Color + Auto Tone + Auto Contrast and costs only O(moduleCount).
+      if (!geometryDecoded && options.autoEnhanceRecovery !== false) {
+        try {
+          const enhancedGrid = autoToneContrastColorRgbGrid(sampled.rgbGrid, {
+            blackClip: options.autoEnhanceBlackClip,
+            whiteClip: options.autoEnhanceWhiteClip,
+            saturation: options.autoEnhanceSaturation
+          });
+          const enhancedPalette = sampleObservedPalette(enhancedGrid, layout.calibration, { robust: true });
+          for (const attempt of paletteClassifierAttempts(enhancedPalette)) {
+            const recoveredAttempt = {
+              ...attempt,
+              colorNormalization: `auto-tone-contrast-color/${attempt.colorNormalization}`
+            };
+            if (tryAttempt(recoveredAttempt, enhancedGrid, {
+              observedPalette: enhancedPalette,
+              autoEnhanced: true,
+              recoveryMode: "module-grid-auto-tone-contrast-color"
+            })) {
+              geometryDecoded = true;
+              break;
+            }
+          }
+        } catch {
+          // Continue to the QR-region pixel recovery below.
+        }
+      }
+
+      // Camera-specific Photoshop-style fallback. Enhancing the whole camera
+      // frame is often ineffective because dark surroundings, browser/UI
+      // reflections and unrelated objects skew the histograms. Once finder
+      // geometry is known, rectify only the QuadQR region, run Auto Tone /
+      // Contrast / Color there at pixel level, then sample modules again. This
+      // closely matches what happens when the QR itself is corrected in an
+      // editor before photographing it, while staying off the clean fast path.
+      if (
+        !geometryDecoded &&
+        profile === sampleProfiles[sampleProfiles.length - 1] &&
+        options.autoEnhanceRecovery !== false &&
+        options.rectifiedAutoEnhanceRecovery !== false
+      ) {
+        try {
+          const recoveryModuleSize = Math.max(4, Math.min(10, Math.round(options.rectifiedRecoveryModuleSize ?? 6)));
+          const rectifiedRegion = rectifyImageData(
+            imageData,
+            geometry.homography,
+            layout.size,
+            recoveryModuleSize
+          );
+          const enhancedRegion = autoToneContrastColorImageData(rectifiedRegion, {
+            blackClip: options.rectifiedAutoEnhanceBlackClip ?? options.autoEnhanceBlackClip ?? 0.008,
+            whiteClip: options.rectifiedAutoEnhanceWhiteClip ?? options.autoEnhanceWhiteClip ?? 0.006,
+            saturation: options.rectifiedAutoEnhanceSaturation ?? options.autoEnhanceSaturation ?? 1.22,
+            highlightFraction: options.rectifiedAutoEnhanceHighlightFraction ?? 0.16,
+            targetSamples: Math.min(120000, rectifiedRegion.width * rectifiedRegion.height)
+          });
+          const enhancedSampled = sampleAxisAlignedGrid(
+            enhancedRegion,
+            { x: 0, y: 0, width: enhancedRegion.width, height: enhancedRegion.height },
+            layout.size,
+            options.rectifiedRecoveryRadiusRatio ?? 0.16
+          );
+          const enhancedPalette = sampleObservedPalette(
+            enhancedSampled.rgbGrid,
+            layout.calibration,
+            { robust: true }
+          );
+          for (const attempt of paletteClassifierAttempts(enhancedPalette)) {
+            const recoveredAttempt = {
+              ...attempt,
+              colorNormalization: `rectified-auto-tone-contrast-color/${attempt.colorNormalization}`
+            };
+            if (tryAttempt(recoveredAttempt, enhancedSampled.rgbGrid, {
+              observedPalette: enhancedPalette,
+              samplingMode: "rectified-auto-enhance",
+              autoEnhanced: true,
+              recoveryMode: "rectified-auto-tone-contrast-color"
+            })) {
+              geometryDecoded = true;
+              break;
+            }
+          }
+        } catch {
+          // Geometry refinement remains available as the final bounded fallback.
         }
       }
 
@@ -2118,14 +2225,88 @@ export function scanImageData(imageData, options = {}) {
   validateVersion(minVersion);
   validateVersion(maxVersion);
 
+  const geometryCollector = [];
+  const scanOptions = { ...options, _geometryCollector: geometryCollector };
+
   if (options.perspective !== false) {
-    const perspective = tryPerspectiveScan(imageData, options);
+    const perspective = tryPerspectiveScan(imageData, scanOptions);
     if (perspective) return perspective;
   }
 
+  // If the normal scanner could see QuadQR geometry but could not decode the
+  // colors, retry the same frame after a single global Auto Tone / Contrast /
+  // Color-style pass. This is deliberately after the normal path so clean
+  // camera scanning remains unchanged and fast.
+  if (
+    options.autoEnhanceRecovery !== false &&
+    options.fullFrameAutoEnhanceRecovery !== false &&
+    !options._autoEnhancedRecovery &&
+    geometryCollector.length > 0
+  ) {
+    try {
+      const enhanced = autoToneContrastColorImageData(imageData, {
+        blackClip: options.autoEnhanceBlackClip,
+        whiteClip: options.autoEnhanceWhiteClip,
+        saturation: options.autoEnhanceSaturation,
+        targetSamples: options.autoEnhanceTargetSamples
+      });
+      const recovered = tryPerspectiveScan(enhanced, {
+        ...options,
+        _autoEnhancedRecovery: true,
+        autoEnhanceRecovery: false,
+        _geometryCollector: []
+      });
+      if (recovered) {
+        return {
+          ...recovered,
+          autoEnhanced: true,
+          recoveryMode: "auto-tone-contrast-color",
+          originalColorNormalization: recovered.colorNormalization
+        };
+      }
+    } catch {
+      // Continue to the axis-aligned fallback.
+    }
+  }
+
   if (options.axisAlignedFallback !== false) {
-    const axis = tryAxisAlignedScan(imageData, options);
+    const axis = tryAxisAlignedScan(imageData, scanOptions);
     if (axis) return axis;
+  }
+
+  // Static images sometimes have such low contrast that locator detection itself
+  // fails. Permit one enhanced full retry in that case. The live camera disables
+  // this on its first pass so an empty frame never becomes expensive.
+  if (
+    options.autoEnhanceRecovery !== false &&
+    !options._autoEnhancedRecovery &&
+    geometryCollector.length === 0 &&
+    options.autoEnhanceWhenNoGeometry !== false
+  ) {
+    try {
+      const enhanced = autoToneContrastColorImageData(imageData, {
+        blackClip: options.autoEnhanceBlackClip,
+        whiteClip: options.autoEnhanceWhiteClip,
+        saturation: options.autoEnhanceSaturation,
+        targetSamples: options.autoEnhanceTargetSamples
+      });
+      const recoveryOptions = {
+        ...options,
+        _autoEnhancedRecovery: true,
+        autoEnhanceRecovery: false,
+        _geometryCollector: []
+      };
+      if (options.perspective !== false) {
+        const perspective = tryPerspectiveScan(enhanced, recoveryOptions);
+        if (perspective) return { ...perspective, autoEnhanced: true, recoveryMode: "auto-tone-contrast-color" };
+      }
+      if (options.axisAlignedFallback !== false) {
+        const axis = tryAxisAlignedScan(enhanced, recoveryOptions);
+        if (axis) return { ...axis, autoEnhanced: true, recoveryMode: "auto-tone-contrast-color" };
+      }
+    } catch {
+      // Fall through to the normal scan failure below.
+    }
   }
 
   throw new Error(
@@ -2159,19 +2340,170 @@ export async function scanFile(file, options = {}) {
   return scanImageData(ctx.getImageData(0, 0, canvas.width, canvas.height), options);
 }
 
+function parseObjectPositionFraction(value, fallback = 0.5) {
+  if (typeof value !== "string") return fallback;
+  const token = value.trim().toLowerCase();
+  if (token === "left" || token === "top") return 0;
+  if (token === "right" || token === "bottom") return 1;
+  if (token === "center") return 0.5;
+  if (token.endsWith("%")) {
+    const parsed = Number.parseFloat(token);
+    if (Number.isFinite(parsed)) return clampNumber(parsed / 100, 0, 1);
+  }
+  return fallback;
+}
+
+function visibleVideoSourceRect(video, options = {}) {
+  const sourceWidth = video.videoWidth;
+  const sourceHeight = video.videoHeight;
+  const full = { x: 0, y: 0, width: sourceWidth, height: sourceHeight, cropped: false };
+  if (options.videoCropMode === "full") return full;
+
+  let boxWidth = Number(video.clientWidth) || 0;
+  let boxHeight = Number(video.clientHeight) || 0;
+  if ((!boxWidth || !boxHeight) && typeof video.getBoundingClientRect === "function") {
+    const rect = video.getBoundingClientRect();
+    boxWidth = boxWidth || rect.width;
+    boxHeight = boxHeight || rect.height;
+  }
+  if (!boxWidth || !boxHeight) return full;
+
+  let objectFit = options.videoObjectFit;
+  let objectPosition = options.videoObjectPosition;
+  if ((!objectFit || !objectPosition) && typeof getComputedStyle === "function") {
+    try {
+      const style = getComputedStyle(video);
+      objectFit = objectFit || style.objectFit;
+      objectPosition = objectPosition || style.objectPosition;
+    } catch {
+      // Fall back to the demo's normal cover/center behavior.
+    }
+  }
+  objectFit = objectFit || "cover";
+  if (objectFit !== "cover") return full;
+
+  const scale = Math.max(boxWidth / sourceWidth, boxHeight / sourceHeight);
+  if (!Number.isFinite(scale) || scale <= 0) return full;
+  let cropWidth = Math.min(sourceWidth, boxWidth / scale);
+  let cropHeight = Math.min(sourceHeight, boxHeight / scale);
+  if (cropWidth >= sourceWidth - 1 && cropHeight >= sourceHeight - 1) return full;
+
+  const positionTokens = String(objectPosition || "50% 50%").trim().split(/\s+/);
+  const positionX = parseObjectPositionFraction(positionTokens[0], 0.5);
+  const positionY = parseObjectPositionFraction(positionTokens[1] ?? positionTokens[0], 0.5);
+  let x = (sourceWidth - cropWidth) * positionX;
+  let y = (sourceHeight - cropHeight) * positionY;
+
+  // Optional tiny inset removes the soft edge of a camera preview without
+  // changing the visible composition. Leave at zero unless explicitly set.
+  const inset = clampNumber(options.videoCropInset ?? 0, 0, 0.18);
+  if (inset > 0) {
+    const dx = cropWidth * inset;
+    const dy = cropHeight * inset;
+    x += dx;
+    y += dy;
+    cropWidth -= dx * 2;
+    cropHeight -= dy * 2;
+  }
+
+  x = clampNumber(x, 0, Math.max(0, sourceWidth - cropWidth));
+  y = clampNumber(y, 0, Math.max(0, sourceHeight - cropHeight));
+  return { x, y, width: cropWidth, height: cropHeight, cropped: true };
+}
+
+function bestVisionDiagnosticPass(visionDiagnostics) {
+  const passes = visionDiagnostics?.passes;
+  if (!Array.isArray(passes) || !passes.length) return null;
+  return passes.slice().sort((a, b) => {
+    const aGeometry = a.geometries?.[0];
+    const bGeometry = b.geometries?.[0];
+    return (Boolean(bGeometry) - Boolean(aGeometry)) ||
+      ((b.finderCount ?? 0) - (a.finderCount ?? 0)) ||
+      ((bGeometry?.score ?? 0) - (aGeometry?.score ?? 0));
+  })[0];
+}
+
+function nowMs() {
+  return typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
+
+function normalizeFrameDiagnostics(frameDiagnostics, source, width, height, visionDiagnostics) {
+  if (!frameDiagnostics || typeof frameDiagnostics !== "object") return;
+  frameDiagnostics.scanWidth = width;
+  frameDiagnostics.scanHeight = height;
+  frameDiagnostics.sourceRect = {
+    x: source.x,
+    y: source.y,
+    width: source.width,
+    height: source.height,
+    cropped: Boolean(source.cropped)
+  };
+  frameDiagnostics.vision = visionDiagnostics;
+  const bestPass = bestVisionDiagnosticPass(visionDiagnostics);
+  frameDiagnostics.bestPass = bestPass;
+  frameDiagnostics.finderCount = bestPass?.finderCount ?? 0;
+  frameDiagnostics.finders = bestPass?.finders ?? [];
+  frameDiagnostics.finderMethod = bestPass?.finderMethod ?? null;
+  frameDiagnostics.finderPasses = Array.isArray(visionDiagnostics?.passes)
+    ? visionDiagnostics.passes.map((pass) => ({
+        method: pass.finderMethod ?? pass.label,
+        finderCount: pass.finderCount ?? 0,
+        threshold: pass.threshold,
+        geometryCount: pass.geometries?.length ?? 0
+      }))
+    : [];
+  frameDiagnostics.geometry = bestPass?.geometries?.[0] ?? null;
+}
+
 export function scanVideoFrame(video, options = {}) {
   assert(typeof document !== "undefined", "scanVideoFrame is a browser API.");
   assert(video && video.videoWidth && video.videoHeight, "Video frame is not ready.");
+
+  // Scan what the user actually sees. On phones the video element is usually a
+  // portrait box with object-fit: cover while the camera sensor stream is 16:9.
+  // Previously we scanned the entire hidden sensor frame, so the QR looked big
+  // in the guide but became much smaller after canvas downscaling. Cropping to
+  // the visible source region both improves module resolution and reduces work.
+  const source = visibleVideoSourceRect(video, options);
   const maxDimension = options.maxDimension ?? 960;
-  const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
-  const width = Math.max(1, Math.round(video.videoWidth * scale));
-  const height = Math.max(1, Math.round(video.videoHeight * scale));
+  const scale = Math.min(1, maxDimension / Math.max(source.width, source.height));
+  const width = Math.max(1, Math.round(source.width * scale));
+  const height = Math.max(1, Math.round(source.height * scale));
   const canvas = options.canvas ?? document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
-  ctx.drawImage(video, 0, 0, width, height);
-  return scanImageData(ctx.getImageData(0, 0, width, height), options);
+  // High-quality downscaling is preferable for finder geometry, but visible-ROI
+  // cropping means many mobile frames now need little or no downscaling at all.
+  if ("imageSmoothingEnabled" in ctx) ctx.imageSmoothingEnabled = true;
+  if ("imageSmoothingQuality" in ctx) ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(video, source.x, source.y, source.width, source.height, 0, 0, width, height);
+  const frameImageData = ctx.getImageData(0, 0, width, height);
+  if (options._capturedFrame && typeof options._capturedFrame === "object") {
+    options._capturedFrame.imageData = frameImageData;
+    options._capturedFrame.scanWidth = width;
+    options._capturedFrame.scanHeight = height;
+    options._capturedFrame.source = { ...source };
+  }
+  const visionDiagnostics = options._frameDiagnostics ? { passes: [] } : null;
+  try {
+    const result = scanImageData(frameImageData, {
+      ...options,
+      _visionDiagnostics: visionDiagnostics
+    });
+    normalizeFrameDiagnostics(options._frameDiagnostics, source, width, height, visionDiagnostics);
+    if (!source.cropped) return result;
+    return {
+      ...result,
+      cameraVisibleCrop: true,
+      cameraSourceRect: { x: source.x, y: source.y, width: source.width, height: source.height }
+    };
+  } catch (error) {
+    normalizeFrameDiagnostics(options._frameDiagnostics, source, width, height, visionDiagnostics);
+    throw error;
+  }
 }
 
 function selectBestFrameObservation(observations) {
@@ -2278,9 +2610,45 @@ export async function startCameraScanner(video, options = {}) {
   const multiFrameWindow = Math.max(2, Math.min(8, Math.round(options.multiFrameWindow ?? 4)));
   const multiFrameMinFrames = Math.max(2, Math.min(multiFrameWindow, Math.round(options.multiFrameMinFrames ?? 2)));
   const observationHistory = new Map();
+  const cameraAutoColorEvery = Math.max(1, Math.round(options.cameraAutoColorEvery ?? 2));
+  const cameraAutoEnhanceEvery = Math.max(1, Math.round(options.cameraAutoEnhanceEvery ?? 2));
+  const cameraFinderRecoveryEvery = Math.max(1, Math.round(options.cameraFinderRecoveryEvery ?? 2));
+  let missStreak = 0;
   let stopped = false;
   let busy = false;
   let timer = null;
+  let frameNumber = 0;
+
+  const diagnosticsEnabled = typeof options.onDiagnostic === "function";
+  const emitDiagnostic = (event) => {
+    if (!diagnosticsEnabled) return;
+    try {
+      options.onDiagnostic({
+        timestamp: Date.now(),
+        frame: frameNumber,
+        ...event
+      });
+    } catch {
+      // Diagnostics are UI-only and must never interrupt scanning.
+    }
+  };
+
+
+  if (diagnosticsEnabled) {
+    const track = stream.getVideoTracks?.()[0];
+    const settings = track?.getSettings?.() ?? {};
+    emitDiagnostic({
+      type: "camera-ready",
+      method: "camera",
+      message: `Camera ready · ${settings.width ?? video.videoWidth}×${settings.height ?? video.videoHeight}` ,
+      camera: {
+        width: settings.width ?? video.videoWidth,
+        height: settings.height ?? video.videoHeight,
+        frameRate: settings.frameRate ?? null,
+        facingMode: settings.facingMode ?? null
+      }
+    });
+  }
 
   const stop = () => {
     stopped = true;
@@ -2296,9 +2664,17 @@ export async function startCameraScanner(video, options = {}) {
     canvas: scratchCanvas
   });
 
-  const emitResult = (result) => {
-    options.onResult?.(result);
-    options.onDecode?.(result);
+  const emitResult = (result, capturedFrame = null, diagnostic = null) => {
+    const frameMeta = capturedFrame?.imageData ? {
+      frame: frameNumber,
+      imageData: capturedFrame.imageData,
+      scanWidth: capturedFrame.scanWidth,
+      scanHeight: capturedFrame.scanHeight,
+      sourceRect: capturedFrame.source ? { ...capturedFrame.source } : null,
+      diagnostic
+    } : null;
+    options.onResult?.(result, frameMeta);
+    options.onDecode?.(result, frameMeta);
     if (options.stopOnResult ?? true) {
       stop();
       return true;
@@ -2346,20 +2722,254 @@ export async function startCameraScanner(video, options = {}) {
     if (stopped) return;
     if (!busy && video.readyState >= 2) {
       busy = true;
+      frameNumber++;
       const observations = [];
+      const frameDiagnostics = diagnosticsEnabled ? {} : null;
+      const capturedFrame = {};
+      const frameStarted = nowMs();
+      let allowAutoEnhance = false;
+      let allowFinderRecovery = false;
       try {
+        // The first frame stays minimal. The primary finder pass itself is now
+        // QuadQR-aware (max RGB/value channel), so it remains cheap while no
+        // longer confusing dark blue data with structural black. After a miss,
+        // alternate frames may bracket finder thresholds and then use the
+        // stronger color recovery path. Empty camera frames therefore do not
+        // pay every recovery cost on every scan tick.
+        allowFinderRecovery = options.finderRecovery !== false &&
+          missStreak > 0 && ((missStreak - 1) % cameraFinderRecoveryEvery === 0);
+        allowAutoEnhance = options.autoEnhanceRecovery !== false &&
+          missStreak > 0 && ((missStreak - 1) % cameraAutoEnhanceEvery === 0);
+        const method = allowAutoEnhance
+          ? "progressive-color-recovery"
+          : (allowFinderRecovery ? "finder-recovery" : "fast-scan");
         const result = scanVideoFrame(video, {
           ...options,
+          _diagnosticLabel: method,
+          finderRecovery: allowFinderRecovery,
+          autoEnhanceRecovery: allowAutoEnhance,
+          autoEnhanceWhenNoGeometry: allowAutoEnhance,
+          // If geometry exists, the rectified QR-only pixel enhancer is both
+          // stronger and much cheaper than reprocessing the whole live frame.
+          fullFrameAutoEnhanceRecovery: options.fullFrameAutoEnhanceRecovery ?? false,
           maxDimension: options.maxDimension ?? 1080,
           canvas: scratchCanvas,
-          _observationCollector: observations
+          _capturedFrame: capturedFrame,
+          _observationCollector: observations,
+          _frameDiagnostics: frameDiagnostics
         });
+        const elapsedMs = nowMs() - frameStarted;
+        emitDiagnostic({
+          type: "frame",
+          state: "decoded",
+          method: result.recoveryMode ?? result.samplingMode ?? method,
+          elapsedMs,
+          missStreak,
+          ...frameDiagnostics
+        });
+        emitDiagnostic({
+          type: "success",
+          state: "decoded",
+          method: result.recoveryMode ?? result.samplingMode ?? method,
+          elapsedMs,
+          message: `Decoded v${result.version} · ECC ${result.eccLevel} · ${Math.round(elapsedMs)} ms`,
+          ...frameDiagnostics
+        });
+        missStreak = 0;
         observationHistory.clear();
-        if (emitResult(result)) return;
+        if (emitResult(result, capturedFrame, frameDiagnostics)) return;
       } catch (error) {
+        missStreak++;
+        const fastElapsedMs = nowMs() - frameStarted;
+        emitDiagnostic({
+          type: "frame",
+          state: "miss",
+          method: allowAutoEnhance
+            ? "progressive-color-recovery"
+            : (allowFinderRecovery ? "finder-recovery" : "fast-scan"),
+          elapsedMs: fastElapsedMs,
+          missStreak,
+          error: error?.message ?? String(error),
+          ...frameDiagnostics
+        });
+
+        // The user's real phone-camera case is dominated by color cast before
+        // finder detection: Photoshop Auto Color alone makes the same live QR
+        // immediately detectable. Retry the exact captured frame with a cheap
+        // per-channel Auto Color levels correction before any geometry-dependent
+        // recovery. This runs only after the normal fast scan fails, and by
+        // default only on every other missed frame after the first one.
+        const shouldTryCameraAutoColor = options.cameraAutoColorRecovery !== false &&
+          capturedFrame.imageData &&
+          ((missStreak - 1) % cameraAutoColorEvery === 0);
+        if (shouldTryCameraAutoColor) {
+          emitDiagnostic({
+            type: "method",
+            state: "trying",
+            method: "camera-auto-color",
+            message: "Fast scan failed · applying camera Auto Color before finder detection",
+            ...frameDiagnostics
+          });
+          const autoColorObservations = [];
+          const autoColorVisionDiagnostics = diagnosticsEnabled ? { passes: [] } : null;
+          const autoColorFrameDiagnostics = diagnosticsEnabled ? {} : null;
+          try {
+            const recoveryStarted = nowMs();
+            const correctedFrame = autoColorImageData(capturedFrame.imageData, {
+              // Strong camera-only Auto Color derived from the supplied
+              // before/after Photoshop sample. It anchors near-black per
+              // channel, neutralizes the observed highlight around ~190
+              // instead of forcing it to 255, and ignores a small outer band
+              // so dark preview/UI edges cannot weaken the correction.
+              blackClip: options.cameraAutoColorBlackClip ?? 0.0001,
+              whiteClip: options.cameraAutoColorWhiteClip ?? 0.004,
+              highlightPercentile: options.cameraAutoColorHighlightPercentile ?? 0.95,
+              outputHighlight: options.cameraAutoColorOutputHighlight ?? 190,
+              analysisInset: options.cameraAutoColorAnalysisInset ?? 0.04,
+              minimumInputRange: options.cameraAutoColorMinimumInputRange ?? 72,
+              targetSamples: options.cameraAutoColorTargetSamples ?? 90000
+            });
+            const recovered = scanImageData(correctedFrame, {
+              ...options,
+              _diagnosticLabel: "camera-auto-color",
+              _visionDiagnostics: autoColorVisionDiagnostics,
+              finderRecovery: true,
+              autoEnhanceRecovery: false,
+              fullFrameAutoEnhanceRecovery: false,
+              _observationCollector: autoColorObservations
+            });
+            if (autoColorFrameDiagnostics) {
+              normalizeFrameDiagnostics(
+                autoColorFrameDiagnostics,
+                capturedFrame.source ?? { x: 0, y: 0, width: capturedFrame.scanWidth, height: capturedFrame.scanHeight, cropped: false },
+                capturedFrame.scanWidth,
+                capturedFrame.scanHeight,
+                autoColorVisionDiagnostics
+              );
+            }
+            const recoveryElapsedMs = nowMs() - recoveryStarted;
+            emitDiagnostic({
+              type: "frame",
+              state: "decoded",
+              method: "camera-auto-color",
+              elapsedMs: recoveryElapsedMs,
+              missStreak,
+              ...(autoColorFrameDiagnostics ?? frameDiagnostics)
+            });
+            emitDiagnostic({
+              type: "success",
+              state: "decoded",
+              method: "camera-auto-color",
+              elapsedMs: recoveryElapsedMs,
+              message: `Auto Color decoded v${recovered.version} · ECC ${recovered.eccLevel} · ${Math.round(recoveryElapsedMs)} ms`,
+              ...(autoColorFrameDiagnostics ?? frameDiagnostics)
+            });
+            missStreak = 0;
+            observationHistory.clear();
+            if (emitResult({
+              ...recovered,
+              autoColorCorrected: true,
+              cameraProgressiveRecovery: true,
+              recoveryMode: "camera-auto-color"
+            }, capturedFrame, autoColorFrameDiagnostics ?? frameDiagnostics)) return;
+          } catch {
+            observations.push(...autoColorObservations);
+            if (autoColorFrameDiagnostics) {
+              normalizeFrameDiagnostics(
+                autoColorFrameDiagnostics,
+                capturedFrame.source ?? { x: 0, y: 0, width: capturedFrame.scanWidth, height: capturedFrame.scanHeight, cropped: false },
+                capturedFrame.scanWidth,
+                capturedFrame.scanHeight,
+                autoColorVisionDiagnostics
+              );
+              emitDiagnostic({
+                type: "frame",
+                state: "miss",
+                method: "camera-auto-color",
+                elapsedMs: nowMs() - frameStarted,
+                missStreak,
+                ...autoColorFrameDiagnostics
+              });
+            }
+            emitDiagnostic({
+              type: "method",
+              state: "failed",
+              method: "camera-auto-color",
+              message: "Camera Auto Color did not decode · continuing recovery",
+              ...(autoColorFrameDiagnostics ?? frameDiagnostics)
+            });
+          }
+        }
+
+        // If the fast pass already saw a convincing QuadQR structure, retry
+        // the exact same captured ROI immediately with the stronger QR-region
+        // color correction. Empty/non-QR frames do not pay this cost. This is
+        // the live equivalent of: normal scan first, then Auto Tone / Contrast
+        // / Color only when the normal decode actually needs help.
+        if (!allowAutoEnhance && options.autoEnhanceRecovery !== false) {
+          const strongObservation = selectBestFrameObservation(observations);
+          if (strongObservation && scratchCanvas.width && scratchCanvas.height) {
+            emitDiagnostic({
+              type: "method",
+              state: "trying",
+              method: "qr-region-auto-enhance",
+              message: "Fast decode failed · trying QR-region Auto Tone / Contrast / Color",
+              ...frameDiagnostics
+            });
+            try {
+              const recoveryStarted = nowMs();
+              const frameContext = scratchCanvas.getContext("2d", { alpha: false, willReadFrequently: true });
+              const capturedImageData = frameContext.getImageData(0, 0, scratchCanvas.width, scratchCanvas.height);
+              const recoveryObservations = [];
+              const recoveryVisionDiagnostics = diagnosticsEnabled ? { passes: [] } : null;
+              const recovered = scanImageData(capturedImageData, {
+                ...options,
+                _diagnosticLabel: "qr-region-auto-enhance",
+                _visionDiagnostics: recoveryVisionDiagnostics,
+                autoEnhanceRecovery: true,
+                autoEnhanceWhenNoGeometry: false,
+                fullFrameAutoEnhanceRecovery: false,
+                _observationCollector: recoveryObservations
+              });
+              const recoveryElapsedMs = nowMs() - recoveryStarted;
+              emitDiagnostic({
+                type: "success",
+                state: "decoded",
+                method: recovered.recoveryMode ?? recovered.samplingMode ?? "qr-region-auto-enhance",
+                elapsedMs: recoveryElapsedMs,
+                message: `Recovery decoded v${recovered.version} · ECC ${recovered.eccLevel} · ${Math.round(recoveryElapsedMs)} ms`,
+                ...frameDiagnostics
+              });
+              missStreak = 0;
+              observationHistory.clear();
+              if (emitResult({
+                ...recovered,
+                cameraProgressiveRecovery: true
+              }, capturedFrame, frameDiagnostics)) return;
+            } catch {
+              emitDiagnostic({
+                type: "method",
+                state: "failed",
+                method: "qr-region-auto-enhance",
+                message: "QR-region color recovery did not decode · trying multi-frame ECC",
+                ...frameDiagnostics
+              });
+              // Keep the original observations for multi-frame voting below.
+            }
+          }
+        }
+
         const combined = tryMultiFrameDecode(observations);
         if (combined) {
-          if (emitResult(combined)) return;
+          emitDiagnostic({
+            type: "success",
+            state: "decoded",
+            method: "multi-frame-vote",
+            message: `Multi-frame recovery decoded v${combined.version} from ${combined.multiFrameCombined} frames`,
+            ...frameDiagnostics
+          });
+          missStreak = 0;
+          if (emitResult(combined, capturedFrame, frameDiagnostics)) return;
         } else {
           options.onScanMiss?.(error);
         }
@@ -2422,6 +3032,7 @@ export const internals = Object.freeze({
   decodeProtectedHeader,
   selectBestFrameObservation,
   combineFrameObservations,
+  visibleVideoSourceRect,
   HEADER_CODEWORD_CELLS,
   COMPACT_HEADER_CODEWORD_CELLS,
   CELLS_PER_BYTE,

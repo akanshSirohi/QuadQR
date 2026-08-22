@@ -200,9 +200,16 @@
 
           <div class="camera-stage">
             <video id="cameraVideo" playsinline muted></video>
+            <canvas id="cameraFreezeFrame" class="camera-freeze-frame" aria-hidden="true"></canvas>
+            <canvas id="cameraOverlay" class="camera-overlay" aria-hidden="true"></canvas>
             <div class="camera-guide" aria-hidden="true">
               <span></span><span></span><span></span><span></span>
             </div>
+            <div class="camera-live-hud" aria-hidden="true">
+              <span class="camera-live-dot"></span>
+              <span id="cameraHudText">Idle</span>
+            </div>
+            <div id="cameraFinderHud" class="camera-finder-hud" aria-hidden="true">Finders 0/3</div>
           </div>
 
           <div class="actions">
@@ -210,7 +217,26 @@
             <button id="stopCameraBtn" class="secondary" disabled>Stop</button>
           </div>
 
-          <p class="camera-note">Camera access requires HTTPS or localhost. Fill most of the guide, keep the code flat when possible, and avoid glare over white or colored cells.</p>
+          <div class="scanner-diagnostics" aria-live="polite">
+            <div class="scanner-diagnostics-head">
+              <div>
+                <p class="kicker">Live diagnostics</p>
+                <h3>Scanner activity</h3>
+              </div>
+              <button id="copyCameraLogBtn" class="diagnostic-copy" type="button">Copy log</button>
+            </div>
+            <div class="scanner-diagnostic-stats">
+              <div><span>Method</span><strong id="cameraMethodStat">Idle</strong></div>
+              <div><span>Finders</span><strong id="cameraFinderStat">0 / 3</strong></div>
+              <div><span>Geometry</span><strong id="cameraGeometryStat">Not found</strong></div>
+              <div><span>Frame</span><strong id="cameraFrameStat">--</strong></div>
+            </div>
+            <div id="cameraLog" class="scanner-log" role="log" aria-label="Camera scanner diagnostic log">
+              <div class="scanner-log-line muted">Start the camera to see finder detection and recovery attempts.</div>
+            </div>
+          </div>
+
+          <p class="camera-note">Camera access requires HTTPS or localhost. Fill most of the guide, keep the code flat when possible, and avoid glare over white or colored cells. Yellow boxes mark finder candidates and green boxes lock onto validated finder geometry. After a successful scan, the verified camera frame stays visible behind the overlay.</p>
           <p class="secure-scan-note"><strong>Secure scanning supported.</strong> Live scanning automatically recognizes password and raw 256-bit-key payloads, stops on a verified symbol, and asks for the matching credential before revealing the plaintext.</p>
           <div id="cameraResult" class="scan-result empty">No camera result yet.</div>
         </article>

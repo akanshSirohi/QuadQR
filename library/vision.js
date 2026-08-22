@@ -56,7 +56,7 @@ function luminance(rgb) {
   return 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
 }
 
-function buildGray(imageData) {
+function buildGray(imageData, mode = "luminance") {
   const gray = new Uint8Array(imageData.width * imageData.height);
   for (let i = 0; i < gray.length; i++) {
     const p = i * 4;
@@ -64,7 +64,15 @@ function buildGray(imageData) {
     const r = imageData.data[p] * a + 255 * (1 - a);
     const g = imageData.data[p + 1] * a + 255 * (1 - a);
     const b = imageData.data[p + 2] * a + 255 * (1 - a);
-    gray[i] = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+
+    // Finder detection is special for QuadQR. Saturated red/green/blue data
+    // cells can look very dark in normal luminance, especially blue under a
+    // warm phone camera. The HSV "value" channel keeps any cell with one
+    // strong RGB component bright while structural black stays dark in all
+    // channels. That makes the black/white finder rings far easier to isolate.
+    gray[i] = Math.round(mode === "value"
+      ? Math.max(r, g, b)
+      : 0.2126 * r + 0.7152 * g + 0.0722 * b);
   }
   return gray;
 }
@@ -100,12 +108,28 @@ function otsuThreshold(gray) {
   return threshold;
 }
 
-function buildBinary(imageData) {
-  const gray = buildGray(imageData);
-  const threshold = otsuThreshold(gray);
+function binaryAtThreshold(gray, threshold) {
   const binary = new Uint8Array(gray.length);
   for (let i = 0; i < gray.length; i++) binary[i] = gray[i] <= threshold ? 1 : 0;
-  return { gray, binary, threshold };
+  return binary;
+}
+
+function buildBinary(imageData, options = {}) {
+  const grayMode = options.grayMode ?? "luminance";
+  const gray = buildGray(imageData, grayMode);
+  const baseThreshold = otsuThreshold(gray);
+  const threshold = clamp(
+    Math.round(baseThreshold + (options.thresholdOffset ?? 0)),
+    8,
+    247
+  );
+  return {
+    gray,
+    binary: binaryAtThreshold(gray, threshold),
+    threshold,
+    baseThreshold,
+    grayMode
+  };
 }
 
 function runsForRow(binary, width, row) {
@@ -140,14 +164,14 @@ function runsForColumn(binary, width, height, col) {
   return runs;
 }
 
-function finderRatioScore(lengths) {
+function finderRatioScore(lengths, toleranceScale = 1) {
   const total = lengths.reduce((sum, value) => sum + value, 0);
   if (total < 7) return Infinity;
   const module = total / 7;
   const expected = [module, module, 3 * module, module, module];
   let score = 0;
   for (let i = 0; i < 5; i++) {
-    const tolerance = i === 2 ? module * 1.25 : module * 0.8;
+    const tolerance = (i === 2 ? module * 1.25 : module * 0.8) * toleranceScale;
     const diff = Math.abs(lengths[i] - expected[i]);
     if (diff > tolerance) return Infinity;
     score += diff / Math.max(1, expected[i]);
@@ -155,14 +179,14 @@ function finderRatioScore(lengths) {
   return score;
 }
 
-function findWindowContainingCoordinate(runs, coordinate) {
+function findWindowContainingCoordinate(runs, coordinate, toleranceScale = 1) {
   for (let i = 2; i < runs.length - 2; i++) {
     const centerRun = runs[i];
     if (centerRun.color !== 1) continue;
     if (coordinate < centerRun.start || coordinate >= centerRun.start + centerRun.length) continue;
     const window = runs.slice(i - 2, i + 3);
     if (window.map((run) => run.color).join("") !== "10101") continue;
-    const score = finderRatioScore(window.map((run) => run.length));
+    const score = finderRatioScore(window.map((run) => run.length), toleranceScale);
     if (!Number.isFinite(score)) continue;
     const first = window[0].start;
     const total = window.reduce((sum, run) => sum + run.length, 0);
@@ -175,17 +199,17 @@ function findWindowContainingCoordinate(runs, coordinate) {
   return null;
 }
 
-function crossCheckVertical(binary, width, height, x, y) {
+function crossCheckVertical(binary, width, height, x, y, toleranceScale = 1) {
   const col = clamp(Math.round(x), 0, width - 1);
-  return findWindowContainingCoordinate(runsForColumn(binary, width, height, col), y);
+  return findWindowContainingCoordinate(runsForColumn(binary, width, height, col), y, toleranceScale);
 }
 
-function crossCheckHorizontal(binary, width, height, x, y) {
+function crossCheckHorizontal(binary, width, height, x, y, toleranceScale = 1) {
   const row = clamp(Math.round(y), 0, height - 1);
-  return findWindowContainingCoordinate(runsForRow(binary, width, row), x);
+  return findWindowContainingCoordinate(runsForRow(binary, width, row), x, toleranceScale);
 }
 
-function clusterFinderCandidates(raw) {
+function clusterFinderCandidates(raw, minConfirmations = 2) {
   const clusters = [];
   raw.sort((a, b) => a.moduleSize - b.moduleSize);
 
@@ -218,7 +242,7 @@ function clusterFinderCandidates(raw) {
   }
 
   return clusters
-    .filter((candidate) => candidate.confirmations >= 2)
+    .filter((candidate) => candidate.confirmations >= minConfirmations)
     .sort((a, b) =>
       (b.confirmations - a.confirmations) ||
       (a.score - b.score) ||
@@ -226,9 +250,12 @@ function clusterFinderCandidates(raw) {
     );
 }
 
-function detectFinderCandidates(binary, width, height) {
+function detectFinderCandidates(binary, width, height, options = {}) {
   const raw = [];
   const rowStep = height > 1200 ? 2 : 1;
+  const toleranceScale = options.toleranceScale ?? 1;
+  const moduleSpreadLimit = options.moduleSpreadLimit ?? 0.45;
+  const minConfirmations = options.minConfirmations ?? 2;
 
   for (let y = 0; y < height; y += rowStep) {
     const runs = runsForRow(binary, width, y);
@@ -236,13 +263,13 @@ function detectFinderCandidates(binary, width, height) {
       const window = runs.slice(i, i + 5);
       if (window.map((run) => run.color).join("") !== "10101") continue;
       const lengths = window.map((run) => run.length);
-      const ratioScore = finderRatioScore(lengths);
+      const ratioScore = finderRatioScore(lengths, toleranceScale);
       if (!Number.isFinite(ratioScore)) continue;
       const total = lengths.reduce((sum, value) => sum + value, 0);
       const centerX = window[0].start + total / 2;
-      const vertical = crossCheckVertical(binary, width, height, centerX, y);
+      const vertical = crossCheckVertical(binary, width, height, centerX, y, toleranceScale);
       if (!vertical) continue;
-      const horizontal = crossCheckHorizontal(binary, width, height, centerX, vertical.center);
+      const horizontal = crossCheckHorizontal(binary, width, height, centerX, vertical.center, toleranceScale);
       if (!horizontal) continue;
 
       const moduleSize = (total / 7 + vertical.moduleSize + horizontal.moduleSize) / 3;
@@ -251,7 +278,7 @@ function detectFinderCandidates(binary, width, height) {
         Math.abs(moduleSize - vertical.moduleSize),
         Math.abs(moduleSize - horizontal.moduleSize)
       ) / moduleSize;
-      if (moduleSpread > 0.45) continue;
+      if (moduleSpread > moduleSpreadLimit) continue;
 
       raw.push({
         x: horizontal.center,
@@ -262,7 +289,7 @@ function detectFinderCandidates(binary, width, height) {
     }
   }
 
-  return clusterFinderCandidates(raw);
+  return clusterFinderCandidates(raw, minConfirmations);
 }
 
 function dot(a, b) {
@@ -486,15 +513,11 @@ export function projectPoint(h, u, v) {
   };
 }
 
-export function detectCodeGeometry(imageData, options = {}) {
-  assert(imageData?.data && imageData.width && imageData.height, "Valid image data is required.");
+function geometryCandidatesFromBinary(binary, width, height, finders, threshold, options = {}) {
+  if (finders.length < 3) return [];
   const minVersion = options.minVersion ?? 1;
   const maxVersion = options.maxVersion ?? 40;
   const maxCandidates = options.maxCandidates ?? 8;
-  const { binary, threshold } = buildBinary(imageData);
-  const finders = detectFinderCandidates(binary, imageData.width, imageData.height);
-  if (finders.length < 3) return [];
-
   const triples = chooseFinderTriples(finders, 20);
   const geometries = [];
 
@@ -507,8 +530,8 @@ export function detectCodeGeometry(imageData, options = {}) {
     for (const item of versions) {
       const version = item.version;
       const size = sizeForVersion(version);
-      const alignment = searchAlignment(binary, imageData.width, imageData.height, triple, version);
-      if (alignment.score < 0.72) continue;
+      const alignment = searchAlignment(binary, width, height, triple, version);
+      if (alignment.score < (options.alignmentThreshold ?? 0.72)) continue;
 
       const alignmentTarget = alignment.target;
       const dest = [
@@ -531,8 +554,8 @@ export function detectCodeGeometry(imageData, options = {}) {
         continue;
       }
 
-      const alignmentGrid = scoreAlignmentGrid(binary, imageData.width, imageData.height, homography, version);
-      if (alignmentGrid.score < 0.68) continue;
+      const alignmentGrid = scoreAlignmentGrid(binary, width, height, homography, version);
+      if (alignmentGrid.score < (options.alignmentGridThreshold ?? 0.68)) continue;
 
       const versionPenalty = item.error / 4;
       const alignmentConfidence = 0.55 * alignment.score + 0.45 * alignmentGrid.score;
@@ -554,13 +577,13 @@ export function detectCodeGeometry(imageData, options = {}) {
           patternScores: alignmentGrid.patternScores
         },
         threshold,
+        finderMethod: options.finderMethod,
         estimatedSize,
         score
       });
     }
   }
 
-  // Deduplicate roughly identical geometry/version hypotheses.
   const deduped = [];
   geometries.sort((a, b) => b.score - a.score);
   for (const geometry of geometries) {
@@ -575,6 +598,156 @@ export function detectCodeGeometry(imageData, options = {}) {
     if (deduped.length >= maxCandidates) break;
   }
   return deduped;
+}
+
+function pushFinderDiagnostic(options, finderMethod, threshold, finders, geometries) {
+  if (!options.diagnostics || typeof options.diagnostics !== "object") return;
+  const passes = Array.isArray(options.diagnostics.passes)
+    ? options.diagnostics.passes
+    : (options.diagnostics.passes = []);
+  passes.push({
+    label: options.diagnosticLabel ?? "perspective",
+    finderMethod,
+    width: options.width,
+    height: options.height,
+    threshold,
+    finderCount: finders.length,
+    finders: finders.map((finder) => ({
+      x: finder.x,
+      y: finder.y,
+      moduleSize: finder.moduleSize,
+      confirmations: finder.confirmations,
+      score: finder.score
+    })),
+    geometries: geometries.map((geometry) => ({
+      version: geometry.version,
+      size: geometry.size,
+      score: geometry.score,
+      estimatedSize: geometry.estimatedSize,
+      alignmentScore: geometry.alignment.score,
+      alignmentGridScore: geometry.alignment.gridScore,
+      finderMethod: geometry.finderMethod,
+      finders: {
+        topLeft: { ...geometry.finders.topLeft },
+        topRight: { ...geometry.finders.topRight },
+        bottomLeft: { ...geometry.finders.bottomLeft }
+      },
+      alignmentCenter: { ...geometry.alignment.center },
+      sourcePoints: geometry.sourcePoints.map((point) => ({ ...point }))
+    }))
+  });
+}
+
+export function detectCodeGeometry(imageData, options = {}) {
+  assert(imageData?.data && imageData.width && imageData.height, "Valid image data is required.");
+  const width = imageData.width;
+  const height = imageData.height;
+  const maxCandidates = options.maxCandidates ?? 8;
+
+  const evaluatePass = (pass, recovery = false) => {
+    const finders = detectFinderCandidates(pass.binary, width, height, pass.detector ?? {});
+    const geometries = geometryCandidatesFromBinary(
+      pass.binary,
+      width,
+      height,
+      finders,
+      pass.threshold,
+      {
+        ...options,
+        finderMethod: pass.finderMethod,
+        alignmentThreshold: recovery ? 0.68 : 0.72,
+        alignmentGridThreshold: recovery ? 0.64 : 0.68
+      }
+    );
+
+    pushFinderDiagnostic(
+      { ...options, width, height },
+      pass.finderMethod,
+      pass.threshold,
+      finders,
+      geometries
+    );
+    return { finders, geometries };
+  };
+
+  // Fast path stays exactly one grayscale + finder pass. No Auto Color, extra
+  // thresholding, or luminance image is computed when a normal frame works.
+  const valueInfo = buildBinary(imageData, { grayMode: "value" });
+  const fast = evaluatePass({
+    finderMethod: "rgb-value-otsu",
+    binary: valueInfo.binary,
+    threshold: valueInfo.threshold,
+    detector: {}
+  }, false);
+  if (fast.geometries.length) return fast.geometries.slice(0, maxCandidates);
+  if (options.finderRecovery === false) return [];
+
+  // Camera recovery #1: Photoshop Auto Color-style per-channel levels before
+  // finder thresholding. This is intentionally the first fallback because a
+  // warm phone capture can make structural black brown/yellow and suppress the
+  // blue channel enough that the normal RGB-value image contains zero usable
+  // finder patterns. The corrected finder grayscale is cheaper than creating a
+  // full corrected RGB frame.
+  try {
+    const autoColorGray = buildAutoColorValueGray(imageData, {
+      // Strong Photoshop-like defaults are safe here because this pass runs
+      // only after the raw value/Otsu finder pass has already failed.
+      blackClip: options.finderAutoColorBlackClip ?? 0.0001,
+      whiteClip: options.finderAutoColorWhiteClip,
+      highlightPercentile: options.finderAutoColorHighlightPercentile ?? 0.95,
+      outputHighlight: options.finderAutoColorOutputHighlight ?? 190,
+      analysisInset: options.finderAutoColorAnalysisInset ?? 0.04,
+      minimumInputRange: options.finderAutoColorMinimumInputRange ?? 72,
+      targetSamples: options.finderAutoColorTargetSamples
+    });
+    const autoColorThreshold = otsuThreshold(autoColorGray);
+    const autoColor = evaluatePass({
+      finderMethod: "auto-color-value-otsu",
+      binary: binaryAtThreshold(autoColorGray, autoColorThreshold),
+      threshold: autoColorThreshold,
+      detector: { toleranceScale: 1.16, moduleSpreadLimit: 0.56 }
+    }, true);
+    if (autoColor.geometries.length) return autoColor.geometries.slice(0, maxCandidates);
+  } catch {
+    // Continue with raw threshold bracketing.
+  }
+
+  // Camera recovery #2: bracket the raw value-channel threshold, then retain
+  // the legacy luminance pass for unusual captures. These are only built after
+  // both the normal and Auto Color finder passes fail.
+  const highThreshold = clamp(valueInfo.baseThreshold + 18, 8, 247);
+  const lowThreshold = clamp(valueInfo.baseThreshold - 14, 8, 247);
+  const recoveryPasses = [];
+  if (highThreshold !== valueInfo.threshold) {
+    recoveryPasses.push({
+      finderMethod: "rgb-value-high-threshold",
+      binary: binaryAtThreshold(valueInfo.gray, highThreshold),
+      threshold: highThreshold,
+      detector: { toleranceScale: 1.18, moduleSpreadLimit: 0.56 }
+    });
+  }
+  if (lowThreshold !== valueInfo.threshold) {
+    recoveryPasses.push({
+      finderMethod: "rgb-value-low-threshold",
+      binary: binaryAtThreshold(valueInfo.gray, lowThreshold),
+      threshold: lowThreshold,
+      detector: { toleranceScale: 1.14, moduleSpreadLimit: 0.54 }
+    });
+  }
+  const lumaInfo = buildBinary(imageData, { grayMode: "luminance" });
+  recoveryPasses.push({
+    finderMethod: "luminance-otsu",
+    binary: lumaInfo.binary,
+    threshold: lumaInfo.threshold,
+    detector: { toleranceScale: 1.10, moduleSpreadLimit: 0.52 }
+  });
+
+  for (const pass of recoveryPasses) {
+    const recovery = evaluatePass(pass, true);
+    if (recovery.geometries.length) return recovery.geometries.slice(0, maxCandidates);
+  }
+
+  return [];
 }
 
 function median(values) {
@@ -622,6 +795,260 @@ function robustProjectedSample(imageData, homography, moduleX, moduleY, radius =
     }
   }
   return values.length ? robustRgb(values) : { r: 255, g: 255, b: 255 };
+}
+
+
+
+function histogramPercentile(histogram, total, fraction) {
+  if (!total) return 0;
+  const target = Math.max(1, Math.ceil(total * clamp(fraction, 0, 1)));
+  let seen = 0;
+  for (let i = 0; i < histogram.length; i++) {
+    seen += histogram[i];
+    if (seen >= target) return i;
+  }
+  return histogram.length - 1;
+}
+
+
+function buildAutoColorLevels(imageData, options = {}) {
+  const analysisInset = clamp(options.analysisInset ?? 0, 0, 0.30);
+  const x0 = Math.floor(imageData.width * analysisInset);
+  const y0 = Math.floor(imageData.height * analysisInset);
+  const x1 = Math.max(x0 + 1, Math.ceil(imageData.width * (1 - analysisInset)));
+  const y1 = Math.max(y0 + 1, Math.ceil(imageData.height * (1 - analysisInset)));
+  const analysisWidth = Math.max(1, x1 - x0);
+  const analysisHeight = Math.max(1, y1 - y0);
+  const pixelCount = analysisWidth * analysisHeight;
+  const targetSamples = Math.max(4000, Math.round(options.targetSamples ?? 90000));
+  const step = Math.max(1, Math.floor(pixelCount / targetSamples));
+  const histograms = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+  let samples = 0;
+
+  // Camera recovery deliberately supports analysing only the central part of
+  // the visible frame. A phone preview often contains very dark UI/screen
+  // edges outside the code; letting those pixels define the black point makes
+  // an otherwise useful Auto Color pass far too weak.
+  for (let index = 0; index < pixelCount; index += step) {
+    const x = x0 + (index % analysisWidth);
+    const y = y0 + Math.floor(index / analysisWidth);
+    const p = (y * imageData.width + x) * 4;
+    const a = imageData.data[p + 3] / 255;
+    const rgb = [
+      imageData.data[p] * a + 255 * (1 - a),
+      imageData.data[p + 1] * a + 255 * (1 - a),
+      imageData.data[p + 2] * a + 255 * (1 - a)
+    ];
+    for (let channel = 0; channel < 3; channel++) {
+      histograms[channel][clamp(Math.round(rgb[channel]), 0, 255)]++;
+    }
+    samples++;
+  }
+
+  const blackClip = clamp(options.blackClip ?? 0.004, 0, 0.06);
+  const whiteClip = clamp(options.whiteClip ?? 0.004, 0, 0.06);
+  const lows = histograms.map((histogram) => histogramPercentile(histogram, samples, blackClip));
+
+  let references;
+  let highs;
+  const outputHighlight = Number(options.outputHighlight);
+  if (Number.isFinite(outputHighlight)) {
+    // Strong Photoshop-like camera mode. Photoshop Auto Color on the supplied
+    // warm camera sample does not stretch the brightest observed paper/white
+    // cells all the way to 255. Instead it anchors the per-channel shadow
+    // points close to black while keeping the observed highlight around a
+    // neutral mid-high value. That produces much darker structural black and
+    // much stronger RGB separation without washing the whole code out.
+    const highlightPercentile = clamp(options.highlightPercentile ?? 0.95, 0.70, 0.9999);
+    const target = clamp(outputHighlight, 96, 250);
+    references = histograms.map((histogram) => histogramPercentile(histogram, samples, highlightPercentile));
+    const minimumInputRange = Math.max(32, Math.round(options.minimumInputRange ?? 72));
+    highs = references.map((reference, channel) => {
+      const observedRange = Math.max(minimumInputRange, reference - lows[channel]);
+      return lows[channel] + observedRange * 255 / target;
+    });
+  } else {
+    references = histograms.map((histogram) => histogramPercentile(histogram, samples, 1 - whiteClip));
+    highs = references.slice();
+    for (let channel = 0; channel < 3; channel++) {
+      highs[channel] = Math.max(lows[channel] + 24, highs[channel]);
+    }
+  }
+
+  const mapChannel = (value, channel) => clamp(
+    (value - lows[channel]) * 255 / Math.max(1, highs[channel] - lows[channel]),
+    0,
+    255
+  );
+
+  return { lows, highs, references, mapChannel };
+}
+
+export function autoColorImageData(imageData, options = {}) {
+  const levels = buildAutoColorLevels(imageData, options);
+  const pixelCount = imageData.width * imageData.height;
+  const data = new Uint8ClampedArray(imageData.data.length);
+  for (let index = 0; index < pixelCount; index++) {
+    const p = index * 4;
+    const a = imageData.data[p + 3] / 255;
+    const r = imageData.data[p] * a + 255 * (1 - a);
+    const g = imageData.data[p + 1] * a + 255 * (1 - a);
+    const b = imageData.data[p + 2] * a + 255 * (1 - a);
+    data[p] = levels.mapChannel(r, 0);
+    data[p + 1] = levels.mapChannel(g, 1);
+    data[p + 2] = levels.mapChannel(b, 2);
+    data[p + 3] = 255;
+  }
+  return { width: imageData.width, height: imageData.height, data };
+}
+
+function buildAutoColorValueGray(imageData, options = {}) {
+  const levels = buildAutoColorLevels(imageData, options);
+  const gray = new Uint8Array(imageData.width * imageData.height);
+  for (let i = 0; i < gray.length; i++) {
+    const p = i * 4;
+    const a = imageData.data[p + 3] / 255;
+    const r = imageData.data[p] * a + 255 * (1 - a);
+    const g = imageData.data[p + 1] * a + 255 * (1 - a);
+    const b = imageData.data[p + 2] * a + 255 * (1 - a);
+    gray[i] = Math.round(Math.max(
+      levels.mapChannel(r, 0),
+      levels.mapChannel(g, 1),
+      levels.mapChannel(b, 2)
+    ));
+  }
+  return gray;
+}
+
+function buildAutoToneContrastColorTransform(samples, options = {}) {
+  if (!samples?.length) return (rgb) => rgb;
+  const blackClip = clamp(options.blackClip ?? 0.006, 0, 0.08);
+  const whiteClip = clamp(options.whiteClip ?? 0.004, 0, 0.08);
+  const highlightFraction = clamp(options.highlightFraction ?? 0.14, 0.04, 0.35);
+  const saturation = clamp(options.saturation ?? 1.12, 1, 1.5);
+
+  // Auto Color-style neutralization: use the brightest portion of the frame as
+  // a likely white reference. This is especially effective on warm/yellow
+  // phone-camera frames where the blue channel is suppressed.
+  const luminanceHistogram = new Uint32Array(256);
+  for (const rgb of samples) {
+    const y = clamp(Math.round(luminance(rgb)), 0, 255);
+    luminanceHistogram[y]++;
+  }
+  const highlightThreshold = histogramPercentile(
+    luminanceHistogram,
+    samples.length,
+    1 - highlightFraction
+  );
+  let highlightR = 0;
+  let highlightG = 0;
+  let highlightB = 0;
+  let highlightCount = 0;
+  for (const rgb of samples) {
+    if (luminance(rgb) < highlightThreshold) continue;
+    highlightR += rgb.r;
+    highlightG += rgb.g;
+    highlightB += rgb.b;
+    highlightCount++;
+  }
+  const highlightMean = highlightCount
+    ? { r: highlightR / highlightCount, g: highlightG / highlightCount, b: highlightB / highlightCount }
+    : { r: 255, g: 255, b: 255 };
+  const neutralTarget = (highlightMean.r + highlightMean.g + highlightMean.b) / 3;
+  const gains = {
+    r: clamp(neutralTarget / Math.max(24, highlightMean.r), 0.72, 1.42),
+    g: clamp(neutralTarget / Math.max(24, highlightMean.g), 0.72, 1.42),
+    b: clamp(neutralTarget / Math.max(24, highlightMean.b), 0.72, 1.42)
+  };
+
+  // Auto Tone-style per-channel levels after the neutralization above.
+  const histograms = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+  for (const rgb of samples) {
+    const corrected = [rgb.r * gains.r, rgb.g * gains.g, rgb.b * gains.b];
+    for (let channel = 0; channel < 3; channel++) {
+      histograms[channel][clamp(Math.round(corrected[channel]), 0, 255)]++;
+    }
+  }
+  const lows = histograms.map((histogram) => histogramPercentile(histogram, samples.length, blackClip));
+  const highs = histograms.map((histogram) => histogramPercentile(histogram, samples.length, 1 - whiteClip));
+  for (let channel = 0; channel < 3; channel++) {
+    highs[channel] = Math.max(lows[channel] + 20, highs[channel]);
+  }
+
+  const tone = (value, channel) => clamp(
+    (value * [gains.r, gains.g, gains.b][channel] - lows[channel]) * 255 / (highs[channel] - lows[channel]),
+    0,
+    255
+  );
+
+  // Auto Contrast-style common tonal expansion is calculated after the
+  // per-channel levels so it does not undo white-balance correction.
+  const toneLuminanceHistogram = new Uint32Array(256);
+  for (const rgb of samples) {
+    const corrected = { r: tone(rgb.r, 0), g: tone(rgb.g, 1), b: tone(rgb.b, 2) };
+    toneLuminanceHistogram[clamp(Math.round(luminance(corrected)), 0, 255)]++;
+  }
+  const contrastLow = histogramPercentile(toneLuminanceHistogram, samples.length, blackClip);
+  const contrastHigh = Math.max(
+    contrastLow + 28,
+    histogramPercentile(toneLuminanceHistogram, samples.length, 1 - whiteClip)
+  );
+  const contrast = (value) => clamp((value - contrastLow) * 255 / (contrastHigh - contrastLow), 0, 255);
+
+  return (rgb) => {
+    let r = contrast(tone(rgb.r, 0));
+    let g = contrast(tone(rgb.g, 1));
+    let b = contrast(tone(rgb.b, 2));
+
+    // A small saturation recovery restores separation lost to lens haze and
+    // bilinear camera scaling. It is intentionally conservative because this
+    // path runs only after the normal scanner has failed.
+    const y = luminance({ r, g, b });
+    r = clamp(y + (r - y) * saturation, 0, 255);
+    g = clamp(y + (g - y) * saturation, 0, 255);
+    b = clamp(y + (b - y) * saturation, 0, 255);
+    return { r, g, b };
+  };
+}
+
+export function autoToneContrastColorRgbGrid(rgbGrid, options = {}) {
+  const samples = [];
+  for (const row of rgbGrid) for (const rgb of row) samples.push(rgb);
+  const transform = buildAutoToneContrastColorTransform(samples, options);
+  return rgbGrid.map((row) => row.map((rgb) => transform(rgb)));
+}
+
+export function autoToneContrastColorImageData(imageData, options = {}) {
+  const pixelCount = imageData.width * imageData.height;
+  const targetSamples = Math.max(8000, Math.round(options.targetSamples ?? 160000));
+  const step = Math.max(1, Math.floor(pixelCount / targetSamples));
+  const samples = [];
+  for (let index = 0; index < pixelCount; index += step) {
+    const p = index * 4;
+    const a = imageData.data[p + 3] / 255;
+    samples.push({
+      r: imageData.data[p] * a + 255 * (1 - a),
+      g: imageData.data[p + 1] * a + 255 * (1 - a),
+      b: imageData.data[p + 2] * a + 255 * (1 - a)
+    });
+  }
+
+  const transform = buildAutoToneContrastColorTransform(samples, options);
+  const data = new Uint8ClampedArray(imageData.data.length);
+  for (let index = 0; index < pixelCount; index++) {
+    const p = index * 4;
+    const a = imageData.data[p + 3] / 255;
+    const corrected = transform({
+      r: imageData.data[p] * a + 255 * (1 - a),
+      g: imageData.data[p + 1] * a + 255 * (1 - a),
+      b: imageData.data[p + 2] * a + 255 * (1 - a)
+    });
+    data[p] = corrected.r;
+    data[p + 1] = corrected.g;
+    data[p + 2] = corrected.b;
+    data[p + 3] = 255;
+  }
+  return { width: imageData.width, height: imageData.height, data };
 }
 
 export function samplePerspectiveMatrix(imageData, homography, size, options = {}) {

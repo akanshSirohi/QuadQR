@@ -62,6 +62,7 @@ let scanner;
 scanner = await startCameraScanner(
   document.querySelector("#video"),
   {
+    cameraFinderRecoveryEvery: 2,
     onResult(result) {
       console.log(result);
       scanner.stop();
@@ -70,7 +71,7 @@ scanner = await startCameraScanner(
 );
 ```
 
-Camera access requires HTTPS or localhost.
+Camera access requires HTTPS or localhost. Finder detection uses a QuadQR-specific RGB value pass first, then throttled threshold recovery when the fast pass cannot lock onto all three finder patterns.
 
 ## Secure password mode
 

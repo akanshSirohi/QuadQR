@@ -139,7 +139,7 @@ Returns runtime-neutral RGBA pixels:
 
 ### `scanImageData(imageData, options?)`
 
-Scans an ImageData-like RGBA object. Clean frames use the normal observed-RGB path first. Difficult frames then get bounded fallback attempts using per-channel white balancing, spatial black/white normalization, tighter centre sampling, and sub-module geometry micro-refinement before the scan is rejected.
+Scans an ImageData-like RGBA object. Clean frames use the normal observed-RGB path first. Difficult frames then get bounded fallback attempts using per-channel white balancing, spatial black/white normalization, tighter centre sampling, module-grid Auto Tone / Auto Contrast / Auto Color recovery, a rectified QR-region pixel enhancement pass, and sub-module geometry micro-refinement before the scan is rejected.
 
 ```js
 const result = scanImageData({
@@ -149,7 +149,7 @@ const result = scanImageData({
 });
 ```
 
-Useful scanner options include `sampleRadius`, `robustSampleRadius`, `adaptiveSampling`, `spatialColorNormalization`, `geometryRefinement`, `refinementOffset`, `structureTolerance`, and `maxErasureConfidence`. Geometry refinement is enabled by default, but only runs after a strong detected symbol fails the normal scan path.
+Useful scanner options include `sampleRadius`, `robustSampleRadius`, `adaptiveSampling`, `spatialColorNormalization`, `autoEnhanceRecovery`, `rectifiedAutoEnhanceRecovery`, `rectifiedRecoveryModuleSize`, `autoEnhanceBlackClip`, `autoEnhanceWhiteClip`, `autoEnhanceSaturation`, `geometryRefinement`, `refinementOffset`, `structureTolerance`, and `maxErasureConfidence`. Auto enhancement and geometry refinement are enabled by default, but only run after the normal scan path fails.
 
 ### Browser `scanFile(file, options?)`
 
@@ -161,7 +161,7 @@ const result = await scanFile(file);
 
 ### `scanVideoFrame(video, options?)`
 
-Scans the current frame from an HTML video element.
+Scans the current frame from an HTML video element. With the default `videoCropMode: "visible"`, an `object-fit: cover` preview is mapped back to the matching source crop before scanning, so hidden sensor pixels do not shrink the code or skew enhancement statistics.
 
 ```js
 const result = scanVideoFrame(video);
@@ -169,23 +169,38 @@ const result = scanVideoFrame(video);
 
 ### `startCameraScanner(video, options?)`
 
-Starts live camera scanning. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. Consecutive failed frames can also be combined with confidence-weighted module voting before the scanner reports a miss.
+Starts live camera scanning. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. It scans the CSS-visible preview region by default. Finder detection uses a QuadQR-specific RGB value channel (`max(R,G,B)`) on the fast pass so saturated blue/red/green data cells are not mistaken for structural black. If that fast pass fails, the **same captured frame** is retried with the camera-only strong Auto Color transform before finder detection. The transform anchors channel shadows close to black, maps the observed highlight to a neutral mid-high target (190 by default) instead of forcing it to 255, and analyses the central 92% of the frame by default so dark preview edges do not corrupt the levels estimate. Recovery frames can then bracket the finder threshold and retry the legacy luminance detector (`cameraFinderRecoveryEvery: 2` by default). If geometry is found but color decoding fails, the captured ROI is retried with Auto Tone / Contrast / Color-style correction. Consecutive failed frames can also be combined with confidence-weighted module voting.
 
 ```js
 const scanner = await startCameraScanner(video, {
   scanInterval: 120,
   multiFrame: true,
   multiFrameWindow: 4,
+  cameraAutoColorEvery: 2,
+  cameraAutoColorHighlightPercentile: 0.95,
+  cameraAutoColorOutputHighlight: 190,
+  cameraAutoColorAnalysisInset: 0.04,
+  cameraAutoEnhanceEvery: 2,
+  cameraFinderRecoveryEvery: 2,
   onResult(result) {
     console.log(result);
   },
   onScanMiss() {
     // Keep searching.
+  },
+  onDiagnostic(event) {
+    // Finder positions are in the scanner frame coordinate space.
+    // Use scanWidth/scanHeight to map them onto a video overlay.
+    if (event.type === "frame") {
+      console.log(event.method, event.finderCount, event.geometry?.version, event.elapsedMs);
+    }
   }
 });
 
 scanner.stop();
 ```
+
+`onDiagnostic` is opt-in. It reports finder candidates, the locator method (`rgb-value-otsu`, threshold-bracket recovery, or luminance fallback), geometry data, and recovery state. Diagnostics reuse the scanner's existing passes and do not add a separate finder scan.
 
 ### `rectifyDetectedCode(imageData, options?)`
 

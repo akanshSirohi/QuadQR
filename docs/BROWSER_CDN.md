@@ -47,17 +47,22 @@ const video = document.querySelector("#camera");
 
 const scanner = await startCameraScanner(video, {
   scanInterval: 120,
+  cameraFinderRecoveryEvery: 2,
   async onResult(result) {
     console.log(result);
     scanner.stop();
   },
   onScanMiss() {
     // Keep searching.
+  },
+  onDiagnostic(event) {
+    // Useful for live finder overlays and scanner debug logs.
+    console.log(event.method, event.finderMethod, event.finderCount, event.geometry?.version);
   }
 });
 ```
 
-Camera access requires HTTPS or localhost.
+Camera access requires HTTPS or localhost. QuadQR scans the part of an `object-fit: cover` video that is actually visible to the user. The fast finder pass uses the RGB value channel (`max(R,G,B)`) so saturated data colors are less likely to be mistaken for structural black. After misses, throttled recovery frames can try alternate finder thresholds before stronger color correction. `onDiagnostic` exposes the finder method and geometry work already performed by the scanner.
 
 ## Decrypt a secure scan
 

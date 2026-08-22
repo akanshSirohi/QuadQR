@@ -35,6 +35,17 @@ const errorBox = document.querySelector("#errorBox");
 const scanFileEl = document.querySelector("#scanFile");
 const scanResultEl = document.querySelector("#scanResult");
 const cameraVideo = document.querySelector("#cameraVideo");
+const cameraFreezeFrame = document.querySelector("#cameraFreezeFrame");
+const cameraOverlay = document.querySelector("#cameraOverlay");
+const cameraHudText = document.querySelector("#cameraHudText");
+const cameraFinderHud = document.querySelector("#cameraFinderHud");
+const cameraLiveHud = document.querySelector(".camera-live-hud");
+const cameraMethodStat = document.querySelector("#cameraMethodStat");
+const cameraFinderStat = document.querySelector("#cameraFinderStat");
+const cameraGeometryStat = document.querySelector("#cameraGeometryStat");
+const cameraFrameStat = document.querySelector("#cameraFrameStat");
+const cameraLog = document.querySelector("#cameraLog");
+const copyCameraLogBtn = document.querySelector("#copyCameraLogBtn");
 const startCameraBtn = document.querySelector("#startCameraBtn");
 const stopCameraBtn = document.querySelector("#stopCameraBtn");
 const cameraPill = document.querySelector("#cameraPill");
@@ -50,6 +61,10 @@ const speedBenchmarkBody = document.querySelector("#speedBenchmarkBody");
 
 let currentCode = null;
 let cameraController = null;
+let cameraLogLines = [];
+let lastCameraLogSignature = "";
+let lastCameraFrameDiagnostic = null;
+let lastCameraUiUpdate = 0;
 
 function rebuildVersions() {
   const selected = versionEl.value || "auto";
@@ -370,12 +385,387 @@ async function runBenchmark() {
   }
 }
 
+function friendlyScanMethod(method) {
+  const names = {
+    "camera": "Camera",
+    "fast-scan": "Fast scan",
+    "finder-recovery": "Finder recovery",
+    "camera-auto-color": "Camera Auto Color",
+    "progressive-color-recovery": "Color recovery",
+    "qr-region-auto-enhance": "QR color enhance",
+    "module-grid-auto-tone-contrast-color": "Module auto enhance",
+    "rectified-auto-tone-contrast-color": "Rectified auto enhance",
+    "multi-frame-vote": "Multi-frame ECC",
+    "refined-center": "Geometry refine",
+    "cross": "Fast scan",
+    "median": "Robust sample"
+  };
+  if (!method) return "Searching";
+  if (names[method]) return names[method];
+  if (String(method).includes("auto-tone-contrast-color")) return "Auto Tone / Contrast / Color";
+  return String(method).replaceAll("-", " ");
+}
+
+function friendlyFinderMethod(method) {
+  const names = {
+    "rgb-value-otsu": "RGB value/Otsu",
+    "auto-color-value-otsu": "Auto Color value/Otsu",
+    "rgb-value-high-threshold": "RGB value/high threshold",
+    "rgb-value-low-threshold": "RGB value/low threshold",
+    "luminance-otsu": "Luminance/Otsu"
+  };
+  if (!method) return "";
+  return names[method] ?? String(method).replaceAll("-", " ");
+}
+
+function bestDiagnosticPass(diagnostic) {
+  const passes = diagnostic?.vision?.passes;
+  if (!Array.isArray(passes) || !passes.length) return diagnostic?.bestPass ?? null;
+  return passes.slice().sort((a, b) => {
+    const ag = a.geometries?.[0];
+    const bg = b.geometries?.[0];
+    return (Boolean(bg) - Boolean(ag)) ||
+      ((b.finderCount ?? 0) - (a.finderCount ?? 0)) ||
+      ((bg?.score ?? 0) - (ag?.score ?? 0));
+  })[0];
+}
+
+function resetCameraDiagnosticsUi() {
+  lastCameraFrameDiagnostic = null;
+  lastCameraUiUpdate = 0;
+  cameraMethodStat.textContent = "Idle";
+  cameraFinderStat.textContent = "0 / 3";
+  cameraGeometryStat.textContent = "Not found";
+  cameraFrameStat.textContent = "--";
+  cameraHudText.textContent = "Idle";
+  cameraFinderHud.textContent = "Finders 0/3";
+  cameraFinderHud.classList.remove("found");
+  cameraLiveHud.classList.remove("scanning", "found", "locked");
+  clearCameraOverlay();
+}
+
+function resetCameraLog() {
+  cameraLogLines = [];
+  lastCameraLogSignature = "";
+  cameraLog.innerHTML = '<div class="scanner-log-line muted">Camera diagnostics ready.</div>';
+}
+
+function formatLogTime(timestamp) {
+  return new Date(timestamp ?? Date.now()).toLocaleTimeString([], {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function appendCameraLog(message, level = "", signature = message) {
+  if (!message || signature === lastCameraLogSignature) return;
+  lastCameraLogSignature = signature;
+  const line = `${formatLogTime(Date.now())}  ${message}`;
+  cameraLogLines.push(line);
+  if (cameraLogLines.length > 40) cameraLogLines.shift();
+
+  const element = document.createElement("div");
+  element.className = `scanner-log-line${level ? ` ${level}` : ""}`;
+  element.textContent = line;
+  cameraLog.appendChild(element);
+  while (cameraLog.children.length > 40) cameraLog.firstElementChild?.remove();
+  cameraLog.scrollTop = cameraLog.scrollHeight;
+}
+
+function clearCameraOverlay() {
+  if (!cameraOverlay) return;
+  const ctx = cameraOverlay.getContext("2d");
+  if (!ctx) return;
+  ctx.clearRect(0, 0, cameraOverlay.width, cameraOverlay.height);
+}
+
+function clearFrozenCameraFrame() {
+  if (!cameraFreezeFrame) return;
+  cameraFreezeFrame.classList.remove("visible");
+  const ctx = cameraFreezeFrame.getContext("2d");
+  if (ctx && cameraFreezeFrame.width && cameraFreezeFrame.height) {
+    ctx.clearRect(0, 0, cameraFreezeFrame.width, cameraFreezeFrame.height);
+  }
+}
+
+function freezeCapturedCameraFrame(frameMeta) {
+  const imageData = frameMeta?.imageData;
+  if (!cameraFreezeFrame || !imageData?.data || !imageData.width || !imageData.height) {
+    return freezeCurrentCameraFrame();
+  }
+
+  // Keep the exact pixel buffer that was decoded. Do not grab the live <video>
+  // again here: by the time onResult runs the camera may already be presenting
+  // the next sensor frame, which made the frozen image and finder overlay drift
+  // apart even though both were individually correct. The scanner's captured
+  // ROI and its diagnostics share the same coordinate system, so rendering this
+  // buffer 1:1 guarantees the locked overlay matches the successful frame.
+  cameraFreezeFrame.width = imageData.width;
+  cameraFreezeFrame.height = imageData.height;
+  const ctx = cameraFreezeFrame.getContext("2d", { alpha: false });
+  if (!ctx) return false;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.putImageData(imageData, 0, 0);
+  cameraFreezeFrame.classList.add("visible");
+  return true;
+}
+
+function freezeCurrentCameraFrame() {
+  if (!cameraFreezeFrame || !cameraVideo.videoWidth || !cameraVideo.videoHeight) return false;
+  const rect = cameraVideo.getBoundingClientRect();
+  if (!rect.width || !rect.height) return false;
+
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cameraFreezeFrame.width = Math.max(1, Math.round(rect.width * dpr));
+  cameraFreezeFrame.height = Math.max(1, Math.round(rect.height * dpr));
+  const ctx = cameraFreezeFrame.getContext("2d", { alpha: false });
+  if (!ctx) return false;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Reproduce the demo video's object-fit: cover crop exactly so the frozen
+  // success frame stays aligned with the finder overlay after camera tracks
+  // are stopped and the live video element loses its source.
+  const sourceWidth = cameraVideo.videoWidth;
+  const sourceHeight = cameraVideo.videoHeight;
+  const scale = Math.max(rect.width / sourceWidth, rect.height / sourceHeight);
+  let cropWidth = Math.min(sourceWidth, rect.width / scale);
+  let cropHeight = Math.min(sourceHeight, rect.height / scale);
+  const sourceX = Math.max(0, (sourceWidth - cropWidth) / 2);
+  const sourceY = Math.max(0, (sourceHeight - cropHeight) / 2);
+  cropWidth = Math.min(cropWidth, sourceWidth - sourceX);
+  cropHeight = Math.min(cropHeight, sourceHeight - sourceY);
+
+  ctx.drawImage(
+    cameraVideo,
+    sourceX, sourceY, cropWidth, cropHeight,
+    0, 0, rect.width, rect.height
+  );
+  cameraFreezeFrame.classList.add("visible");
+  return true;
+}
+
+function prepareOverlayCanvas() {
+  const rect = cameraVideo.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const width = Math.max(1, Math.round(rect.width * dpr));
+  const height = Math.max(1, Math.round(rect.height * dpr));
+  if (cameraOverlay.width !== width || cameraOverlay.height !== height) {
+    cameraOverlay.width = width;
+    cameraOverlay.height = height;
+  }
+  const ctx = cameraOverlay.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  return { ctx, width: rect.width, height: rect.height };
+}
+
+function drawFinderBox(ctx, finder, sx, sy, label, confirmed) {
+  const x = finder.x * sx;
+  const y = finder.y * sy;
+  const moduleX = finder.moduleSize * sx;
+  const moduleY = finder.moduleSize * sy;
+  const size = Math.max(22, Math.min(140, ((moduleX + moduleY) / 2) * 7.35));
+  const left = x - size / 2;
+  const top = y - size / 2;
+  const corner = Math.max(8, Math.min(18, size * 0.24));
+  const color = confirmed ? "rgba(77, 238, 137, 0.98)" : "rgba(250, 204, 92, 0.95)";
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = confirmed ? 2.4 : 1.8;
+  ctx.lineCap = "round";
+  ctx.shadowColor = confirmed ? "rgba(77, 238, 137, 0.42)" : "rgba(250, 204, 92, 0.28)";
+  ctx.shadowBlur = 8;
+
+  ctx.beginPath();
+  ctx.moveTo(left + corner, top); ctx.lineTo(left, top); ctx.lineTo(left, top + corner);
+  ctx.moveTo(left + size - corner, top); ctx.lineTo(left + size, top); ctx.lineTo(left + size, top + corner);
+  ctx.moveTo(left, top + size - corner); ctx.lineTo(left, top + size); ctx.lineTo(left + corner, top + size);
+  ctx.moveTo(left + size - corner, top + size); ctx.lineTo(left + size, top + size); ctx.lineTo(left + size, top + size - corner);
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.beginPath();
+  ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (label) {
+    ctx.font = "700 10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    const textWidth = ctx.measureText(label).width;
+    const tx = Math.max(4, Math.min(left, cameraVideo.clientWidth - textWidth - 12));
+    const ty = Math.max(15, top - 7);
+    ctx.fillStyle = "rgba(3, 8, 11, 0.82)";
+    ctx.fillRect(tx - 4, ty - 11, textWidth + 8, 15);
+    ctx.fillStyle = color;
+    ctx.fillText(label, tx, ty);
+  }
+  ctx.restore();
+}
+
+function drawCameraFinderOverlay(diagnostic) {
+  const prepared = prepareOverlayCanvas();
+  if (!prepared) return;
+  const { ctx, width, height } = prepared;
+  const scanWidth = diagnostic?.scanWidth;
+  const scanHeight = diagnostic?.scanHeight;
+  if (!scanWidth || !scanHeight) return;
+  const sx = width / scanWidth;
+  const sy = height / scanHeight;
+  const pass = bestDiagnosticPass(diagnostic);
+  if (!pass) return;
+
+  const geometry = pass.geometries?.[0] ?? diagnostic.geometry;
+  if (geometry?.finders) {
+    const points = [
+      [geometry.finders.topLeft, "TL"],
+      [geometry.finders.topRight, "TR"],
+      [geometry.finders.bottomLeft, "BL"]
+    ];
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(77, 238, 137, 0.35)";
+    ctx.lineWidth = 1.25;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(points[0][0].x * sx, points[0][0].y * sy);
+    ctx.lineTo(points[1][0].x * sx, points[1][0].y * sy);
+    ctx.moveTo(points[0][0].x * sx, points[0][0].y * sy);
+    ctx.lineTo(points[2][0].x * sx, points[2][0].y * sy);
+    ctx.stroke();
+    ctx.restore();
+
+    for (const [finder, label] of points) drawFinderBox(ctx, finder, sx, sy, label, true);
+    return;
+  }
+
+  const candidates = (pass.finders ?? []).slice(0, 6);
+  for (let i = 0; i < candidates.length; i++) {
+    drawFinderBox(ctx, candidates[i], sx, sy, `F${i + 1}`, false);
+  }
+}
+
+function updateCameraDiagnosticSummary(diagnostic) {
+  if (!diagnostic) return;
+  if (diagnostic.type === "frame") lastCameraFrameDiagnostic = diagnostic;
+  const active = diagnostic.type === "frame" ? diagnostic : (lastCameraFrameDiagnostic ?? diagnostic);
+  const pass = bestDiagnosticPass(active);
+  const finderCount = Math.min(3, active.finderCount ?? pass?.finderCount ?? 0);
+  const geometry = active.geometry ?? pass?.geometries?.[0] ?? null;
+  const method = friendlyScanMethod(diagnostic.method ?? active.method);
+  const finderMethod = active.finderMethod ?? pass?.finderMethod ?? null;
+  const finderMethodText = friendlyFinderMethod(finderMethod);
+
+  cameraMethodStat.textContent = finderMethodText ? `${method} · ${finderMethodText}` : method;
+  cameraFinderStat.textContent = `${finderCount} / 3`;
+  cameraGeometryStat.textContent = geometry
+    ? `v${geometry.version} · ${Math.round((geometry.alignmentGridScore ?? geometry.alignmentScore ?? 0) * 100)}%`
+    : (finderCount >= 3 ? "Validating" : "Not found");
+  cameraFrameStat.textContent = active.frame
+    ? `#${active.frame}${active.elapsedMs != null ? ` · ${Math.round(active.elapsedMs)} ms` : ""}`
+    : "--";
+
+  cameraFinderHud.textContent = `Finders ${finderCount}/3`;
+  cameraFinderHud.classList.toggle("found", finderCount >= 3);
+  cameraHudText.textContent = geometry ? `${method} · v${geometry.version}` : method;
+  cameraLiveHud.classList.toggle("found", finderCount >= 3);
+  cameraLiveHud.classList.toggle("scanning", diagnostic.state !== "decoded" && finderCount < 3);
+
+  if (active.scanWidth && active.scanHeight) drawCameraFinderOverlay(active);
+}
+
+function handleCameraDiagnostic(diagnostic) {
+  const now = performance.now();
+  if (diagnostic.type !== "frame" || now - lastCameraUiUpdate >= 120) {
+    updateCameraDiagnosticSummary(diagnostic);
+    lastCameraUiUpdate = now;
+  }
+
+  const pass = bestDiagnosticPass(diagnostic);
+  const finderCount = diagnostic.finderCount ?? pass?.finderCount ?? 0;
+  const geometry = diagnostic.geometry ?? pass?.geometries?.[0] ?? null;
+
+  if (diagnostic.type === "camera-ready") {
+    appendCameraLog(diagnostic.message, "good", "camera-ready");
+    return;
+  }
+
+  if (diagnostic.type === "method") {
+    appendCameraLog(
+      diagnostic.message,
+      diagnostic.state === "failed" ? "warn" : "",
+      `${diagnostic.method}:${diagnostic.state}`
+    );
+    return;
+  }
+
+  if (diagnostic.type === "success") {
+    cameraLiveHud.classList.add("locked");
+    appendCameraLog(diagnostic.message, "good", `success:${diagnostic.method}`);
+    return;
+  }
+
+  if (diagnostic.type === "frame") {
+    const geometryText = geometry
+      ? ` · v${geometry.version} geometry ${Math.round((geometry.alignmentGridScore ?? geometry.alignmentScore ?? 0) * 100)}%`
+      : "";
+    const finderText = `${finderCount} finder${finderCount === 1 ? "" : "s"}`;
+    const method = friendlyScanMethod(diagnostic.method);
+    const finderMethod = diagnostic.finderMethod ?? pass?.finderMethod ?? null;
+    const finderMethodText = friendlyFinderMethod(finderMethod);
+    const finderPasses = Array.isArray(diagnostic.finderPasses) ? diagnostic.finderPasses : [];
+    const passSummary = finderPasses.length > 1
+      ? ` · locator ${finderPasses.map((item) => `${friendlyFinderMethod(item.method)}:${item.finderCount}`).join(" → ")}`
+      : (finderMethodText ? ` · locator ${finderMethodText}` : "");
+
+    // Log significant state transitions, not every 160 ms frame. This keeps
+    // mobile DOM work tiny while the summary and overlay can still update live.
+    const bucket = finderCount >= 3 ? "3+" : String(finderCount);
+    const signature = `frame:${bucket}:${geometry?.version ?? "none"}:${Math.floor((diagnostic.missStreak ?? 0) / 8)}`;
+    if (signature !== lastCameraLogSignature) {
+      appendCameraLog(
+        `${method} · ${finderText}${geometryText}${passSummary} · ${Math.round(diagnostic.elapsedMs ?? 0)} ms`,
+        finderCount >= 3 ? "good" : "muted",
+        signature
+      );
+    }
+  }
+}
+
+async function copyCameraDiagnostics() {
+  const snapshot = [
+    `QuadQR camera diagnostics`,
+    `Method: ${cameraMethodStat.textContent}`,
+    `Finders: ${cameraFinderStat.textContent}`,
+    `Geometry: ${cameraGeometryStat.textContent}`,
+    `Frame: ${cameraFrameStat.textContent}`,
+    "",
+    ...cameraLogLines
+  ].join("\n");
+  try {
+    await navigator.clipboard.writeText(snapshot);
+    copyCameraLogBtn.textContent = "Copied";
+    setTimeout(() => { copyCameraLogBtn.textContent = "Copy log"; }, 1200);
+  } catch {
+    copyCameraLogBtn.textContent = "Copy failed";
+    setTimeout(() => { copyCameraLogBtn.textContent = "Copy log"; }, 1200);
+  }
+}
+
 async function stopCamera() {
   cameraController?.stop();
   cameraController = null;
+  clearFrozenCameraFrame();
   startCameraBtn.disabled = false;
   stopCameraBtn.disabled = true;
   setPill(cameraPill, "neutral", "Stopped");
+  cameraHudText.textContent = "Stopped";
+  cameraLiveHud.classList.remove("scanning", "found", "locked");
+  clearCameraOverlay();
+  appendCameraLog("Camera stopped", "muted", "camera-stopped");
 }
 
 function activateTab(tabName) {
@@ -447,6 +837,11 @@ scanFileEl.addEventListener("change", async () => {
 startCameraBtn.addEventListener("click", async () => {
   if (cameraController) return;
   startCameraBtn.disabled = true;
+  clearFrozenCameraFrame();
+  resetCameraDiagnosticsUi();
+  resetCameraLog();
+  cameraHudText.textContent = "Requesting camera";
+  cameraLiveHud.classList.add("scanning");
   cameraResultEl.className = "scan-result";
   cameraResultEl.textContent = "Requesting camera permission...";
   setPill(cameraPill, "neutral", "Starting");
@@ -456,7 +851,21 @@ startCameraBtn.addEventListener("click", async () => {
       scanInterval: 160,
       maxDimension: 1080,
       stopOnResult: true,
-      onResult(result) {
+      onDiagnostic: handleCameraDiagnostic,
+      onResult(result, frameMeta) {
+        // Freeze the exact frame buffer that produced this decode, not a fresh
+        // read from the live video. This also lets us lock the overlay to the
+        // diagnostics from the very same frame.
+        freezeCapturedCameraFrame(frameMeta);
+        if (frameMeta?.diagnostic) {
+          lastCameraFrameDiagnostic = {
+            type: "frame",
+            state: "decoded",
+            frame: frameMeta.frame,
+            ...frameMeta.diagnostic
+          };
+          drawCameraFinderOverlay(lastCameraFrameDiagnostic);
+        }
         formatResult(cameraResultEl, result, "Camera scan verified", {
           onSecurityState(state) {
             if (state === "locked") setPill(cameraPill, "neutral", "Secure QR");
@@ -464,6 +873,9 @@ startCameraBtn.addEventListener("click", async () => {
             else setPill(cameraPill, "good", "Decoded");
           }
         });
+        cameraHudText.textContent = `Decoded v${result.version}`;
+        cameraLiveHud.classList.remove("scanning");
+        cameraLiveHud.classList.add("locked");
         cameraController = null;
         startCameraBtn.disabled = false;
         stopCameraBtn.disabled = true;
@@ -482,16 +894,25 @@ startCameraBtn.addEventListener("click", async () => {
     startCameraBtn.disabled = false;
     stopCameraBtn.disabled = true;
     setPill(cameraPill, "bad", "Camera error");
+    cameraHudText.textContent = "Camera error";
+    cameraLiveHud.classList.remove("scanning", "found", "locked");
+    clearCameraOverlay();
+    appendCameraLog(`Camera error · ${error.message}`, "warn", `camera-error:${error.message}`);
     cameraResultEl.className = "scan-result bad";
     cameraResultEl.textContent = error.message;
   }
 });
 
+copyCameraLogBtn.addEventListener("click", copyCameraDiagnostics);
+window.addEventListener("resize", () => {
+  if (lastCameraFrameDiagnostic) drawCameraFinderOverlay(lastCameraFrameDiagnostic);
+});
 stopCameraBtn.addEventListener("click", stopCamera);
 benchmarkEccEl.addEventListener("change", renderCapacityBenchmark);
 runBenchmarkBtn.addEventListener("click", runBenchmark);
 window.addEventListener("pagehide", () => cameraController?.stop());
 
+resetCameraDiagnosticsUi();
 updateSecurityUi();
 rebuildVersions();
 renderCapacityBenchmark();

@@ -82,6 +82,48 @@ export interface ImageDataLike {
   data: Uint8ClampedArray | Uint8Array;
 }
 
+export interface CameraFinderDiagnostic {
+  x: number;
+  y: number;
+  moduleSize: number;
+  confirmations?: number;
+  score?: number;
+}
+
+export interface CameraGeometryDiagnostic {
+  version: number;
+  size: number;
+  score: number;
+  estimatedSize?: number;
+  alignmentScore?: number;
+  alignmentGridScore?: number;
+  finders?: {
+    topLeft: CameraFinderDiagnostic;
+    topRight: CameraFinderDiagnostic;
+    bottomLeft: CameraFinderDiagnostic;
+  };
+  [key: string]: unknown;
+}
+
+export interface CameraDiagnosticEvent {
+  type: "camera-ready" | "frame" | "method" | "success" | string;
+  timestamp: number;
+  frame: number;
+  state?: "trying" | "miss" | "failed" | "decoded" | string;
+  method?: string;
+  message?: string;
+  elapsedMs?: number;
+  missStreak?: number;
+  scanWidth?: number;
+  scanHeight?: number;
+  finderCount?: number;
+  finders?: CameraFinderDiagnostic[];
+  finderMethod?: string | null;
+  finderPasses?: Array<{ method: string; finderCount: number; threshold?: number; geometryCount?: number }>;
+  geometry?: CameraGeometryDiagnostic | null;
+  [key: string]: unknown;
+}
+
 export interface RenderOptions {
   moduleSize?: number;
   quietZone?: number;
@@ -103,11 +145,46 @@ export interface ScanOptions {
   structureTolerance?: number;
   maxErasureConfidence?: number;
   geometryRefinement?: boolean;
+  finderRecovery?: boolean;
+  finderAutoColorBlackClip?: number;
+  finderAutoColorWhiteClip?: number;
+  finderAutoColorHighlightPercentile?: number;
+  finderAutoColorOutputHighlight?: number;
+  finderAutoColorAnalysisInset?: number;
+  finderAutoColorMinimumInputRange?: number;
+  finderAutoColorTargetSamples?: number;
+  autoEnhanceRecovery?: boolean;
+  autoEnhanceWhenNoGeometry?: boolean;
+  autoEnhanceBlackClip?: number;
+  autoEnhanceWhiteClip?: number;
+  autoEnhanceSaturation?: number;
+  autoEnhanceTargetSamples?: number;
+  fullFrameAutoEnhanceRecovery?: boolean;
+  rectifiedAutoEnhanceRecovery?: boolean;
+  rectifiedRecoveryModuleSize?: number;
+  rectifiedRecoveryRadiusRatio?: number;
+  rectifiedAutoEnhanceBlackClip?: number;
+  rectifiedAutoEnhanceWhiteClip?: number;
+  rectifiedAutoEnhanceSaturation?: number;
+  rectifiedAutoEnhanceHighlightFraction?: number;
+  videoCropMode?: "visible" | "full";
+  videoObjectFit?: string;
+  videoObjectPosition?: string;
+  videoCropInset?: number;
   refinementOffset?: number;
   refinementStructureThreshold?: number;
   refinementDecodeThreshold?: number;
   refinementDecodeCandidates?: number;
   [key: string]: unknown;
+}
+
+export interface CameraFrameMeta {
+  frame: number;
+  imageData: ImageDataLike;
+  scanWidth: number;
+  scanHeight: number;
+  sourceRect?: { x: number; y: number; width: number; height: number; cropped?: boolean } | null;
+  diagnostic?: Record<string, unknown> | null;
 }
 
 export interface CameraScanOptions extends ScanOptions {
@@ -116,10 +193,22 @@ export interface CameraScanOptions extends ScanOptions {
   multiFrame?: boolean;
   multiFrameWindow?: number;
   multiFrameMinFrames?: number;
+  cameraAutoColorRecovery?: boolean;
+  cameraAutoColorEvery?: number;
+  cameraAutoColorBlackClip?: number;
+  cameraAutoColorWhiteClip?: number;
+  cameraAutoColorHighlightPercentile?: number;
+  cameraAutoColorOutputHighlight?: number;
+  cameraAutoColorAnalysisInset?: number;
+  cameraAutoColorMinimumInputRange?: number;
+  cameraAutoColorTargetSamples?: number;
+  cameraAutoEnhanceEvery?: number;
+  cameraFinderRecoveryEvery?: number;
   constraints?: MediaStreamConstraints;
-  onResult?: (result: DecodeResult) => void | Promise<void>;
-  onDecode?: (result: DecodeResult) => void | Promise<void>;
+  onResult?: (result: DecodeResult, frame?: CameraFrameMeta | null) => void | Promise<void>;
+  onDecode?: (result: DecodeResult, frame?: CameraFrameMeta | null) => void | Promise<void>;
   onScanMiss?: (error: Error) => void;
+  onDiagnostic?: (event: CameraDiagnosticEvent) => void;
 }
 
 export const FORMAT_VERSION: number;

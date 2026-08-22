@@ -390,7 +390,7 @@ White → (255, 255, 255)
 
 Real camera input is not expected to match those exact values.
 
-QuadQR includes calibration and nearest-color classification so the scanner can work with observed colors after lighting, camera processing, perspective changes, and other image transformations. The clean-frame path stays fast: QuadQR tries the normal detected geometry and observed palette first, and only runs the heavier color and sub-module geometry recovery steps after an otherwise strong symbol fails to decode.
+QuadQR includes calibration and nearest-color classification so the scanner can work with observed colors after lighting, camera processing, perspective changes, and other image transformations. The clean-frame path stays fast: QuadQR tries the normal detected geometry and observed palette first. Only after that fails does it progressively try stronger recovery, including white balancing, spatial normalization, Auto Tone / Auto Contrast / Auto Color-style enhancement, and bounded sub-module geometry refinement. For live video, QuadQR scans the CSS-visible `object-fit: cover` camera region instead of the hidden full sensor frame, so the code keeps the same apparent size/resolution the user sees in the guide. If finder geometry is already strong but color decoding fails, a QR-only rectified pixel enhancement retry is performed immediately; whole-frame enhancement remains reserved for harder locator failures.
 
 ---
 
@@ -460,7 +460,11 @@ module-grid reconstruction
   ↓
 fast observed-RGB decode attempt
   ↓ (only if needed)
-adaptive color recovery + sub-module geometry refinement
+white balance + spatial normalization
+  ↓ (only if still needed)
+Auto Tone / Auto Contrast / Auto Color-style recovery
+  ↓ (only if still needed)
+sub-module geometry refinement
   ↓
 RGB + structural black/white calibration
   ↓
@@ -876,7 +880,7 @@ This is also useful for tests and non-DOM workflows.
 
 ### `scanImageData(imageData, options?)`
 
-Runs the complete perspective-aware and color-aware image scanner. The scanner first tries the normal detected geometry with the observed RGB palette, preserving the fast path for clean images. Only after that fails does it fall back to per-channel white balancing, spatial black/white normalization, tighter centre sampling, and a bounded sub-module geometry micro-refinement for blurred frames where finder detection is correct but the effective color-module centres have shifted slightly. RGBW confidence values are carried into Reed-Solomon so ambiguous cells can be treated as erasures when ordinary hard-decision ECC is insufficient.
+Runs the complete perspective-aware and color-aware image scanner. The scanner first tries the normal detected geometry with the observed RGB palette, preserving the fast path for clean images. Only after that fails does it progressively fall back to per-channel white balancing, spatial black/white normalization, tighter centre sampling, a cheap module-grid Auto Tone / Auto Contrast / Auto Color-style recovery, a rectified QR-region pixel enhancement pass, and finally bounded sub-module geometry micro-refinement. If locator detection itself is weakened by a flat/yellow frame, a full-image enhancement retry is also available. RGBW confidence values are carried into Reed-Solomon so ambiguous cells can be treated as erasures when ordinary hard-decision ECC is insufficient.
 
 ### `scanFile(file, options?)`
 
@@ -884,11 +888,11 @@ Scans an uploaded browser image file.
 
 ### `scanVideoFrame(video, options?)`
 
-Scans one frame from an HTML video element.
+Scans one frame from an HTML video element. By default, if the video is displayed with `object-fit: cover`, QuadQR scans the source crop that is actually visible in the element rather than hidden sensor pixels outside the preview. Set `videoCropMode: "full"` to opt out.
 
 ### `startCameraScanner(video, options?)`
 
-Starts a reusable live-camera scanning loop. On supported browsers it requests continuous focus/exposure/white-balance camera modes, and it can combine several consecutive classified frames before giving up on a difficult scan. Multi-frame voting is enabled by default with a four-frame history and can be controlled with `multiFrame`, `multiFrameWindow`, and `multiFrameMinFrames`.
+Starts a reusable live-camera scanning loop. On supported browsers it requests continuous focus/exposure/white-balance camera modes and scans the CSS-visible preview crop. A normal frame always gets the fast RGB-value finder pass first. If that fails, the scanner retries the exact captured frame with a stronger Photoshop Auto Color-style correction **before finder detection**. The camera-only transform uses per-channel near-black anchoring, a neutral highlight target instead of stretching the warm paper/background to pure white, and a small central analysis inset so dark preview/UI edges do not weaken the correction. This closely matches the high-contrast, neutralized result that makes warm/yellow phone captures immediately easier to locate. Only after that does QuadQR continue to threshold-bracket finder recovery, stronger color/geometry recovery, and multi-frame ECC when needed. `cameraAutoColorEvery` controls how often that same-frame Auto Color fallback runs during repeated misses. Multi-frame voting is enabled by default with a four-frame history and can be controlled with `multiFrame`, `multiFrameWindow`, and `multiFrameMinFrames`. The optional `onDiagnostic(event)` callback exposes finder candidates, active locator method, geometry/version hypothesis, recovery method, timing, and scan dimensions. `onResult(result, frame)` also receives the exact decoded camera frame so UIs can freeze the matching image and overlay without grabbing a later sensor frame.
 
 ### `getVersionInfo(version, options?)`
 
@@ -928,6 +932,7 @@ The current test suite covers areas including:
 - perspective distortion;
 - color-cast scanning;
 - dirty-camera stress scanning with strong yellow cast, haze, blue-channel suppression, and blur;
+- low-contrast warm-camera regression where normal scanning fails but progressive Auto Tone / Contrast / Color recovery succeeds;
 - multi-frame classification voting;
 - benchmark reference data;
 - timed codec round trips;
