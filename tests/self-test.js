@@ -640,6 +640,61 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   assert.equal(recovered.version, 4);
 }
 
+// Live-camera guide recovery regression. A QR crop can be perfectly usable
+// while the same pixels embedded in a much larger dark camera frame produce no
+// finder geometry because global thresholding is dominated by the surroundings.
+// Camera recovery therefore crops toward the guide before applying Auto Color.
+{
+  const text = "Camera guide crop Auto Color recovery regression";
+  const encoded = encodeText(text, { ecc: "M", version: 4 });
+  const clean = renderToImageData(encoded, { moduleSize: 7, quietZone: 4 });
+  const qr = flattenWarmCameraLevels(clean);
+  const frameWidth = qr.width * 2;
+  const frameHeight = qr.height * 2;
+  const data = new Uint8ClampedArray(frameWidth * frameHeight * 4);
+  for (let i = 0; i < frameWidth * frameHeight; i++) {
+    const p = i * 4;
+    data[p] = 38;
+    data[p + 1] = 32;
+    data[p + 2] = 26;
+    data[p + 3] = 255;
+  }
+  const offsetX = Math.floor((frameWidth - qr.width) / 2);
+  const offsetY = Math.floor((frameHeight - qr.height) / 2);
+  for (let y = 0; y < qr.height; y++) {
+    for (let x = 0; x < qr.width; x++) {
+      const source = (y * qr.width + x) * 4;
+      const target = ((offsetY + y) * frameWidth + offsetX + x) * 4;
+      data[target] = qr.data[source];
+      data[target + 1] = qr.data[source + 1];
+      data[target + 2] = qr.data[source + 2];
+      data[target + 3] = 255;
+    }
+  }
+  const cameraFrame = { width: frameWidth, height: frameHeight, data };
+  assert.throws(() => scanImageData(cameraFrame, {
+    finderRecovery: false,
+    autoEnhanceRecovery: false,
+    axisAlignedFallback: false
+  }));
+
+  const cropped = internals.cropImageDataInset(cameraFrame, 0.22);
+  const corrected = autoColorImageData(cropped.imageData, {
+    blackClip: 0.0001,
+    whiteClip: 0.004,
+    highlightPercentile: 0.95,
+    outputHighlight: 190,
+    analysisInset: 0.08,
+    minimumInputRange: 72
+  });
+  const recovered = scanImageData(corrected, {
+    finderRecovery: true,
+    autoEnhanceRecovery: false
+  });
+  assert.equal(recovered.text, text);
+  assert.equal(recovered.version, 4);
+}
+
 // Dirty camera stress test: perspective + warm/yellow cast + blue-channel
 // suppression + lens haze + blur. The scanner should fall back to per-channel
 // white balancing and still recover the payload without changing the format.

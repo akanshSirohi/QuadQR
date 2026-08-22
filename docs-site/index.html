@@ -142,7 +142,7 @@ console.log(result.text);</code></pre></div>
         <div class="cards three">
           <article><strong>RGBA pixels</strong><code>scanImageData()</code><p>Runtime-neutral scanning when your app already has decoded pixels.</p></article>
           <article><strong>Browser files</strong><code>scanFile()</code><p>Scan uploaded images directly from a browser <code>File</code> or <code>Blob</code>.</p></article>
-          <article><strong>Live camera</strong><code>startCameraScanner()</code><p>Uses RGB-value finder detection on the fast pass, then a strong same-frame Photoshop-style Auto Color correction before finder detection. The recovery anchors shadows, neutralizes warm highlights, ignores a small outer preview band, then proceeds to threshold-bracket recovery, adaptive color/geometry recovery, and multi-frame voting only when needed.</p></article>
+          <article><strong>Live camera</strong><code>startCameraScanner()</code><p>Uses RGB-value finder detection on the fast pass, then same-frame Photoshop-style Auto Color recovery inside progressively tighter guide-centered crops. This keeps dark room/browser/monitor pixels outside the QR from poisoning global levels and finder thresholds. The normal path stays fast; crop recovery, adaptive color/geometry recovery, and multi-frame voting run only after a miss.</p></article>
         </div>
         <p>Image and camera scanning use the same secure-aware decoding behavior. An encrypted symbol is detected normally, but plaintext is not exposed until the correct credential is supplied.</p>
       </section>

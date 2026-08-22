@@ -402,6 +402,7 @@ function friendlyScanMethod(method) {
   };
   if (!method) return "Searching";
   if (names[method]) return names[method];
+  if (String(method).startsWith("camera-auto-color-")) return "Camera Auto Color";
   if (String(method).includes("auto-tone-contrast-color")) return "Auto Tone / Contrast / Color";
   return String(method).replaceAll("-", " ");
 }
@@ -415,7 +416,10 @@ function friendlyFinderMethod(method) {
     "luminance-otsu": "Luminance/Otsu"
   };
   if (!method) return "";
-  return names[method] ?? String(method).replaceAll("-", " ");
+  if (names[method]) return names[method];
+  const match = String(method).match(/^auto-color-center(\d+)-(otsu|high)$/);
+  if (match) return `Auto Color center ${Number(match[1])}%/${match[2] === "otsu" ? "Otsu" : "high"}`;
+  return String(method).replaceAll("-", " ");
 }
 
 function bestDiagnosticPass(diagnostic) {
@@ -562,9 +566,9 @@ function prepareOverlayCanvas() {
   return { ctx, width: rect.width, height: rect.height };
 }
 
-function drawFinderBox(ctx, finder, sx, sy, label, confirmed) {
-  const x = finder.x * sx;
-  const y = finder.y * sy;
+function drawFinderBox(ctx, finder, sx, sy, label, confirmed, offsetX = 0, offsetY = 0) {
+  const x = (finder.x + offsetX) * sx;
+  const y = (finder.y + offsetY) * sy;
   const moduleX = finder.moduleSize * sx;
   const moduleY = finder.moduleSize * sy;
   const size = Math.max(22, Math.min(140, ((moduleX + moduleY) / 2) * 7.35));
@@ -613,8 +617,13 @@ function drawCameraFinderOverlay(diagnostic) {
   const scanWidth = diagnostic?.scanWidth;
   const scanHeight = diagnostic?.scanHeight;
   if (!scanWidth || !scanHeight) return;
-  const sx = width / scanWidth;
-  const sy = height / scanHeight;
+  const frameWidth = diagnostic?.frameWidth ?? scanWidth;
+  const frameHeight = diagnostic?.frameHeight ?? scanHeight;
+  const scanRect = diagnostic?.scanRect ?? { x: 0, y: 0, width: scanWidth, height: scanHeight };
+  const sx = width / frameWidth;
+  const sy = height / frameHeight;
+  const offsetX = scanRect.x ?? 0;
+  const offsetY = scanRect.y ?? 0;
   const pass = bestDiagnosticPass(diagnostic);
   if (!pass) return;
 
@@ -631,20 +640,20 @@ function drawCameraFinderOverlay(diagnostic) {
     ctx.lineWidth = 1.25;
     ctx.setLineDash([5, 5]);
     ctx.beginPath();
-    ctx.moveTo(points[0][0].x * sx, points[0][0].y * sy);
-    ctx.lineTo(points[1][0].x * sx, points[1][0].y * sy);
-    ctx.moveTo(points[0][0].x * sx, points[0][0].y * sy);
-    ctx.lineTo(points[2][0].x * sx, points[2][0].y * sy);
+    ctx.moveTo((points[0][0].x + offsetX) * sx, (points[0][0].y + offsetY) * sy);
+    ctx.lineTo((points[1][0].x + offsetX) * sx, (points[1][0].y + offsetY) * sy);
+    ctx.moveTo((points[0][0].x + offsetX) * sx, (points[0][0].y + offsetY) * sy);
+    ctx.lineTo((points[2][0].x + offsetX) * sx, (points[2][0].y + offsetY) * sy);
     ctx.stroke();
     ctx.restore();
 
-    for (const [finder, label] of points) drawFinderBox(ctx, finder, sx, sy, label, true);
+    for (const [finder, label] of points) drawFinderBox(ctx, finder, sx, sy, label, true, offsetX, offsetY);
     return;
   }
 
   const candidates = (pass.finders ?? []).slice(0, 6);
   for (let i = 0; i < candidates.length; i++) {
-    drawFinderBox(ctx, candidates[i], sx, sy, `F${i + 1}`, false);
+    drawFinderBox(ctx, candidates[i], sx, sy, `F${i + 1}`, false, offsetX, offsetY);
   }
 }
 

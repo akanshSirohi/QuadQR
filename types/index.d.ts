@@ -116,6 +116,9 @@ export interface CameraDiagnosticEvent {
   missStreak?: number;
   scanWidth?: number;
   scanHeight?: number;
+  frameWidth?: number;
+  frameHeight?: number;
+  scanRect?: { x: number; y: number; width: number; height: number };
   finderCount?: number;
   finders?: CameraFinderDiagnostic[];
   finderMethod?: string | null;
@@ -151,6 +154,7 @@ export interface ScanOptions {
   finderAutoColorHighlightPercentile?: number;
   finderAutoColorOutputHighlight?: number;
   finderAutoColorAnalysisInset?: number;
+  finderAutoColorAnalysisInsets?: number[];
   finderAutoColorMinimumInputRange?: number;
   finderAutoColorTargetSamples?: number;
   autoEnhanceRecovery?: boolean;
@@ -184,6 +188,9 @@ export interface CameraFrameMeta {
   scanWidth: number;
   scanHeight: number;
   sourceRect?: { x: number; y: number; width: number; height: number; cropped?: boolean } | null;
+  enhancedImageData?: ImageDataLike | null;
+  enhancedRect?: { x: number; y: number; width: number; height: number } | null;
+  enhancement?: { method?: string; cropInset?: number; analysisInset?: number; [key: string]: unknown } | null;
   diagnostic?: Record<string, unknown> | null;
 }
 
@@ -200,6 +207,8 @@ export interface CameraScanOptions extends ScanOptions {
   cameraAutoColorHighlightPercentile?: number;
   cameraAutoColorOutputHighlight?: number;
   cameraAutoColorAnalysisInset?: number;
+  cameraAutoColorAnalysisInsets?: number[];
+  cameraAutoColorCropInsets?: number[];
   cameraAutoColorMinimumInputRange?: number;
   cameraAutoColorTargetSamples?: number;
   cameraAutoEnhanceEvery?: number;

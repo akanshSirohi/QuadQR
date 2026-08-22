@@ -1615,33 +1615,52 @@ function detectCodeGeometry(imageData, options = {}) {
   if (options.finderRecovery === false) return [];
 
   // Camera recovery #1: Photoshop Auto Color-style per-channel levels before
-  // finder thresholding. This is intentionally the first fallback because a
-  // warm phone capture can make structural black brown/yellow and suppress the
-  // blue channel enough that the normal RGB-value image contains zero usable
-  // finder patterns. The corrected finder grayscale is cheaper than creating a
-  // full corrected RGB frame.
-  try {
-    const autoColorGray = buildAutoColorValueGray(imageData, {
-      // Strong Photoshop-like defaults are safe here because this pass runs
-      // only after the raw value/Otsu finder pass has already failed.
-      blackClip: options.finderAutoColorBlackClip ?? 0.0001,
-      whiteClip: options.finderAutoColorWhiteClip,
-      highlightPercentile: options.finderAutoColorHighlightPercentile ?? 0.95,
-      outputHighlight: options.finderAutoColorOutputHighlight ?? 190,
-      analysisInset: options.finderAutoColorAnalysisInset ?? 0.04,
-      minimumInputRange: options.finderAutoColorMinimumInputRange ?? 72,
-      targetSamples: options.finderAutoColorTargetSamples
-    });
-    const autoColorThreshold = otsuThreshold(autoColorGray);
-    const autoColor = evaluatePass({
-      finderMethod: "auto-color-value-otsu",
-      binary: binaryAtThreshold(autoColorGray, autoColorThreshold),
-      threshold: autoColorThreshold,
-      detector: { toleranceScale: 1.16, moduleSpreadLimit: 0.56 }
-    }, true);
-    if (autoColor.geometries.length) return autoColor.geometries.slice(0, maxCandidates);
-  } catch {
-    // Continue with raw threshold bracketing.
+  // finder thresholding. Live camera frames are usually much larger than the
+  // QR itself, so a single global histogram can be dominated by dark room/UI
+  // pixels around the guide. Photoshop looked strong in the user's cropped
+  // sample because its statistics were effectively code-centric. We emulate
+  // that by trying a few center-weighted analysis windows, while still applying
+  // each correction to the full frame so finder coordinates never move.
+  const requestedInsets = Array.isArray(options.finderAutoColorAnalysisInsets)
+    ? options.finderAutoColorAnalysisInsets
+    : (Number.isFinite(options.finderAutoColorAnalysisInset)
+      ? [options.finderAutoColorAnalysisInset]
+      : [0.10, 0.20, 0.04]);
+  const autoColorInsets = [];
+  for (const value of requestedInsets) {
+    const inset = clamp(Number(value), 0, 0.30);
+    if (!autoColorInsets.some((item) => Math.abs(item - inset) < 0.001)) autoColorInsets.push(inset);
+  }
+
+  for (const analysisInset of autoColorInsets) {
+    try {
+      const autoColorGray = buildAutoColorValueGray(imageData, {
+        blackClip: options.finderAutoColorBlackClip ?? 0.0001,
+        whiteClip: options.finderAutoColorWhiteClip,
+        highlightPercentile: options.finderAutoColorHighlightPercentile ?? 0.95,
+        outputHighlight: options.finderAutoColorOutputHighlight ?? 190,
+        analysisInset,
+        minimumInputRange: options.finderAutoColorMinimumInputRange ?? 72,
+        targetSamples: options.finderAutoColorTargetSamples
+      });
+      const base = otsuThreshold(autoColorGray);
+      const insetLabel = String(Math.round(analysisInset * 100)).padStart(2, "0");
+      const thresholds = [
+        { suffix: "otsu", value: base },
+        { suffix: "high", value: clamp(base + 12, 8, 247) }
+      ];
+      for (const thresholdInfo of thresholds) {
+        const autoColor = evaluatePass({
+          finderMethod: `auto-color-center${insetLabel}-${thresholdInfo.suffix}`,
+          binary: binaryAtThreshold(autoColorGray, thresholdInfo.value),
+          threshold: thresholdInfo.value,
+          detector: { toleranceScale: 1.22, moduleSpreadLimit: 0.60 }
+        }, true);
+        if (autoColor.geometries.length) return autoColor.geometries.slice(0, maxCandidates);
+      }
+    } catch {
+      // Try the next center weighting, then continue with raw threshold bracketing.
+    }
   }
 
   // Camera recovery #2: bracket the raw value-channel threshold, then retain
@@ -4584,6 +4603,31 @@ function visibleVideoSourceRect(video, options = {}) {
   return { x, y, width: cropWidth, height: cropHeight, cropped: true };
 }
 
+function cropImageDataInset(imageData, insetFraction = 0) {
+  const inset = clampNumber(Number(insetFraction) || 0, 0, 0.32);
+  if (inset <= 0) {
+    return {
+      imageData,
+      rect: { x: 0, y: 0, width: imageData.width, height: imageData.height }
+    };
+  }
+
+  const x = Math.max(0, Math.floor(imageData.width * inset));
+  const y = Math.max(0, Math.floor(imageData.height * inset));
+  const width = Math.max(1, imageData.width - x * 2);
+  const height = Math.max(1, imageData.height - y * 2);
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let row = 0; row < height; row++) {
+    const sourceStart = ((y + row) * imageData.width + x) * 4;
+    const sourceEnd = sourceStart + width * 4;
+    data.set(imageData.data.subarray(sourceStart, sourceEnd), row * width * 4);
+  }
+  return {
+    imageData: { width, height, data },
+    rect: { x, y, width, height }
+  };
+}
+
 function bestVisionDiagnosticPass(visionDiagnostics) {
   const passes = visionDiagnostics?.passes;
   if (!Array.isArray(passes) || !passes.length) return null;
@@ -4606,6 +4650,9 @@ function normalizeFrameDiagnostics(frameDiagnostics, source, width, height, visi
   if (!frameDiagnostics || typeof frameDiagnostics !== "object") return;
   frameDiagnostics.scanWidth = width;
   frameDiagnostics.scanHeight = height;
+  frameDiagnostics.frameWidth = width;
+  frameDiagnostics.frameHeight = height;
+  frameDiagnostics.scanRect = { x: 0, y: 0, width, height };
   frameDiagnostics.sourceRect = {
     x: source.x,
     y: source.y,
@@ -4783,7 +4830,7 @@ async function startCameraScanner(video, options = {}) {
   const multiFrameWindow = Math.max(2, Math.min(8, Math.round(options.multiFrameWindow ?? 4)));
   const multiFrameMinFrames = Math.max(2, Math.min(multiFrameWindow, Math.round(options.multiFrameMinFrames ?? 2)));
   const observationHistory = new Map();
-  const cameraAutoColorEvery = Math.max(1, Math.round(options.cameraAutoColorEvery ?? 2));
+  const cameraAutoColorEvery = Math.max(1, Math.round(options.cameraAutoColorEvery ?? 1));
   const cameraAutoEnhanceEvery = Math.max(1, Math.round(options.cameraAutoEnhanceEvery ?? 2));
   const cameraFinderRecoveryEvery = Math.max(1, Math.round(options.cameraFinderRecoveryEvery ?? 2));
   let missStreak = 0;
@@ -4844,6 +4891,9 @@ async function startCameraScanner(video, options = {}) {
       scanWidth: capturedFrame.scanWidth,
       scanHeight: capturedFrame.scanHeight,
       sourceRect: capturedFrame.source ? { ...capturedFrame.source } : null,
+      enhancedImageData: capturedFrame.enhancedImageData ?? null,
+      enhancedRect: capturedFrame.enhancedRect ? { ...capturedFrame.enhancedRect } : null,
+      enhancement: capturedFrame.enhancement ? { ...capturedFrame.enhancement } : null,
       diagnostic
     } : null;
     options.onResult?.(result, frameMeta);
@@ -4976,100 +5026,160 @@ async function startCameraScanner(video, options = {}) {
           capturedFrame.imageData &&
           ((missStreak - 1) % cameraAutoColorEvery === 0);
         if (shouldTryCameraAutoColor) {
+          const requestedCrops = Array.isArray(options.cameraAutoColorCropInsets)
+            ? options.cameraAutoColorCropInsets
+            : [0.08, 0.16, 0.22, 0];
+          const cropInsets = [];
+          for (const value of requestedCrops) {
+            const inset = clampNumber(Number(value), 0, 0.30);
+            if (!cropInsets.some((item) => Math.abs(item - inset) < 0.001)) cropInsets.push(inset);
+          }
+          const explicitAnalysisInsets = Array.isArray(options.cameraAutoColorAnalysisInsets)
+            ? options.cameraAutoColorAnalysisInsets
+            : null;
+
           emitDiagnostic({
             type: "method",
             state: "trying",
             method: "camera-auto-color",
-            message: "Fast scan failed · applying camera Auto Color before finder detection",
+            message: `Fast scan failed · Auto Color recovery inside camera guide (${cropInsets.map((v) => v ? `${Math.round(v * 100)}% crop` : "full frame").join(" → ")})`,
             ...frameDiagnostics
           });
-          const autoColorObservations = [];
-          const autoColorVisionDiagnostics = diagnosticsEnabled ? { passes: [] } : null;
-          const autoColorFrameDiagnostics = diagnosticsEnabled ? {} : null;
-          try {
-            const recoveryStarted = nowMs();
-            const correctedFrame = autoColorImageData(capturedFrame.imageData, {
-              // Strong camera-only Auto Color derived from the supplied
-              // before/after Photoshop sample. It anchors near-black per
-              // channel, neutralizes the observed highlight around ~190
-              // instead of forcing it to 255, and ignores a small outer band
-              // so dark preview/UI edges cannot weaken the correction.
-              blackClip: options.cameraAutoColorBlackClip ?? 0.0001,
-              whiteClip: options.cameraAutoColorWhiteClip ?? 0.004,
-              highlightPercentile: options.cameraAutoColorHighlightPercentile ?? 0.95,
-              outputHighlight: options.cameraAutoColorOutputHighlight ?? 190,
-              analysisInset: options.cameraAutoColorAnalysisInset ?? 0.04,
-              minimumInputRange: options.cameraAutoColorMinimumInputRange ?? 72,
-              targetSamples: options.cameraAutoColorTargetSamples ?? 90000
-            });
-            const recovered = scanImageData(correctedFrame, {
-              ...options,
-              _diagnosticLabel: "camera-auto-color",
-              _visionDiagnostics: autoColorVisionDiagnostics,
-              finderRecovery: true,
-              autoEnhanceRecovery: false,
-              fullFrameAutoEnhanceRecovery: false,
-              _observationCollector: autoColorObservations
-            });
-            if (autoColorFrameDiagnostics) {
-              normalizeFrameDiagnostics(
-                autoColorFrameDiagnostics,
-                capturedFrame.source ?? { x: 0, y: 0, width: capturedFrame.scanWidth, height: capturedFrame.scanHeight, cropped: false },
-                capturedFrame.scanWidth,
-                capturedFrame.scanHeight,
-                autoColorVisionDiagnostics
-              );
-            }
-            const recoveryElapsedMs = nowMs() - recoveryStarted;
-            emitDiagnostic({
-              type: "frame",
-              state: "decoded",
-              method: "camera-auto-color",
-              elapsedMs: recoveryElapsedMs,
-              missStreak,
-              ...(autoColorFrameDiagnostics ?? frameDiagnostics)
-            });
-            emitDiagnostic({
-              type: "success",
-              state: "decoded",
-              method: "camera-auto-color",
-              elapsedMs: recoveryElapsedMs,
-              message: `Auto Color decoded v${recovered.version} · ECC ${recovered.eccLevel} · ${Math.round(recoveryElapsedMs)} ms`,
-              ...(autoColorFrameDiagnostics ?? frameDiagnostics)
-            });
-            missStreak = 0;
-            observationHistory.clear();
-            if (emitResult({
-              ...recovered,
-              autoColorCorrected: true,
-              cameraProgressiveRecovery: true,
-              recoveryMode: "camera-auto-color"
-            }, capturedFrame, autoColorFrameDiagnostics ?? frameDiagnostics)) return;
-          } catch {
-            observations.push(...autoColorObservations);
-            if (autoColorFrameDiagnostics) {
-              normalizeFrameDiagnostics(
-                autoColorFrameDiagnostics,
-                capturedFrame.source ?? { x: 0, y: 0, width: capturedFrame.scanWidth, height: capturedFrame.scanHeight, cropped: false },
-                capturedFrame.scanWidth,
-                capturedFrame.scanHeight,
-                autoColorVisionDiagnostics
-              );
+
+          let autoColorDecoded = false;
+          for (let profileIndex = 0; profileIndex < cropInsets.length; profileIndex++) {
+            const cropInset = cropInsets[profileIndex];
+            const cropped = cropImageDataInset(capturedFrame.imageData, cropInset);
+            const defaultAnalysisInsets = [0.10, 0.08, 0.04, 0.10];
+            const analysisInset = clampNumber(
+              Number(explicitAnalysisInsets?.[profileIndex]
+                ?? options.cameraAutoColorAnalysisInset
+                ?? defaultAnalysisInsets[Math.min(profileIndex, defaultAnalysisInsets.length - 1)]),
+              0,
+              0.30
+            );
+            const autoColorObservations = [];
+            const autoColorVisionDiagnostics = diagnosticsEnabled ? { passes: [] } : null;
+            const autoColorFrameDiagnostics = diagnosticsEnabled ? {} : null;
+            const cropLabel = cropInset ? `${Math.round(cropInset * 100)}pct-crop` : "full";
+            const profileName = `camera-auto-color-${cropLabel}`;
+            try {
+              const recoveryStarted = nowMs();
+              const correctedFrame = autoColorImageData(cropped.imageData, {
+                // This is intentionally performed on a centered recovery crop.
+                // A live preview can contain large dark borders, browser UI, a
+                // monitor bezel or room background. Those pixels completely
+                // change global Auto Color/Otsu statistics even though the QR
+                // itself looks identical to a saved crop. Photoshop succeeded
+                // because the user's edited image was effectively QR-centric.
+                blackClip: options.cameraAutoColorBlackClip ?? 0.0001,
+                whiteClip: options.cameraAutoColorWhiteClip ?? 0.004,
+                highlightPercentile: options.cameraAutoColorHighlightPercentile ?? 0.95,
+                outputHighlight: options.cameraAutoColorOutputHighlight ?? 190,
+                analysisInset,
+                minimumInputRange: options.cameraAutoColorMinimumInputRange ?? 72,
+                targetSamples: options.cameraAutoColorTargetSamples ?? 90000
+              });
+              const recovered = scanImageData(correctedFrame, {
+                ...options,
+                _diagnosticLabel: profileName,
+                _visionDiagnostics: autoColorVisionDiagnostics,
+                finderRecovery: true,
+                autoEnhanceRecovery: false,
+                fullFrameAutoEnhanceRecovery: false,
+                _observationCollector: autoColorObservations
+              });
+              if (autoColorFrameDiagnostics) {
+                normalizeFrameDiagnostics(
+                  autoColorFrameDiagnostics,
+                  capturedFrame.source ?? { x: 0, y: 0, width: capturedFrame.scanWidth, height: capturedFrame.scanHeight, cropped: false },
+                  correctedFrame.width,
+                  correctedFrame.height,
+                  autoColorVisionDiagnostics
+                );
+                autoColorFrameDiagnostics.frameWidth = capturedFrame.scanWidth;
+                autoColorFrameDiagnostics.frameHeight = capturedFrame.scanHeight;
+                autoColorFrameDiagnostics.scanRect = { ...cropped.rect };
+                autoColorFrameDiagnostics.autoColorCropInset = cropInset;
+                autoColorFrameDiagnostics.autoColorAnalysisInset = analysisInset;
+              }
+              const recoveryElapsedMs = nowMs() - recoveryStarted;
               emitDiagnostic({
                 type: "frame",
-                state: "miss",
-                method: "camera-auto-color",
-                elapsedMs: nowMs() - frameStarted,
+                state: "decoded",
+                method: profileName,
+                elapsedMs: recoveryElapsedMs,
                 missStreak,
-                ...autoColorFrameDiagnostics
+                ...(autoColorFrameDiagnostics ?? frameDiagnostics)
+              });
+              emitDiagnostic({
+                type: "success",
+                state: "decoded",
+                method: "camera-auto-color",
+                elapsedMs: recoveryElapsedMs,
+                message: `Auto Color ${cropInset ? `${Math.round(cropInset * 100)}% crop` : "full frame"} decoded v${recovered.version} · ECC ${recovered.eccLevel} · ${Math.round(recoveryElapsedMs)} ms`,
+                ...(autoColorFrameDiagnostics ?? frameDiagnostics)
+              });
+              capturedFrame.enhancedImageData = correctedFrame;
+              capturedFrame.enhancedRect = { ...cropped.rect };
+              capturedFrame.enhancement = {
+                method: "camera-auto-color",
+                cropInset,
+                analysisInset
+              };
+              missStreak = 0;
+              observationHistory.clear();
+              autoColorDecoded = true;
+              if (emitResult({
+                ...recovered,
+                autoColorCorrected: true,
+                cameraProgressiveRecovery: true,
+                recoveryMode: "camera-auto-color",
+                cameraAutoColorCropInset: cropInset,
+                cameraAutoColorAnalysisInset: analysisInset
+              }, capturedFrame, autoColorFrameDiagnostics ?? frameDiagnostics)) return;
+              break;
+            } catch (recoveryError) {
+              observations.push(...autoColorObservations);
+              if (autoColorFrameDiagnostics) {
+                normalizeFrameDiagnostics(
+                  autoColorFrameDiagnostics,
+                  capturedFrame.source ?? { x: 0, y: 0, width: capturedFrame.scanWidth, height: capturedFrame.scanHeight, cropped: false },
+                  cropped.imageData.width,
+                  cropped.imageData.height,
+                  autoColorVisionDiagnostics
+                );
+                autoColorFrameDiagnostics.frameWidth = capturedFrame.scanWidth;
+                autoColorFrameDiagnostics.frameHeight = capturedFrame.scanHeight;
+                autoColorFrameDiagnostics.scanRect = { ...cropped.rect };
+                autoColorFrameDiagnostics.autoColorCropInset = cropInset;
+                autoColorFrameDiagnostics.autoColorAnalysisInset = analysisInset;
+                emitDiagnostic({
+                  type: "frame",
+                  state: "miss",
+                  method: profileName,
+                  elapsedMs: nowMs() - frameStarted,
+                  missStreak,
+                  error: recoveryError?.message ?? String(recoveryError),
+                  ...autoColorFrameDiagnostics
+                });
+              }
+              emitDiagnostic({
+                type: "method",
+                state: "failed",
+                method: profileName,
+                message: `Auto Color ${cropInset ? `${Math.round(cropInset * 100)}% crop` : "full frame"} did not decode${autoColorFrameDiagnostics?.finderCount != null ? ` · ${autoColorFrameDiagnostics.finderCount} finder(s)` : ""}`,
+                ...(autoColorFrameDiagnostics ?? frameDiagnostics)
               });
             }
+          }
+          if (!autoColorDecoded) {
             emitDiagnostic({
               type: "method",
               state: "failed",
               method: "camera-auto-color",
-              message: "Camera Auto Color did not decode · continuing recovery",
-              ...(autoColorFrameDiagnostics ?? frameDiagnostics)
+              message: "All camera Auto Color profiles failed · continuing deeper recovery",
+              ...frameDiagnostics
             });
           }
         }
@@ -5206,6 +5316,7 @@ const internals = Object.freeze({
   selectBestFrameObservation,
   combineFrameObservations,
   visibleVideoSourceRect,
+  cropImageDataInset,
   HEADER_CODEWORD_CELLS,
   COMPACT_HEADER_CODEWORD_CELLS,
   CELLS_PER_BYTE,

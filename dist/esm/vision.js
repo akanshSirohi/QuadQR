@@ -683,33 +683,52 @@ export function detectCodeGeometry(imageData, options = {}) {
   if (options.finderRecovery === false) return [];
 
   // Camera recovery #1: Photoshop Auto Color-style per-channel levels before
-  // finder thresholding. This is intentionally the first fallback because a
-  // warm phone capture can make structural black brown/yellow and suppress the
-  // blue channel enough that the normal RGB-value image contains zero usable
-  // finder patterns. The corrected finder grayscale is cheaper than creating a
-  // full corrected RGB frame.
-  try {
-    const autoColorGray = buildAutoColorValueGray(imageData, {
-      // Strong Photoshop-like defaults are safe here because this pass runs
-      // only after the raw value/Otsu finder pass has already failed.
-      blackClip: options.finderAutoColorBlackClip ?? 0.0001,
-      whiteClip: options.finderAutoColorWhiteClip,
-      highlightPercentile: options.finderAutoColorHighlightPercentile ?? 0.95,
-      outputHighlight: options.finderAutoColorOutputHighlight ?? 190,
-      analysisInset: options.finderAutoColorAnalysisInset ?? 0.04,
-      minimumInputRange: options.finderAutoColorMinimumInputRange ?? 72,
-      targetSamples: options.finderAutoColorTargetSamples
-    });
-    const autoColorThreshold = otsuThreshold(autoColorGray);
-    const autoColor = evaluatePass({
-      finderMethod: "auto-color-value-otsu",
-      binary: binaryAtThreshold(autoColorGray, autoColorThreshold),
-      threshold: autoColorThreshold,
-      detector: { toleranceScale: 1.16, moduleSpreadLimit: 0.56 }
-    }, true);
-    if (autoColor.geometries.length) return autoColor.geometries.slice(0, maxCandidates);
-  } catch {
-    // Continue with raw threshold bracketing.
+  // finder thresholding. Live camera frames are usually much larger than the
+  // QR itself, so a single global histogram can be dominated by dark room/UI
+  // pixels around the guide. Photoshop looked strong in the user's cropped
+  // sample because its statistics were effectively code-centric. We emulate
+  // that by trying a few center-weighted analysis windows, while still applying
+  // each correction to the full frame so finder coordinates never move.
+  const requestedInsets = Array.isArray(options.finderAutoColorAnalysisInsets)
+    ? options.finderAutoColorAnalysisInsets
+    : (Number.isFinite(options.finderAutoColorAnalysisInset)
+      ? [options.finderAutoColorAnalysisInset]
+      : [0.10, 0.20, 0.04]);
+  const autoColorInsets = [];
+  for (const value of requestedInsets) {
+    const inset = clamp(Number(value), 0, 0.30);
+    if (!autoColorInsets.some((item) => Math.abs(item - inset) < 0.001)) autoColorInsets.push(inset);
+  }
+
+  for (const analysisInset of autoColorInsets) {
+    try {
+      const autoColorGray = buildAutoColorValueGray(imageData, {
+        blackClip: options.finderAutoColorBlackClip ?? 0.0001,
+        whiteClip: options.finderAutoColorWhiteClip,
+        highlightPercentile: options.finderAutoColorHighlightPercentile ?? 0.95,
+        outputHighlight: options.finderAutoColorOutputHighlight ?? 190,
+        analysisInset,
+        minimumInputRange: options.finderAutoColorMinimumInputRange ?? 72,
+        targetSamples: options.finderAutoColorTargetSamples
+      });
+      const base = otsuThreshold(autoColorGray);
+      const insetLabel = String(Math.round(analysisInset * 100)).padStart(2, "0");
+      const thresholds = [
+        { suffix: "otsu", value: base },
+        { suffix: "high", value: clamp(base + 12, 8, 247) }
+      ];
+      for (const thresholdInfo of thresholds) {
+        const autoColor = evaluatePass({
+          finderMethod: `auto-color-center${insetLabel}-${thresholdInfo.suffix}`,
+          binary: binaryAtThreshold(autoColorGray, thresholdInfo.value),
+          threshold: thresholdInfo.value,
+          detector: { toleranceScale: 1.22, moduleSpreadLimit: 0.60 }
+        }, true);
+        if (autoColor.geometries.length) return autoColor.geometries.slice(0, maxCandidates);
+      }
+    } catch {
+      // Try the next center weighting, then continue with raw threshold bracketing.
+    }
   }
 
   // Camera recovery #2: bracket the raw value-channel threshold, then retain
