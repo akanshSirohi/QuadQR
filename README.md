@@ -508,13 +508,58 @@ The `inset` style preserves the exact encoded R/G/B/W color around the center of
 
 ```js
 renderToCanvas(code, canvas, {
-  moduleSize: 12,
+  imageSize: 720,
   quietZone: 4,
   style: "inset" // classic | depth | soft | inset
 });
 ```
 
 The styling is deterministic. Generating the same matrix with the same style produces the same visual tile treatment rather than changing randomly on every render.
+
+`imageSize` sets the exact square output size in pixels. When neither `imageSize` nor `moduleSize` is supplied, QuadQR renders at **720 × 720 px** by default. `moduleSize` remains available as the lower-level legacy sizing control; when `imageSize` is supplied, the exact image size takes precedence.
+
+### Logo overlays, quiet zones, and SVG export
+
+The renderer can place a centered logo over the symbol. Transparent pixels in the logo stay transparent, so the QuadQR modules remain visible through those areas. Enable `clearBackground` when you want a clean padded white area behind the logo instead.
+
+```js
+const logoImage = new Image();
+logoImage.src = "/brand-mark.png";
+await logoImage.decode();
+
+renderToCanvas(code, canvas, {
+  imageSize: 720,
+  quietZone: 6,
+  style: "classic",
+  logo: {
+    source: logoImage,
+    size: 0.12,
+    clearBackground: true,
+    padding: 0.65,
+    radius: 0.8
+  }
+});
+```
+
+`quietZone` is measured in modules and can be set to `0` or increased for print/camera use. Four modules remains the recommended default.
+
+SVG uses the same matrix, palette, styles, quiet-zone size, and logo geometry:
+
+```js
+import { renderToSVG } from "quadqr-js";
+
+const svg = renderToSVG(code, {
+  imageSize: 720,
+  quietZone: 4,
+  logo: {
+    source: "data:image/png;base64,...",
+    size: 0.12,
+    clearBackground: true
+  }
+});
+```
+
+Logo overlays intentionally consume some ECC margin because they cover encoded cells. Keep logos conservative, especially with `L`/`M` ECC. The browser demo verifies the final rendered image before enabling downloads.
 
 ---
 
@@ -531,9 +576,11 @@ Use this tab to:
 - enter text/data;
 - generate a QuadQR code;
 - select ECC;
+- control the quiet zone;
+- add a centered transparent logo or clear a padded background behind it;
 - optionally encrypt using a password or raw 256-bit key;
 - inspect version and capacity;
-- download the generated image;
+- download PNG or SVG output;
 - scan an uploaded image.
 
 ### Camera Scanner
@@ -583,14 +630,15 @@ const result = decodeMatrix(code.matrix);
 console.log(result.text);
 ```
 
-Node PNG usage:
+Node PNG/SVG usage:
 
 ```js
 import { encodeText } from "quadqr-js";
-import { savePNG, scanFile } from "quadqr-js/node";
+import { savePNG, saveSVG, scanFile } from "quadqr-js/node";
 
 const code = encodeText("Generated on Node.js");
-await savePNG(code, "quadqr.png", { moduleSize: 12, quietZone: 4 });
+await savePNG(code, "quadqr.png", { imageSize: 720, quietZone: 4 });
+await saveSVG(code, "quadqr.svg", { imageSize: 720, quietZone: 4 });
 
 const result = await scanFile("quadqr.png");
 console.log(result.text);
@@ -862,7 +910,7 @@ The result reports fields such as `spectralInterleaving`, `confidenceAssisted`, 
 
 ### `renderToCanvas(codeOrMatrix, canvas, options?)`
 
-Renders a QuadQR symbol into a browser canvas. `options.style` supports `classic`, `depth`, `soft`, and `inset`.
+Renders a QuadQR symbol into a browser canvas. `imageSize` sets the exact square pixel output and defaults to 720 when neither sizing option is supplied. `moduleSize` remains available for legacy pixels-per-module sizing. `options.style` supports `classic`, `depth`, `soft`, and `inset`. `quietZone` controls the border in modules. `logo` accepts a loaded image/canvas source or `{ source, size, clearBackground, padding, radius, backgroundColor }`.
 
 ### `renderToImageData(codeOrMatrix, options?)`
 
@@ -877,6 +925,12 @@ Returns an ImageData-like object and supports the same rendering styles as `rend
 ```
 
 This is also useful for tests and non-DOM workflows.
+
+When a logo is used with `renderToImageData()`, its source must be an ImageData-like `{ width, height, data }` object so the renderer can composite it without DOM APIs.
+
+### `renderToSVG(codeOrMatrix, options?)`
+
+Returns a standalone SVG string using the same exact `imageSize`, render styles, and quiet-zone controls. SVG logo sources can be a URL/data URL string or an object with a `src` string. The SVG remains vector-sharp regardless of how large the preview is displayed.
 
 ### `scanImageData(imageData, options?)`
 

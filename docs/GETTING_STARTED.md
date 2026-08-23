@@ -28,19 +28,29 @@ If no version is supplied, QuadQR automatically chooses the smallest version tha
 ```js
 import {
   encodeText,
-  renderToCanvas
+  renderToCanvas,
+  renderToSVG
 } from "quadqr-js/browser";
 
 const code = encodeText("Rendered in the browser");
 
 renderToCanvas(code, document.querySelector("#qr"), {
-  moduleSize: 12,
+  imageSize: 720,
   quietZone: 4,
   style: "classic"
+});
+
+const svg = renderToSVG(code, {
+  imageSize: 720,
+  quietZone: 4
 });
 ```
 
 Available presentation styles are `classic`, `depth`, `soft`, and `inset`. Styling does not change the encoded matrix.
+
+`imageSize` is the exact square output dimension in pixels. If you omit both `imageSize` and `moduleSize`, the renderer defaults to 720 × 720 px. `moduleSize` is still available for low-level pixels-per-module sizing.
+
+To add a centered logo, load it as an `Image` and pass it as `logo.source`. Transparent logo pixels remain transparent. Use `clearBackground: true` when you want a padded white area behind the logo. `quietZone` is measured in modules and defaults to `4`.
 
 ## Scan an uploaded image
 
@@ -125,16 +135,21 @@ const code = await encodeSecureText("Application-managed secret", {
 
 The key must be exactly 32 bytes. Never embed the secret key inside the same QuadQR payload.
 
-## Generate and scan PNG files in Node.js
+## Generate PNG and SVG files in Node.js
 
 ```js
 import { encodeText } from "quadqr-js";
-import { savePNG, scanFile } from "quadqr-js/node";
+import { savePNG, saveSVG, scanFile } from "quadqr-js/node";
 
 const code = encodeText("Generated on Node.js");
 
 await savePNG(code, "quadqr.png", {
-  moduleSize: 12,
+  imageSize: 720,
+  quietZone: 4
+});
+
+await saveSVG(code, "quadqr.svg", {
+  imageSize: 720,
   quietZone: 4
 });
 
@@ -142,7 +157,7 @@ const result = await scanFile("quadqr.png");
 console.log(result.text);
 ```
 
-PNG generation and decoding are built into the Node.js adapter.
+PNG generation/decoding and SVG generation are built into the Node.js adapter.
 
 ## Use a script tag
 

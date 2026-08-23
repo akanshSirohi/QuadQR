@@ -9,10 +9,10 @@ import {
   encodeText,
   generateRaw256Key
 } from "../dist/index.js";
-import { savePNG, scanFile } from "../dist/node.js";
+import { savePNG, saveSVG, scanFile } from "../dist/node.js";
 
 function help() {
-  console.log(`QuadQR CLI\n\nUsage:\n  quadqr encode <text> [-o file.png] [--ecc M] [--version auto|1..40]\n  quadqr encode <text> --password <password> [-o file.png]\n  quadqr encode <text> --key <64-hex-key> [-o file.png]\n  quadqr decode <file.png> [--password <password> | --key <64-hex-key>]\n  quadqr keygen\n\nOptions:\n  -o, --output <file>       Output PNG path (default: quadqr.png)\n  --ecc <L|M|Q|H>          ECC profile (default: M)\n  --version <auto|1..40>    Symbol version (default: auto)\n  --password <text>         Encrypt/decrypt with password mode\n  --key <hex>               Encrypt/decrypt with raw 256-bit key mode\n  --module-size <px>        PNG module size (default: 12)\n  --quiet-zone <modules>    PNG quiet zone (default: 4)\n  -h, --help                Show help\n`);
+  console.log(`QuadQR CLI\n\nUsage:\n  quadqr encode <text> [-o file.png|file.svg] [--ecc M] [--version auto|1..40]\n  quadqr encode <text> --password <password> [-o file.png|file.svg]\n  quadqr encode <text> --key <64-hex-key> [-o file.png|file.svg]\n  quadqr decode <file.png> [--password <password> | --key <64-hex-key>]\n  quadqr keygen\n\nOptions:\n  -o, --output <file>       Output PNG or SVG path (default: quadqr.png)\n  --ecc <L|M|Q|H>          ECC profile (default: M)\n  --version <auto|1..40>    Symbol version (default: auto)\n  --password <text>         Encrypt/decrypt with password mode\n  --key <hex>               Encrypt/decrypt with raw 256-bit key mode\n  --image-size <px>         Exact square output size (default: 720)\n  --module-size <px>        Legacy pixels-per-module sizing\n  --quiet-zone <modules>    Quiet zone in modules (default: 4)\n  -h, --help                Show help\n`);
 }
 
 function parse(argv) {
@@ -26,6 +26,7 @@ function parse(argv) {
     else if (token === "--version") flags.version = argv[++i];
     else if (token === "--password") flags.password = argv[++i];
     else if (token === "--key") flags.key = argv[++i];
+    else if (token === "--image-size") flags.imageSize = Number(argv[++i]);
     else if (token === "--module-size") flags.moduleSize = Number(argv[++i]);
     else if (token === "--quiet-zone") flags.quietZone = Number(argv[++i]);
     else args.push(token);
@@ -62,10 +63,17 @@ async function main() {
         : encodeText(text, options);
 
     const output = flags.output || "quadqr.png";
-    const saved = await savePNG(code, output, {
-      moduleSize: flags.moduleSize || 12,
-      quietZone: Number.isFinite(flags.quietZone) ? flags.quietZone : 4
-    });
+    const renderOptions = {
+      quietZone: Number.isFinite(flags.quietZone) ? flags.quietZone : 4,
+      ...(Number.isFinite(flags.imageSize)
+        ? { imageSize: flags.imageSize }
+        : Number.isFinite(flags.moduleSize)
+          ? { moduleSize: flags.moduleSize }
+          : { imageSize: 720 })
+    };
+    const saved = output.toLowerCase().endsWith(".svg")
+      ? await saveSVG(code, output, renderOptions)
+      : await savePNG(code, output, renderOptions);
     console.log(`Saved ${output} (${saved.bytes} bytes, v${code.version}, ${code.size}x${code.size}, ECC ${code.eccLevel}).`);
     return;
   }

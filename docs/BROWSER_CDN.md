@@ -8,6 +8,7 @@ With Vite, webpack, Rollup, Next.js client code, or another browser bundler:
 import {
   encodeText,
   renderToCanvas,
+  renderToSVG,
   scanFile,
   startCameraScanner
 } from "quadqr-js/browser";
@@ -21,10 +22,17 @@ The main `quadqr-js` entry also works in modern browser bundlers for runtime-neu
 const code = encodeText("Hello browser");
 
 renderToCanvas(code, document.querySelector("#qr"), {
-  moduleSize: 12,
+  imageSize: 720,
   quietZone: 4,
   style: "classic"
 });
+
+const svg = renderToSVG(code, {
+  imageSize: 720,
+  quietZone: 4
+});
+
+`imageSize` controls the exact square output size. If neither `imageSize` nor `moduleSize` is supplied, the renderer defaults to 720 × 720 px.
 ```
 
 Available styles are `classic`, `depth`, `soft`, and `inset`.
@@ -93,7 +101,7 @@ The global browser build exposes `window.QuadQR` / `globalThis.QuadQR`.
   const code = QuadQR.encodeText("Hello CDN");
 
   QuadQR.renderToCanvas(code, document.querySelector("#qr"), {
-    moduleSize: 12,
+    imageSize: 720,
     quietZone: 4
   });
 </script>

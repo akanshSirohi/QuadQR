@@ -16,6 +16,7 @@ import {
   getVersionInfo,
   internals,
   renderToImageData,
+  renderToSVG,
   rotateMatrix,
   scanImageData
 } from "../library/quadqr.js";
@@ -882,6 +883,74 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
     });
     assert.equal(decoded.text, text, `${style} renderer must remain decodable`);
   }
+}
+
+// Exact output sizing defaults to 720px and imageSize takes precedence over
+// the legacy pixels-per-module moduleSize option.
+{
+  const text = "QuadQR exact image size";
+  const encoded = encodeText(text, { ecc: "M" });
+
+  const defaultImage = renderToImageData(encoded, { quietZone: 4 });
+  assert.equal(defaultImage.width, 720);
+  assert.equal(defaultImage.height, 720);
+  assert.equal(scanImageData(defaultImage, { minVersion: encoded.version, maxVersion: encoded.version }).text, text);
+
+  const exact = renderToImageData(encoded, { imageSize: 721, moduleSize: 5, quietZone: 4 });
+  assert.equal(exact.width, 721);
+  assert.equal(exact.height, 721);
+  assert.equal(scanImageData(exact, { minVersion: encoded.version, maxVersion: encoded.version }).text, text);
+
+  const svg = renderToSVG(encoded, { imageSize: 1024, quietZone: 4 });
+  assert.ok(svg.includes('width="1024" height="1024"'));
+}
+
+// Logo overlays, cleared logo backgrounds, quiet-zone control, and SVG export
+// are rendering features only. A conservative logo size must stay decodable.
+{
+  const text = "QuadQR logo + SVG";
+  const encoded = encodeText(text, { version: 5, ecc: "M" });
+  const logo = {
+    width: 8,
+    height: 8,
+    data: new Uint8ClampedArray(8 * 8 * 4)
+  };
+  for (let i = 0; i < 8 * 8; i++) {
+    const p = i * 4;
+    logo.data[p] = 24;
+    logo.data[p + 1] = 24;
+    logo.data[p + 2] = 24;
+    logo.data[p + 3] = 255;
+  }
+
+  const image = renderToImageData(encoded, {
+    moduleSize: 8,
+    quietZone: 6,
+    logo: {
+      source: logo,
+      size: 0.10,
+      clearBackground: true
+    }
+  });
+  assert.equal(image.width, (encoded.size + 12) * 8);
+  const decoded = scanImageData(image, {
+    minVersion: encoded.version,
+    maxVersion: encoded.version
+  });
+  assert.equal(decoded.text, text);
+
+  const svg = renderToSVG(encoded, {
+    moduleSize: 8,
+    quietZone: 6,
+    logo: {
+      source: "data:image/png;base64,AA==",
+      size: 0.10,
+      clearBackground: true
+    }
+  });
+  assert.ok(svg.startsWith('<?xml version="1.0"'));
+  assert.ok(svg.includes("<image "));
+  assert.ok(svg.includes(`width="${(encoded.size + 12) * 8}"`));
 }
 
 // The inset edge-only style must also survive perspective correction and

@@ -6,12 +6,13 @@ The npm package includes the `quadqr` executable and can be used directly throug
 
 ```bash
 npx quadqr-js encode "Hello QuadQR" -o hello.png
+npx quadqr-js encode "Hello QuadQR" -o hello.svg
 ```
 
 Optional encoding controls:
 
 ```bash
-npx quadqr-js encode "Hello" --ecc M --version auto --module-size 12 --quiet-zone 4 -o hello.png
+npx quadqr-js encode "Hello" --ecc M --version auto --image-size 720 --quiet-zone 4 -o hello.png
 ```
 
 ## Decode an image
@@ -64,13 +65,14 @@ npx quadqr-js decode secure-key.png --key <64-hex-key>
 
 | Option | Purpose |
 | --- | --- |
-| `-o, --output <file>` | Output PNG path. Default: `quadqr.png` |
+| `-o, --output <file>` | Output PNG or SVG path. `.svg` selects vector export. Default: `quadqr.png` |
 | `--ecc <L|M|Q|H>` | QuadQR ECC profile. Default: `M` |
 | `--version <auto|1..40>` | Symbol version. Default: `auto` |
 | `--password <text>` | Password-mode encryption/decryption |
 | `--key <hex>` | Raw 256-bit key encryption/decryption |
-| `--module-size <px>` | PNG pixels per module. Default: `12` |
-| `--quiet-zone <modules>` | Quiet-zone size. Default: `4` |
+| `--image-size <px>` | Exact square output size in pixels. Default: `720` |
+| `--module-size <px>` | Legacy pixels-per-module sizing. Used when `--image-size` is omitted |
+| `--quiet-zone <modules>` | Quiet-zone size in modules. Default: `4` |
 | `-h, --help` | Show CLI help |
 
 Password mode and raw-key mode are mutually exclusive for a single operation.

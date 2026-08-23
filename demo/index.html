@@ -59,13 +59,28 @@
             </label>
 
             <label class="field">
-              <span>Module size</span>
-              <select id="moduleSize">
-                <option value="8">8 px</option>
-                <option value="10">10 px</option>
-                <option value="12" selected>12 px</option>
-                <option value="16">16 px</option>
-                <option value="20">20 px</option>
+              <span>Output size</span>
+              <select id="imageSize">
+                <option value="360">360 × 360 px</option>
+                <option value="512">512 × 512 px</option>
+                <option value="720" selected>720 × 720 px · standard</option>
+                <option value="1024">1024 × 1024 px</option>
+                <option value="1440">1440 × 1440 px</option>
+                <option value="2048">2048 × 2048 px</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Quiet zone</span>
+              <select id="quietZone">
+                <option value="0">0 modules</option>
+                <option value="1">1 module</option>
+                <option value="2">2 modules</option>
+                <option value="3">3 modules</option>
+                <option value="4" selected>4 modules</option>
+                <option value="5">5 modules</option>
+                <option value="6">6 modules</option>
+                <option value="8">8 modules</option>
               </select>
             </label>
 
@@ -80,6 +95,51 @@
             </label>
           </div>
           <p id="styleHint" class="style-hint">Classic keeps every module fully solid. Styles only change rendering, never the encoded data.</p>
+
+          <div class="logo-box">
+            <div class="security-head">
+              <div>
+                <p class="kicker">CENTER LOGO</p>
+                <strong>Optional branding overlay</strong>
+              </div>
+              <span class="security-badge">PNG · JPG · WEBP · SVG</span>
+            </div>
+
+            <div class="field">
+              <span>Logo image</span>
+              <label id="logoUpload" class="logo-upload" for="logoFile">
+                <input id="logoFile" class="logo-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
+                <span class="logo-upload-icon" aria-hidden="true">+</span>
+                <span class="logo-upload-copy">
+                  <strong id="logoFileName">Choose a logo</strong>
+                  <small id="logoFileMeta">PNG, JPG, WEBP or SVG</small>
+                </span>
+                <span class="logo-upload-action">Browse</span>
+              </label>
+            </div>
+
+            <div class="row logo-options">
+              <label class="field">
+                <span>Logo size</span>
+                <select id="logoSize">
+                  <option value="0.10">10% · safest</option>
+                  <option value="0.12" selected>12% · recommended</option>
+                  <option value="0.15">15%</option>
+                  <option value="0.18">18%</option>
+                  <option value="0.22">22% · higher ECC recommended</option>
+                </select>
+              </label>
+
+              <label class="toggle-field" for="logoClearBackground">
+                <input id="logoClearBackground" type="checkbox" checked />
+                <span>
+                  <strong>Clear logo background</strong>
+                  <small>Removes modules under the logo with a padded white background.</small>
+                </span>
+              </label>
+            </div>
+            <p class="style-hint">Transparent logo pixels are preserved. Larger logos or a cleared background consume more ECC margin, so Generate + verify will reject combinations that no longer decode.</p>
+          </div>
 
           <div class="security-box">
             <div class="security-head">
@@ -120,6 +180,7 @@
           <div class="actions">
             <button id="generateBtn" class="primary">Generate + verify</button>
             <button id="downloadBtn" class="secondary" disabled>Download PNG</button>
+            <button id="downloadSvgBtn" class="secondary" disabled>Download SVG</button>
           </div>
 
           <div id="errorBox" class="error hidden"></div>
@@ -131,14 +192,17 @@
               <p class="kicker">Output</p>
               <h2>Code</h2>
             </div>
+            <span class="security-badge">SVG PREVIEW</span>
           </div>
 
-          <div class="canvas-wrap">
-            <canvas id="qrCanvas" aria-label="Generated QuadQR code"></canvas>
+          <div class="canvas-wrap svg-preview-wrap">
+            <div id="qrPreview" class="qr-svg-preview" role="img" aria-label="Generated QuadQR SVG preview"></div>
           </div>
+          <canvas id="qrCanvas" class="verification-canvas" aria-hidden="true"></canvas>
 
           <dl id="stats" class="stats">
             <div><dt>Matrix</dt><dd>--</dd></div>
+            <div><dt>Output</dt><dd>--</dd></div>
             <div><dt>Payload</dt><dd>--</dd></div>
             <div><dt>Capacity</dt><dd>--</dd></div>
             <div><dt>Density</dt><dd>--</dd></div>

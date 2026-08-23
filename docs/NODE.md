@@ -10,7 +10,7 @@ Node.js 20.19 or newer.
 
 ```js
 import { encodeText } from "quadqr-js";
-import { savePNG, scanFile } from "quadqr-js/node";
+import { savePNG, saveSVG, scanFile } from "quadqr-js/node";
 ```
 
 ## CommonJS
@@ -26,10 +26,24 @@ const QuadQRNode = require("quadqr-js/node");
 const code = QuadQR.encodeText("Server generated");
 
 await QuadQRNode.savePNG(code, "output.png", {
-  moduleSize: 12,
+  imageSize: 720,
   quietZone: 4
 });
 ```
+
+## Generate an SVG
+
+```js
+await QuadQRNode.saveSVG(code, "output.svg", {
+  imageSize: 720,
+  quietZone: 4,
+  style: "classic"
+});
+```
+
+`imageSize` is the exact PNG/SVG output dimension in pixels. If you omit both `imageSize` and `moduleSize`, rendering defaults to 720 × 720 px. `moduleSize` remains available for legacy pixels-per-module sizing.
+
+Use `toSVG()` when you need the SVG string in memory. SVG logo sources can be URL/data URL strings. For PNG generation with a logo through `renderToImageData()`, pass decoded ImageData-like RGBA pixels as the logo source.
 
 Use `toPNG()` when you need an in-memory `Buffer`:
 

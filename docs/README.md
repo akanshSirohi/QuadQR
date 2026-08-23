@@ -1,6 +1,6 @@
 # QuadQR Documentation
 
-QuadQR is an experimental four-state RGBW matrix symbology. Each data cell carries exactly two bits using red, green, blue, or white. The JavaScript library supports encoding, rendering, matrix decoding, image and camera scanning, Spectrum ECC, optional authenticated encryption, Node.js PNG workflows, CDN usage, a CLI, TypeScript declarations, and optional prebuilt WebAssembly acceleration.
+QuadQR is an experimental four-state RGBW matrix symbology. Each data cell carries exactly two bits using red, green, blue, or white. The JavaScript library supports encoding, canvas/RGBA/SVG rendering, adjustable quiet zones, optional centered logos with transparent or cleared backgrounds, matrix decoding, image and camera scanning, Spectrum ECC, optional authenticated encryption, Node.js PNG/SVG workflows, CDN usage, a CLI, TypeScript declarations, and optional prebuilt WebAssembly acceleration.
 
 ## Live links
 
@@ -26,7 +26,7 @@ QuadQR is an experimental four-state RGBW matrix symbology. Each data cell carri
 | --- | --- |
 | `quadqr-js` | Runtime-neutral core API, rendering, scanning, secure payloads, utilities, and optional WASM |
 | `quadqr-js/browser` | Browser ESM entry for canvas, files, video, and camera workflows |
-| `quadqr-js/node` | Node.js core plus PNG, file, and buffer helpers |
+| `quadqr-js/node` | Node.js core plus PNG/SVG, file, and buffer helpers |
 | `quadqr-js/benchmark` | Capacity and codec benchmark helpers |
 | `quadqr-js/quadqr.min.js` | Classic browser global bundle for CDN/script-tag usage |
 

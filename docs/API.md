@@ -110,11 +110,31 @@ Renders to an HTML canvas.
 
 ```js
 renderToCanvas(code, canvas, {
-  moduleSize: 12,
+  imageSize: 720,
   quietZone: 4,
-  style: "classic"
+  style: "classic",
+  logo: {
+    source: loadedImage,
+    size: 0.12,
+    clearBackground: true,
+    padding: 0.65,
+    radius: 0.8
+  }
 });
 ```
+
+`imageSize` sets the exact square output width/height in pixels. The default is `720` when neither `imageSize` nor `moduleSize` is provided. `moduleSize` remains supported as a lower-level pixels-per-module sizing option and is used when `imageSize` is omitted.
+
+`quietZone` is measured in modules. The default is `4`.
+
+Logo options:
+
+- `source`: loaded CanvasImageSource for canvas rendering, ImageData-like RGBA data for `renderToImageData()`, or URL/data URL for SVG.
+- `size`: fraction of the matrix width/height, clamped to `0.05..0.30`. Default `0.18`.
+- `clearBackground`: clears modules behind the logo using a solid background before drawing the logo.
+- `padding`: clear-background padding in modules. Default `0.65`.
+- `radius`: clear-background corner radius in modules. Default `0.8`.
+- `backgroundColor`: background color when clearing. Defaults to palette white.
 
 Supported styles:
 
@@ -133,6 +153,23 @@ Returns runtime-neutral RGBA pixels:
   height,
   data: Uint8ClampedArray
 }
+```
+
+### `renderToSVG(codeOrMatrix, options?)`
+
+Returns a standalone SVG string. It supports the same exact `imageSize`, palette, render style, quiet-zone, and logo geometry options as the browser canvas renderer. Because the preview/export is vector, it stays sharp when displayed above or below its nominal pixel size.
+
+```js
+const svg = renderToSVG(code, {
+  imageSize: 720,
+  quietZone: 6,
+  style: "soft",
+  logo: {
+    source: "data:image/png;base64,...",
+    size: 0.12,
+    clearBackground: true
+  }
+});
 ```
 
 ## Image and camera scanning
@@ -225,7 +262,22 @@ Writes a PNG file.
 
 ```js
 await savePNG(code, "quadqr.png", {
-  moduleSize: 12,
+  imageSize: 720,
+  quietZone: 4
+});
+```
+
+### `toSVG(codeOrMatrix, options?)`
+
+Returns the standalone SVG string from the Node entry point.
+
+### `saveSVG(codeOrMatrix, filename, options?)`
+
+Writes SVG directly to disk.
+
+```js
+await saveSVG(code, "quadqr.svg", {
+  imageSize: 720,
   quietZone: 4
 });
 ```

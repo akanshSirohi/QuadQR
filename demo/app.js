@@ -5,6 +5,7 @@ import {
   generateRaw256Key,
   bytesToHex,
   renderToCanvas,
+  renderToSVG,
   scanImageData,
   scanFile,
   startCameraScanner,
@@ -16,9 +17,16 @@ import { buildCapacityComparison, benchmarkCodec } from "../library/benchmark.js
 const payloadEl = document.querySelector("#payload");
 const versionEl = document.querySelector("#version");
 const eccLevelEl = document.querySelector("#eccLevel");
-const moduleSizeEl = document.querySelector("#moduleSize");
+const imageSizeEl = document.querySelector("#imageSize");
+const quietZoneEl = document.querySelector("#quietZone");
 const renderStyleEl = document.querySelector("#renderStyle");
 const styleHintEl = document.querySelector("#styleHint");
+const logoFileEl = document.querySelector("#logoFile");
+const logoUploadEl = document.querySelector("#logoUpload");
+const logoFileNameEl = document.querySelector("#logoFileName");
+const logoFileMetaEl = document.querySelector("#logoFileMeta");
+const logoSizeEl = document.querySelector("#logoSize");
+const logoClearBackgroundEl = document.querySelector("#logoClearBackground");
 const securityModeEl = document.querySelector("#securityMode");
 const passwordSecurityFieldsEl = document.querySelector("#passwordSecurityFields");
 const rawKeySecurityFieldsEl = document.querySelector("#rawKeySecurityFields");
@@ -28,7 +36,9 @@ const generateRawKeyBtn = document.querySelector("#generateRawKeyBtn");
 const securityHintEl = document.querySelector("#securityHint");
 const generateBtn = document.querySelector("#generateBtn");
 const downloadBtn = document.querySelector("#downloadBtn");
+const downloadSvgBtn = document.querySelector("#downloadSvgBtn");
 const canvas = document.querySelector("#qrCanvas");
+const qrPreviewEl = document.querySelector("#qrPreview");
 const verificationPill = document.querySelector("#verificationPill");
 const statsEl = document.querySelector("#stats");
 const errorBox = document.querySelector("#errorBox");
@@ -60,6 +70,9 @@ const capacityBenchmarkBody = document.querySelector("#capacityBenchmarkBody");
 const speedBenchmarkBody = document.querySelector("#speedBenchmarkBody");
 
 let currentCode = null;
+let currentRenderOptions = null;
+let currentLogoImage = null;
+let currentLogoDataUrl = null;
 let cameraController = null;
 let cameraLogLines = [];
 let lastCameraLogSignature = "";
@@ -100,9 +113,72 @@ function clearError() {
   errorBox.classList.add("hidden");
 }
 
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error || new Error("Unable to read logo image."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(source) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Unable to load the selected logo image."));
+    image.src = source;
+  });
+}
+
+function formatFileSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function updateLogoUploadUi(file = null) {
+  logoUploadEl.classList.toggle("has-file", Boolean(file));
+  logoFileNameEl.textContent = file?.name || "Choose a logo";
+  logoFileMetaEl.textContent = file
+    ? [file.type?.replace("image/", "").replace("svg+xml", "SVG").toUpperCase(), formatFileSize(file.size)].filter(Boolean).join(" · ")
+    : "PNG, JPG, WEBP or SVG";
+}
+
+function updateSvgPreview(svg) {
+  qrPreviewEl.innerHTML = svg.replace(/^<\?xml[^>]*>\s*/i, "");
+  const element = qrPreviewEl.querySelector("svg");
+  if (!element) return;
+  element.removeAttribute("width");
+  element.removeAttribute("height");
+  element.setAttribute("aria-hidden", "true");
+}
+
+function generatorRenderOptions({ svg = false } = {}) {
+  const options = {
+    imageSize: Number(imageSizeEl.value),
+    quietZone: Number(quietZoneEl.value),
+    style: renderStyleEl.value
+  };
+
+  if (currentLogoImage && currentLogoDataUrl) {
+    options.logo = {
+      source: svg ? currentLogoDataUrl : currentLogoImage,
+      size: Number(logoSizeEl.value),
+      clearBackground: logoClearBackgroundEl.checked,
+      padding: 0.65,
+      radius: 0.8
+    };
+  }
+
+  return options;
+}
+
 function updateStats(code) {
   const values = [
     `${code.size}×${code.size} (v${code.version})`,
+    `${Number(imageSizeEl.value)}×${Number(imageSizeEl.value)} px`,
     `${code.payloadBytes} B`,
     `${code.capacityBytes} B`,
     `${code.bitsPerDataCell} bits/cell`,
@@ -252,11 +328,8 @@ async function generate() {
       ? await encodeSecureText(payloadEl.value, { ...commonOptions, security })
       : encodeText(payloadEl.value, commonOptions);
 
-    renderToCanvas(code, canvas, {
-      moduleSize: Number(moduleSizeEl.value),
-      quietZone: 4,
-      style: renderStyleEl.value
-    });
+    const renderOptions = generatorRenderOptions();
+    renderToCanvas(code, canvas, renderOptions);
 
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -271,7 +344,10 @@ async function generate() {
     }
 
     currentCode = code;
+    currentRenderOptions = renderOptions;
+    updateSvgPreview(renderToSVG(code, generatorRenderOptions({ svg: true })));
     downloadBtn.disabled = false;
+    downloadSvgBtn.disabled = false;
     updateStats(code);
     setPill(
       verificationPill,
@@ -280,7 +356,10 @@ async function generate() {
     );
   } catch (error) {
     currentCode = null;
+    currentRenderOptions = null;
+    qrPreviewEl.innerHTML = "";
     downloadBtn.disabled = true;
+    downloadSvgBtn.disabled = true;
     setPill(verificationPill, "bad", "Verification failed");
     showError(error.message);
   } finally {
@@ -797,14 +876,44 @@ generateBtn.addEventListener("click", generate);
 securityModeEl.addEventListener("change", () => {
   updateSecurityUi();
   currentCode = null;
+  currentRenderOptions = null;
   downloadBtn.disabled = true;
+  downloadSvgBtn.disabled = true;
   setPill(verificationPill, "neutral", "Security changed");
 });
 generateRawKeyBtn.addEventListener("click", () => {
   securityRawKeyEl.value = bytesToHex(generateRaw256Key());
   securityRawKeyEl.focus();
 });
-moduleSizeEl.addEventListener("change", () => currentCode && generate());
+imageSizeEl.addEventListener("change", () => currentCode && generate());
+quietZoneEl.addEventListener("change", () => currentCode && generate());
+logoSizeEl.addEventListener("change", () => currentCode && generate());
+logoClearBackgroundEl.addEventListener("change", () => currentCode && generate());
+logoFileEl.addEventListener("change", async () => {
+  const file = logoFileEl.files?.[0];
+  if (!file) {
+    currentLogoImage = null;
+    currentLogoDataUrl = null;
+    updateLogoUploadUi();
+    if (currentCode) generate();
+    return;
+  }
+
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    const image = await loadImage(dataUrl);
+    currentLogoDataUrl = dataUrl;
+    currentLogoImage = image;
+    updateLogoUploadUi(file);
+    await generate();
+  } catch (error) {
+    currentLogoImage = null;
+    currentLogoDataUrl = null;
+    logoFileEl.value = "";
+    updateLogoUploadUi();
+    showError(error.message);
+  }
+});
 renderStyleEl.addEventListener("change", () => {
   const hints = {
     classic: "Classic keeps every module fully solid. Styles only change rendering, never the encoded data.",
@@ -826,6 +935,18 @@ downloadBtn.addEventListener("click", () => {
   link.download = `quadqr-v${currentCode.version}-${currentCode.eccLevel}.png`;
   link.href = canvas.toDataURL("image/png");
   link.click();
+});
+
+downloadSvgBtn.addEventListener("click", () => {
+  if (!currentCode) return;
+  const svg = renderToSVG(currentCode, generatorRenderOptions({ svg: true }));
+  const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.download = `quadqr-v${currentCode.version}-${currentCode.eccLevel}.svg`;
+  link.href = url;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 });
 
 scanFileEl.addEventListener("change", async () => {

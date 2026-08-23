@@ -82,6 +82,21 @@ export interface ImageDataLike {
   data: Uint8ClampedArray | Uint8Array;
 }
 
+export interface LogoRenderOptions {
+  /** Loaded CanvasImageSource in canvas rendering, ImageDataLike in pixel rendering, or URL/data URL in SVG rendering. */
+  source: CanvasImageSource | ImageDataLike | string;
+  /** Logo width/height as a fraction of the symbol area. Clamped to 0.05..0.30. Default: 0.18. */
+  size?: number;
+  /** Clear the modules behind the logo with a solid background before drawing it. */
+  clearBackground?: boolean;
+  /** Background padding around the logo in modules. Default: 0.65. */
+  padding?: number;
+  /** Rounded background corner radius in modules. Default: 0.8. */
+  radius?: number;
+  /** Background color used when clearBackground is enabled. Default: palette white. */
+  backgroundColor?: string;
+}
+
 export interface CameraFinderDiagnostic {
   x: number;
   y: number;
@@ -128,10 +143,19 @@ export interface CameraDiagnosticEvent {
 }
 
 export interface RenderOptions {
+  /** Exact square output size in pixels. If neither imageSize nor moduleSize is supplied, defaults to 720. */
+  imageSize?: number;
+  /** Legacy/low-level pixels per module sizing. Used when imageSize is not supplied. */
   moduleSize?: number;
   quietZone?: number;
   palette?: Palette;
   style?: RenderStyle;
+  logo?: CanvasImageSource | ImageDataLike | string | LogoRenderOptions;
+  logoSize?: number;
+  logoClearBackground?: boolean;
+  logoPadding?: number;
+  logoRadius?: number;
+  logoBackgroundColor?: string;
   [key: string]: unknown;
 }
 
@@ -241,6 +265,7 @@ export function decodeMatrix(matrix: number[][], options?: Record<string, unknow
 export function decryptDecoded(result: DecodeResult, credentials: { password: string } | { key: string | Uint8Array | ArrayBuffer }): Promise<DecodeResult>;
 export function renderToCanvas(codeOrMatrix: QuadQRCode | number[][], canvas: HTMLCanvasElement, options?: RenderOptions): HTMLCanvasElement;
 export function renderToImageData(codeOrMatrix: QuadQRCode | number[][], options?: RenderOptions): ImageDataLike;
+export function renderToSVG(codeOrMatrix: QuadQRCode | number[][], options?: RenderOptions): string;
 export function scanImageData(imageData: ImageDataLike, options?: ScanOptions): DecodeResult;
 export function scanFile(file: Blob, options?: ScanOptions): Promise<DecodeResult>;
 export function scanVideoFrame(video: HTMLVideoElement, options?: ScanOptions): DecodeResult;

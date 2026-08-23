@@ -66,7 +66,7 @@
         <div class="cards three">
           <article><strong>Core</strong><code>quadqr-js</code><p>Encoding, decoding, secure payloads, RGBA scanning, rendering, utilities, and optional WASM.</p></article>
           <article><strong>Browser</strong><code>quadqr-js/browser</code><p>Browser ESM entry for canvas rendering, image files, video frames, and live camera scanning.</p></article>
-          <article><strong>Node.js</strong><code>quadqr-js/node</code><p>Shared core plus PNG generation, file scanning, and buffer scanning.</p></article>
+          <article><strong>Node.js</strong><code>quadqr-js/node</code><p>Shared core plus PNG/SVG generation, file scanning, and buffer scanning.</p></article>
         </div>
       </section>
 
@@ -88,12 +88,20 @@ console.log(result.text); // Hello QuadQR</code></pre></div>
         <div class="code"><button data-copy>Copy</button><pre><code>import {
   encodeText,
   renderToCanvas,
+  renderToSVG,
   scanFile,
   startCameraScanner
 } from "quadqr-js/browser";
 
 const code = encodeText("Hello from the browser", { ecc: "M" });
-renderToCanvas(code, document.querySelector("#qr"));
+renderToCanvas(code, document.querySelector("#qr"), {
+  quietZone: 4
+});
+
+const svg = renderToSVG(code, {
+  imageSize: 720,
+  quietZone: 4
+});
 
 // Image upload
 const fileInput = document.querySelector("#image");
@@ -118,13 +126,18 @@ scanner = await startCameraScanner(document.querySelector("#video"), {
 
       <section id="node">
         <span class="eyebrow">NODE.JS</span>
-        <h2>Generate and scan PNG files on the server</h2>
+        <h2>Generate PNG/SVG files and scan images on the server</h2>
         <div class="code"><button data-copy>Copy</button><pre><code>import { encodeText } from "quadqr-js";
-import { savePNG, scanFile } from "quadqr-js/node";
+import { savePNG, saveSVG, scanFile } from "quadqr-js/node";
 
 const code = encodeText("Generated on Node.js");
 await savePNG(code, "quadqr.png", {
-  moduleSize: 12,
+  imageSize: 720,
+  quietZone: 4
+});
+
+await saveSVG(code, "quadqr.svg", {
+  imageSize: 720,
   quietZone: 4
 });
 
@@ -179,13 +192,23 @@ console.log(result.text);</code></pre></div>
 
       <section id="rendering">
         <span class="eyebrow">RENDERING</span>
-        <h2>Use the same matrix with multiple visual styles</h2>
+        <h2>Use styles, logos, quiet zones, and vector export</h2>
         <div class="code"><button data-copy>Copy</button><pre><code>renderToCanvas(code, document.querySelector("#qr"), {
-  moduleSize: 12,
-  quietZone: 4,
-  style: "classic" // classic | depth | soft | inset
+  imageSize: 720,
+  quietZone: 6,
+  style: "classic", // classic | depth | soft | inset
+  logo: {
+    source: loadedLogoImage,
+    size: 0.12,
+    clearBackground: true
+  }
+});
+
+const svg = renderToSVG(code, {
+  imageSize: 720,
+  quietZone: 6
 });</code></pre></div>
-        <p>Styles affect presentation only. They do not change the encoded matrix, payload, or wire format.</p>
+        <p>Styles and quiet-zone size do not change the encoded matrix. Transparent logo pixels are preserved. Clearing the logo background intentionally covers modules, so conservative logo sizes are recommended to preserve ECC margin.</p>
       </section>
 
       <section id="api">
@@ -202,6 +225,7 @@ console.log(result.text);</code></pre></div>
           <article><code>decryptDecoded()</code><p>Unlock secure scan results.</p></article>
           <article><code>renderToCanvas()</code><p>Render in a browser canvas.</p></article>
           <article><code>renderToImageData()</code><p>Render runtime-neutral RGBA pixels.</p></article>
+          <article><code>renderToSVG()</code><p>Render a standalone vector SVG.</p></article>
           <article><code>getVersionInfo()</code><p>Inspect capacity and geometry.</p></article>
           <article><code>initWasm()</code><p>Enable optional WASM acceleration.</p></article>
         </div>
