@@ -19,6 +19,7 @@ QuadQR is an experimental four-state RGBW matrix symbology. Each data cell carri
 - [Secure Payloads](./SECURITY.md)
 - [WebAssembly](./WASM.md)
 - [Wire Format](../FORMAT.md)
+- [Technical Specification](../SPECIFICATION.md)
 
 ## Package entry points
 
@@ -39,3 +40,20 @@ QuadQR is a custom experimental format, not ISO QR Code. Standard QR scanner app
 ## License
 
 QuadQR is licensed under AGPL-3.0. See [`LICENSE`](../LICENSE).
+
+## Advanced reliability and payload features
+
+The current library also includes:
+
+- normal text/byte payloads with optional internal LZ compression;
+- portable automatic LZ compression;
+- first-class binary `Uint8Array` APIs;
+- Ed25519 signed QuadQR payloads and trusted-key verification;
+- signed + AES-256-GCM encrypted composition;
+- screen and print rendering modes;
+- ECC-aware automatic logo sizing;
+- normalized scanner confidence and detailed debug mode;
+- deterministic scanability/torture testing;
+- an interactive browser stress-test lab and capacity calculator.
+
+See [`../SPECIFICATION.md`](../SPECIFICATION.md) for the layering and interoperability rules and [`API.md`](./API.md) for the public APIs.

@@ -163,7 +163,7 @@ PNG generation/decoding and SVG generation are built into the Node.js adapter.
 
 ```html
 <canvas id="qr"></canvas>
-<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.0.1/dist/quadqr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.1.0/dist/quadqr.min.js"></script>
 <script>
   const code = QuadQR.encodeText("No build step");
   QuadQR.renderToCanvas(code, document.querySelector("#qr"));
@@ -187,3 +187,61 @@ npx quadqr-js decode secure.png --password "my-password"
 ```
 
 See [CLI.md](./CLI.md) for the full command reference.
+
+## Compression and signed payloads
+
+Compression is available directly on the normal encode APIs. You do not need to select a payload type or use a separate payload mode:
+
+```js
+import { encodeText } from "quadqr-js";
+
+const code = encodeText("repeat repeat repeat repeat", {
+  compression: "auto",
+  ecc: "Q"
+});
+```
+
+`auto` keeps the original payload untouched when compression would not save space.
+
+For offline integrity verification:
+
+```js
+import { generateSigningKeyPair, encodeSignedText, decodeMatrix, verifyDecodedSignature } from "quadqr-js";
+
+const keys = await generateSigningKeyPair();
+const signed = await encodeSignedText("ticket data", {
+  compression: "auto",
+  privateKey: keys.privateKey,
+  keyId: keys.keyId
+});
+
+const result = await verifyDecodedSignature(decodeMatrix(signed.matrix), {
+  publicKey: keys.publicKey
+});
+console.log(result.signatureVerified, result.signatureTrusted);
+```
+
+Signing metadata is internal. The private key signs; the trusted public key verifies and remains outside the QuadQR by default. The optional `keyId` lets applications select the correct trusted public key without embedding it in every symbol.
+
+## Print mode
+
+```js
+renderToCanvas(code, canvas, {
+  imageSize: 1200,
+  mode: "print",
+  quietZone: 4
+});
+```
+
+Print mode uses safer defaults but should still be tested with the actual printer, paper, physical size, and target phones.
+
+## Scanability testing
+
+```js
+import { assessScanability } from "quadqr-js";
+
+const report = assessScanability(code, { imageSize: 480 });
+console.log(report.score, report.rating);
+```
+
+The browser demo includes an interactive stress lab for testing one distortion at a time or running the full suite.

@@ -28,7 +28,7 @@
 
     <section id="labView" class="tab-view active" data-view="lab">
       <div class="grid">
-        <article class="panel">
+        <article class="panel generator-panel">
           <div class="panel-head">
             <div>
               <p class="kicker">Generator</p>
@@ -40,14 +40,11 @@
           <label for="payload">Payload</label>
           <textarea id="payload" rows="8">QuadQR: four colors, two bits per data cell, Spectrum ECC with confidence-aware recovery.</textarea>
 
-          <div class="row generator-options">
+          <div class="row generator-options core-options">
             <label class="field">
               <span>Version</span>
-              <select id="version">
-                <option value="auto">Auto smallest</option>
-              </select>
+              <select id="version"><option value="auto">Auto smallest</option></select>
             </label>
-
             <label class="field">
               <span>ECC profile</span>
               <select id="eccLevel">
@@ -57,132 +54,129 @@
                 <option value="H">H · 48 parity bytes</option>
               </select>
             </label>
-
-            <label class="field">
-              <span>Output size</span>
-              <select id="imageSize">
-                <option value="360">360 × 360 px</option>
-                <option value="512">512 × 512 px</option>
-                <option value="720" selected>720 × 720 px · standard</option>
-                <option value="1024">1024 × 1024 px</option>
-                <option value="1440">1440 × 1440 px</option>
-                <option value="2048">2048 × 2048 px</option>
-              </select>
-            </label>
-
-            <label class="field">
-              <span>Quiet zone</span>
-              <select id="quietZone">
-                <option value="0">0 modules</option>
-                <option value="1">1 module</option>
-                <option value="2">2 modules</option>
-                <option value="3">3 modules</option>
-                <option value="4" selected>4 modules</option>
-                <option value="5">5 modules</option>
-                <option value="6">6 modules</option>
-                <option value="8">8 modules</option>
-              </select>
-            </label>
-
-            <label class="field">
-              <span>Render style</span>
-              <select id="renderStyle">
-                <option value="classic">Classic · solid</option>
-                <option value="depth">Depth · layered</option>
-                <option value="soft">Soft · rounded</option>
-                <option value="inset">Inset · pressed</option>
-              </select>
-            </label>
           </div>
-          <p id="styleHint" class="style-hint">Classic keeps every module fully solid. Styles only change rendering, never the encoded data.</p>
 
-          <div class="logo-box">
-            <div class="security-head">
-              <div>
-                <p class="kicker">CENTER LOGO</p>
-                <strong>Optional branding overlay</strong>
+          <div class="advanced-heading">
+            <div><p class="kicker">ADVANCED</p><strong>Optional features</strong></div>
+            <span>Open only what you need</span>
+          </div>
+
+          <div class="accordion-stack">
+            <details class="accordion">
+              <summary>
+                <span class="accordion-title"><strong>Output & rendering</strong><small>Image size, quiet zone, style and print mode</small></span>
+                <span class="accordion-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="accordion-content">
+                <div class="row generator-options">
+                  <label class="field">
+                    <span>Output size</span>
+                    <select id="imageSize">
+                      <option value="360">360 × 360 px</option>
+                      <option value="512">512 × 512 px</option>
+                      <option value="720" selected>720 × 720 px · standard</option>
+                      <option value="1024">1024 × 1024 px</option>
+                      <option value="1440">1440 × 1440 px</option>
+                      <option value="2048">2048 × 2048 px</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Quiet zone</span>
+                    <select id="quietZone">
+                      <option value="0">0 modules</option><option value="1">1 module</option><option value="2">2 modules</option><option value="3">3 modules</option>
+                      <option value="4" selected>4 modules</option><option value="5">5 modules</option><option value="6">6 modules</option><option value="8">8 modules</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Render style</span>
+                    <select id="renderStyle">
+                      <option value="classic">Classic · solid</option><option value="depth">Depth · layered</option><option value="soft">Soft · rounded</option><option value="inset">Inset · pressed</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Output mode</span>
+                    <select id="renderMode"><option value="screen" selected>Screen · standard palette</option><option value="print">Print · safer colors + quiet zone</option></select>
+                  </label>
+                </div>
+                <p id="styleHint" class="style-hint">Classic keeps every module fully solid. Styles only change rendering, never the encoded data.</p>
               </div>
-              <span class="security-badge">PNG · JPG · WEBP · SVG</span>
-            </div>
+            </details>
 
-            <div class="field">
-              <span>Logo image</span>
-              <label id="logoUpload" class="logo-upload" for="logoFile">
-                <input id="logoFile" class="logo-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
-                <span class="logo-upload-icon" aria-hidden="true">+</span>
-                <span class="logo-upload-copy">
-                  <strong id="logoFileName">Choose a logo</strong>
-                  <small id="logoFileMeta">PNG, JPG, WEBP or SVG</small>
-                </span>
-                <span class="logo-upload-action">Browse</span>
-              </label>
-            </div>
-
-            <div class="row logo-options">
-              <label class="field">
-                <span>Logo size</span>
-                <select id="logoSize">
-                  <option value="0.10">10% · safest</option>
-                  <option value="0.12" selected>12% · recommended</option>
-                  <option value="0.15">15%</option>
-                  <option value="0.18">18%</option>
-                  <option value="0.22">22% · higher ECC recommended</option>
-                </select>
-              </label>
-
-              <label class="toggle-field" for="logoClearBackground">
-                <input id="logoClearBackground" type="checkbox" checked />
-                <span>
-                  <strong>Clear logo background</strong>
-                  <small>Removes modules under the logo with a padded white background.</small>
-                </span>
-              </label>
-            </div>
-            <p class="style-hint">Transparent logo pixels are preserved. Larger logos or a cleared background consume more ECC margin, so Generate + verify will reject combinations that no longer decode.</p>
-          </div>
-
-          <div class="security-box">
-            <div class="security-head">
-              <div>
-                <p class="kicker">SECURE PAYLOAD</p>
-                <strong>Optional authenticated encryption</strong>
+            <details class="accordion">
+              <summary>
+                <span class="accordion-title"><strong>Center logo</strong><small>Add branding with automatic ECC-aware sizing</small></span>
+                <span class="accordion-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="accordion-content">
+                <div class="field">
+                  <span>Logo image</span>
+                  <label id="logoUpload" class="logo-upload" for="logoFile">
+                    <input id="logoFile" class="logo-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
+                    <span class="logo-upload-icon" aria-hidden="true">+</span>
+                    <span class="logo-upload-copy"><strong id="logoFileName">Choose a logo</strong><small id="logoFileMeta">PNG, JPG, WEBP or SVG</small></span>
+                    <span class="logo-upload-action">Browse</span>
+                  </label>
+                </div>
+                <div class="logo-state-row">
+                  <label class="toggle-field" for="logoEnabled"><input id="logoEnabled" type="checkbox" disabled /><span><strong>Use selected logo</strong><small>Turn the logo overlay on or off without losing the selected file.</small></span></label>
+                  <button id="removeLogoBtn" class="secondary compact" type="button" disabled>Remove logo</button>
+                </div>
+                <div class="row logo-options">
+                  <label class="field"><span>Logo size</span><select id="logoSize"><option value="auto" selected>Auto · ECC-aware safe size</option><option value="0.10">10% · safest</option><option value="0.12">12% · recommended</option><option value="0.15">15%</option><option value="0.18">18%</option><option value="0.22">22% · higher ECC recommended</option></select></label>
+                  <label class="toggle-field" for="logoClearBackground"><input id="logoClearBackground" type="checkbox" checked /><span><strong>Clear logo background</strong><small>Removes modules under the logo with a padded white background.</small></span></label>
+                </div>
+                <p class="style-hint">Transparent logo pixels are preserved. Disable the logo to keep the selected file for later, or remove it completely with Remove logo.</p>
               </div>
-              <span class="security-badge">AES-256-GCM</span>
-            </div>
+            </details>
 
-            <label class="field">
-              <span>Security mode</span>
-              <select id="securityMode">
-                <option value="none" selected>None · standard QuadQR</option>
-                <option value="password">Password · PBKDF2 + AES-256-GCM</option>
-                <option value="raw-key">Raw 256-bit key · AES-256-GCM</option>
-              </select>
-            </label>
+            <details class="accordion">
+              <summary>
+                <span class="accordion-title"><strong>Compression</strong><small>Reduce repetitive payloads automatically, without payload types</small></span>
+                <span class="accordion-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="accordion-content">
+                <label class="field">
+                  <span>Compression mode</span>
+                  <select id="compressionMode"><option value="auto" selected>Auto · only when smaller</option><option value="none">Off · store payload directly</option><option value="lz">LZ · always compress</option></select>
+                </label>
+                <p class="style-hint">Your payload remains normal text or bytes. QuadQR adds internal compression metadata only when needed, and Auto adds no envelope when compression does not help.</p>
+              </div>
+            </details>
 
-            <div id="passwordSecurityFields" class="security-fields hidden">
-              <label class="field">
-                <span>Password</span>
-                <input id="securityPassword" type="password" autocomplete="new-password" placeholder="Enter encryption password" />
-              </label>
-            </div>
+            <details class="accordion">
+              <summary>
+                <span class="accordion-title"><strong>Digital signature</strong><small>Optional offline Ed25519 integrity verification</small></span>
+                <span class="accordion-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="accordion-content">
+                <label class="toggle-field" for="signPayload"><input id="signPayload" type="checkbox" /><span><strong>Digitally sign payload</strong><small>The private key creates the signature. The public key stays outside the QuadQR and is used by trusted scanners to verify it.</small></span></label>
+                <div id="signingFields" class="security-fields hidden">
+                  <label class="field"><span>Key ID</span><input id="signingKeyId" type="text" placeholder="Generated with the key pair" /></label>
+                  <div class="actions compact-actions"><button id="generateSigningKeyBtn" class="secondary compact" type="button">Generate Ed25519 key pair</button><span id="signingKeyStatus" class="style-hint inline-hint">No signing key generated.</span></div>
+                  <p class="style-hint">Only the private key signs. QuadQR stores the signature plus this compact key ID. Keep the public key in your app, server, certificate, or trusted-key registry for verification.</p>
+                </div>
+              </div>
+            </details>
 
-            <div id="rawKeySecurityFields" class="security-fields hidden">
-              <label class="field">
-                <span>Raw 256-bit key</span>
-                <input id="securityRawKey" type="text" autocomplete="off" spellcheck="false" placeholder="64 hexadecimal characters" />
-              </label>
-              <button id="generateRawKeyBtn" class="secondary compact" type="button">Generate secure key</button>
-            </div>
-
-            <p id="securityHint" class="style-hint">Standard mode stores the payload normally. Security is opt-in and does not alter QuadQR scanning or Spectrum ECC.</p>
+            <details class="accordion">
+              <summary>
+                <span class="accordion-title"><strong>Encryption</strong><small>Password or raw-key AES-256-GCM protection</small></span>
+                <span class="accordion-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="accordion-content">
+                <label class="field"><span>Security mode</span><select id="securityMode"><option value="none" selected>None · standard QuadQR</option><option value="password">Password · PBKDF2 + AES-256-GCM</option><option value="raw-key">Raw 256-bit key · AES-256-GCM</option></select></label>
+                <div id="passwordSecurityFields" class="security-fields hidden"><label class="field"><span>Password</span><input id="securityPassword" type="password" autocomplete="new-password" placeholder="Enter encryption password" /></label></div>
+                <div id="rawKeySecurityFields" class="security-fields hidden"><label class="field"><span>Raw 256-bit key</span><input id="securityRawKey" type="text" autocomplete="off" spellcheck="false" placeholder="64 hexadecimal characters" /></label><button id="generateRawKeyBtn" class="secondary compact" type="button">Generate secure key</button></div>
+                <p id="securityHint" class="style-hint">Standard mode stores the payload normally. Security is opt-in and does not alter QuadQR scanning or Spectrum ECC.</p>
+              </div>
+            </details>
           </div>
 
-          <div class="actions">
+          <div class="actions generator-actions">
             <button id="generateBtn" class="primary">Generate + verify</button>
             <button id="downloadBtn" class="secondary" disabled>Download PNG</button>
             <button id="downloadSvgBtn" class="secondary" disabled>Download SVG</button>
           </div>
-
           <div id="errorBox" class="error hidden"></div>
         </article>
 
@@ -200,20 +194,35 @@
           </div>
           <canvas id="qrCanvas" class="verification-canvas" aria-hidden="true"></canvas>
 
-          <dl id="stats" class="stats">
-            <div><dt>Matrix</dt><dd>--</dd></div>
-            <div><dt>Output</dt><dd>--</dd></div>
-            <div><dt>Payload</dt><dd>--</dd></div>
-            <div><dt>Capacity</dt><dd>--</dd></div>
-            <div><dt>Density</dt><dd>--</dd></div>
-            <div><dt>ECC</dt><dd>--</dd></div>
-            <div><dt>Alignment</dt><dd>--</dd></div>
-            <div><dt>RS blocks</dt><dd>--</dd></div>
-            <div><dt>Mask</dt><dd>--</dd></div>
-            <div><dt>Utilization</dt><dd>--</dd></div>
-            <div><dt>Security</dt><dd>--</dd></div>
-            <div><dt>CRC-32</dt><dd>--</dd></div>
-          </dl>
+          <div class="accordion-stack output-accordions">
+            <details class="accordion" open>
+              <summary>
+                <span class="accordion-title"><strong>Code details</strong><small>Matrix, capacity, ECC and output metadata</small></span>
+                <span class="accordion-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="accordion-content">
+                <dl id="stats" class="stats">
+                  <div><dt>Matrix</dt><dd>--</dd></div><div><dt>Output</dt><dd>--</dd></div><div><dt>Payload</dt><dd>--</dd></div><div><dt>Capacity</dt><dd>--</dd></div>
+                  <div><dt>Density</dt><dd>--</dd></div><div><dt>ECC</dt><dd>--</dd></div><div><dt>Alignment</dt><dd>--</dd></div><div><dt>RS blocks</dt><dd>--</dd></div>
+                  <div><dt>Mask</dt><dd>--</dd></div><div><dt>Utilization</dt><dd>--</dd></div><div><dt>Features</dt><dd>--</dd></div><div><dt>CRC-32</dt><dd>--</dd></div>
+                </dl>
+              </div>
+            </details>
+
+            <details class="accordion">
+              <summary>
+                <span class="accordion-title"><strong>Scanability</strong><small>Automatic robustness score and distortion checks</small></span>
+                <span class="accordion-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="accordion-content">
+                <div class="scanability-card">
+                  <div><p class="kicker">SCANABILITY</p><strong id="scanabilityScore">Not tested</strong><small id="scanabilityMeta">Automatically tested before export; re-run after experimenting if needed.</small></div>
+                  <button id="scanabilityBtn" class="secondary compact" type="button" disabled>Test robustness</button>
+                </div>
+                <div id="scanabilityResults" class="stress-results"></div>
+              </div>
+            </details>
+          </div>
         </article>
 
         <article class="panel scanner-panel wide">
@@ -232,6 +241,15 @@
 
           <p class="secure-scan-note"><strong>Secure scanning supported.</strong> Password and raw 256-bit-key QuadQR codes are detected automatically. The encrypted payload remains locked until the correct credential is entered in the scan result.</p>
           <div id="scanResult" class="scan-result empty">No image scanned yet.</div>
+          <div class="accordion-stack scanner-options">
+            <details class="accordion">
+              <summary><span class="accordion-title"><strong>Scanner debug</strong><small>Finder geometry, sampling, color confidence and ECC stages</small></span><span class="accordion-chevron" aria-hidden="true"></span></summary>
+              <div class="accordion-content">
+                <label class="toggle-field debug-toggle" for="scanDebug"><input id="scanDebug" type="checkbox" /><span><strong>Enable detailed diagnostics</strong><small>Shows the detection stage that failed and the data used by the scanner.</small></span></label>
+                <pre id="scanDebugOutput" class="debug-output hidden"></pre>
+              </div>
+            </details>
+          </div>
         </article>
 
         <article class="panel info-panel wide">
@@ -281,7 +299,11 @@
             <button id="stopCameraBtn" class="secondary" disabled>Stop</button>
           </div>
 
-          <div class="scanner-diagnostics" aria-live="polite">
+          <div class="accordion-stack camera-options">
+            <details class="accordion">
+              <summary><span class="accordion-title"><strong>Live scanner diagnostics</strong><small>Finder detection, geometry and recovery activity</small></span><span class="accordion-chevron" aria-hidden="true"></span></summary>
+              <div class="accordion-content">
+                <div class="scanner-diagnostics" aria-live="polite">
             <div class="scanner-diagnostics-head">
               <div>
                 <p class="kicker">Live diagnostics</p>
@@ -298,6 +320,10 @@
             <div id="cameraLog" class="scanner-log" role="log" aria-label="Camera scanner diagnostic log">
               <div class="scanner-log-line muted">Start the camera to see finder detection and recovery attempts.</div>
             </div>
+          </div>
+
+              </div>
+            </details>
           </div>
 
           <p class="camera-note">Camera access requires HTTPS or localhost. Fill most of the guide, keep the code flat when possible, and avoid glare over white or colored cells. Yellow boxes mark finder candidates and green boxes lock onto validated finder geometry. After a successful scan, the verified camera frame stays visible behind the overlay.</p>
@@ -348,26 +374,71 @@
             <button id="runBenchmarkBtn" class="primary">Run benchmark</button>
           </div>
 
-          <h3>Same-size capacity</h3>
-          <div class="table-wrap">
-            <table class="benchmark-table">
-              <thead>
-                <tr><th>Version</th><th>Matrix</th><th>QuadQR</th><th>Standard QR</th><th>Difference</th><th>Ratio</th></tr>
-              </thead>
-              <tbody id="capacityBenchmarkBody"></tbody>
-            </table>
-          </div>
+          <div class="accordion-stack benchmark-accordions">
+            <details class="accordion" open>
+              <summary>
+                <span class="accordion-title"><strong>Same-size capacity</strong><small>QuadQR vs standard QR byte capacity</small></span>
+                <span class="accordion-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="accordion-content">
+                <div class="table-wrap">
+                  <table class="benchmark-table">
+                    <thead><tr><th>Version</th><th>Matrix</th><th>QuadQR</th><th>Standard QR</th><th>Difference</th><th>Ratio</th></tr></thead>
+                    <tbody id="capacityBenchmarkBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
 
-          <h3>QuadQR codec speed</h3>
-          <div class="table-wrap">
-            <table class="benchmark-table">
-              <thead>
-                <tr><th>Payload</th><th>Matrix</th><th>Encode mean</th><th>Encode p95</th><th>Decode mean</th><th>Decode p95</th></tr>
-              </thead>
-              <tbody id="speedBenchmarkBody">
-                <tr><td colspan="6" class="muted-cell">Run the benchmark to measure this browser.</td></tr>
-              </tbody>
-            </table>
+            <details class="accordion">
+              <summary>
+                <span class="accordion-title"><strong>Codec performance</strong><small>Browser encode and decode timing</small></span>
+                <span class="accordion-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="accordion-content">
+                <div class="table-wrap">
+                  <table class="benchmark-table">
+                    <thead><tr><th>Payload</th><th>Matrix</th><th>Encode mean</th><th>Encode p95</th><th>Decode mean</th><th>Decode p95</th></tr></thead>
+                    <tbody id="speedBenchmarkBody"><tr><td colspan="6" class="muted-cell">Run the benchmark to measure this browser.</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
+
+            <details class="accordion">
+              <summary>
+                <span class="accordion-title"><strong>Capacity calculator</strong><small>Estimate version, remaining capacity and standard QR equivalent</small></span>
+                <span class="accordion-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="accordion-content">
+                <p class="benchmark-intro">Compression is internal. With only a byte count, Auto compression is intentionally treated as unknown because compressibility depends on the actual data.</p>
+                <div class="row benchmark-controls">
+                  <label class="field"><span>Payload bytes</span><input id="capacityPayloadBytes" type="number" min="0" value="256" /></label>
+                  <label class="field"><span>ECC</span><select id="capacityEcc"><option>L</option><option selected>M</option><option>Q</option><option>H</option></select></label>
+                  <label class="field"><span>Compression</span><select id="capacityCompression"><option value="none">None</option><option value="auto" selected>Auto</option><option value="lz">LZ</option></select></label>
+                  <label class="field"><span>Signed</span><select id="capacitySigned"><option value="false" selected>No</option><option value="true">Yes · Ed25519</option></select></label>
+                </div>
+                <div class="actions"><button id="calculateCapacityBtn" class="secondary" type="button">Calculate</button></div>
+                <div id="capacityPlanResult" class="scan-result empty">Enter a payload size and calculate.</div>
+              </div>
+            </details>
+
+            <details class="accordion">
+              <summary>
+                <span class="accordion-title"><strong>Stress test lab</strong><small>Blur, exposure, shadow, perspective and compression damage</small></span>
+                <span class="accordion-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="accordion-content">
+                <p class="benchmark-intro">Apply deterministic distortions to the currently generated QuadQR and immediately test whether it still decodes.</p>
+                <div class="row benchmark-controls">
+                  <label class="field"><span>Distortion</span><select id="stressType"><option value="blur">Blur</option><option value="brightness-low">Low brightness</option><option value="brightness-high">High exposure</option><option value="shadow">Uneven shadow</option><option value="contrast-loss">Contrast loss</option><option value="perspective">Perspective</option><option value="jpeg">JPEG-like compression</option><option value="downscale">Downscale</option><option value="warm">Warm color cast</option></select></label>
+                  <label class="field range-field"><span>Severity <b id="stressSeverityValue">50%</b></span><input id="stressSeverity" type="range" min="0" max="100" value="50" /></label>
+                </div>
+                <div class="stress-stage"><canvas id="stressCanvas" width="420" height="420"></canvas></div>
+                <div class="actions"><button id="testStressBtn" class="secondary" type="button">Apply + scan</button><button id="runStressSuiteBtn" class="primary" type="button">Run full suite</button></div>
+                <div id="stressLabResult" class="scan-result empty">Generate a QuadQR, then test it here.</div>
+              </div>
+            </details>
           </div>
 
           <p class="benchmark-note">For repeatable CLI output run <code>npm run benchmark</code>. For clean JSON use <code>npm run --silent benchmark -- --json</code>.</p>

@@ -10,15 +10,26 @@ import {
   decryptDecoded,
   encodeBytes,
   encodeText,
+  encodeSignedText,
   encodeSecureText,
   generateRaw256Key,
+  generateSigningKeyPair,
+  verifyDecodedSignature,
+  compressPayload,
+  decompressPayload,
   bytesToHex,
   getVersionInfo,
   internals,
   renderToImageData,
   renderToSVG,
   rotateMatrix,
-  scanImageData
+  scanImageData,
+  debugScanImageData,
+  applyStressDistortion,
+  runImageStressTest,
+  estimateSafeLogoSize,
+  findMaxSafeLogoSize,
+  getPrintGuidance
 } from "../library/quadqr.js";
 import {
   gfAdd,
@@ -34,6 +45,7 @@ import {
 import {
   benchmarkCodec,
   compareCapacity,
+  calculateCapacityPlan,
   getStandardQrByteCapacity
 } from "../library/benchmark.js";
 
@@ -1083,6 +1095,131 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   );
 }
 
+
+// Compression stays an internal detail around a normal payload.
+{
+  const text = "Payload compression compression compression ".repeat(8);
+  const raw = new TextEncoder().encode(text);
+  const compressed = compressPayload(raw);
+  const restored = decompressPayload(compressed, raw.length);
+  bytesEqual(restored, raw);
+  assert.ok(compressed.length < raw.length);
+
+  const encoded = encodeText(text, { ecc: "M", compression: "auto" });
+  const decoded = decodeMatrix(encoded.matrix);
+  assert.equal(decoded.text, text);
+  assert.equal(decoded.compression, "lz");
+  assert.equal(decoded.compressed, true);
+  assert.equal("contentType" in decoded, false);
+  assert.ok(encoded.payloadBytes < raw.length + 16);
+
+  const tiny = encodeText("abc", { compression: "auto" });
+  const tinyDecoded = decodeMatrix(tiny.matrix);
+  assert.equal(tinyDecoded.text, "abc");
+  assert.equal(tinyDecoded.compressed, false);
+  assert.equal(tiny.payloadBytes, 3);
+}
+
+// Signed QuadQR: the private key signs, while a trusted external public key verifies.
+{
+  const pair = await generateSigningKeyPair();
+  assert.ok(pair.keyId);
+  const encoded = await encodeSignedText("Signed QuadQR payload", {
+    ecc: "Q",
+    compression: "auto",
+    privateKey: pair.privateKey,
+    keyId: pair.keyId
+  });
+  const decoded = decodeMatrix(encoded.matrix);
+  assert.equal(decoded.signed, true);
+  assert.equal(decoded.signingKeyId, pair.keyId);
+  assert.equal(decoded.hasEmbeddedPublicKey, false);
+  await assert.rejects(() => verifyDecodedSignature(decoded), /trusted Ed25519 public key/i);
+  const verified = await verifyDecodedSignature(decoded, { publicKey: pair.publicKey });
+  assert.equal(verified.signatureVerified, true);
+  assert.equal(verified.signatureTrusted, true);
+  assert.equal(verified.text, "Signed QuadQR payload");
+
+  const embedded = await encodeSignedText("Embedded key compatibility", {
+    ecc: "Q",
+    privateKey: pair.privateKey,
+    publicKey: pair.publicKey,
+    embedPublicKey: true,
+    keyId: pair.keyId
+  });
+  const embeddedDecoded = decodeMatrix(embedded.matrix);
+  assert.equal(embeddedDecoded.hasEmbeddedPublicKey, true);
+  const selfChecked = await verifyDecodedSignature(embeddedDecoded, { allowEmbeddedKey: true });
+  assert.equal(selfChecked.signatureVerified, true);
+  assert.equal(selfChecked.signatureTrusted, false);
+
+  const secured = await encodeSecureText("Signed + encrypted", {
+    ecc: "Q",
+    compression: "auto",
+    security: { mode: "password", password: "signed-secret", iterations: 100_000 },
+    signing: {
+      privateKey: pair.privateKey,
+      keyId: pair.keyId
+    }
+  });
+  let secureDecoded = decodeMatrix(secured.matrix);
+  secureDecoded = await decryptDecoded(secureDecoded, { password: "signed-secret" });
+  assert.equal(secureDecoded.signingKeyId, pair.keyId);
+  secureDecoded = await verifyDecodedSignature(secureDecoded, { publicKey: pair.publicKey });
+  assert.equal(secureDecoded.text, "Signed + encrypted");
+  assert.equal(secureDecoded.signatureVerified, true);
+  assert.equal(secureDecoded.signatureTrusted, true);
+}
+
+// Print mode, scanner diagnostics, automatic logo sizing and deterministic stress tests.
+{
+  const encoded = encodeText("Diagnostics and stress test", { ecc: "M", version: 5 });
+  const image = renderToImageData(encoded, { imageSize: 360, mode: "print", quietZone: 1 });
+  assert.equal(image.width, 360);
+  const decoded = scanImageData(image, { minVersion: 5, maxVersion: 5, debug: true });
+  assert.equal(decoded.text, "Diagnostics and stress test");
+  assert.ok(decoded.confidence >= 0 && decoded.confidence <= 1);
+  assert.ok(decoded.diagnostics.stages.payload);
+  assert.equal(debugScanImageData(image, { minVersion: 5, maxVersion: 5 }).ok, true);
+
+  const dark = applyStressDistortion(image, "brightness-low", 0.25);
+  assert.equal(dark.width, image.width);
+  const report = runImageStressTest(image, { version: 5, crc32: encoded.crc32 }, {
+    profiles: [
+      { id: "clean", label: "Clean", type: "clean", severity: 0, weight: 1 },
+      { id: "jpeg", label: "JPEG", type: "jpeg", severity: 0.25, weight: 1 }
+    ]
+  });
+  assert.equal(report.total, 2);
+  assert.ok(report.score >= 0 && report.score <= 100);
+
+  const autoLogo = estimateSafeLogoSize(encoded, { clearBackground: true });
+  assert.ok(autoLogo >= 0.07 && autoLogo <= 0.22);
+  const logo = { width: 6, height: 6, data: new Uint8ClampedArray(6 * 6 * 4) };
+  for (let i = 0; i < logo.width * logo.height; i++) {
+    logo.data[i * 4] = 20;
+    logo.data[i * 4 + 1] = 20;
+    logo.data[i * 4 + 2] = 20;
+    logo.data[i * 4 + 3] = 255;
+  }
+  const withAutoLogo = renderToImageData(encoded, {
+    imageSize: 360,
+    logo: { source: logo, size: "auto", clearBackground: true }
+  });
+  assert.equal(scanImageData(withAutoLogo, { minVersion: 5, maxVersion: 5 }).text, "Diagnostics and stress test");
+  const empiricalLogo = findMaxSafeLogoSize(encoded, {
+    imageSize: 360,
+    logo: { source: logo, clearBackground: true },
+    minSize: 0.07,
+    maxSize: 0.18,
+    iterations: 3
+  });
+  assert.ok(empiricalLogo.safeSize >= 0.07 && empiricalLogo.safeSize <= 0.18);
+  const print = getPrintGuidance(encoded, { physicalSizeMm: 40, dpi: 300 });
+  assert.ok(print.moduleSizeMm > 0);
+  assert.ok(print.quietZone >= 4);
+}
+
 // Benchmark helpers and stable standard QR byte-mode reference capacities.
 {
   assert.equal(getStandardQrByteCapacity(1, "L"), 17);
@@ -1100,6 +1237,10 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   assert.equal(comparison.quadqrBytes, getVersionInfo(10, { ecc: "M" }).capacityBytes);
   assert.equal(comparison.standardQrBytes, 213);
   assert.ok(comparison.ratio > 1);
+
+  const plan = calculateCapacityPlan({ payloadBytes: 256, ecc: "M", compression: "auto" });
+  assert.ok(plan.quadqrVersion >= 1);
+  assert.equal(plan.compression, "unknown");
 
   const quick = benchmarkCodec({ ecc: "M", iterations: 1, warmup: 0, payloadSizes: [32] });
   assert.equal(quick.results.length, 1);

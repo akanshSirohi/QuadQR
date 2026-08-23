@@ -17,7 +17,7 @@ const state = await initWasm();
 console.log(state);
 ```
 
-In QuadQR 0.7.x, the WASM module accelerates CRC-32. Once initialized, normal encode/decode operations automatically use the installed accelerator.
+In QuadQR 1.x, the WASM module accelerates CRC-32. Once initialized, normal encode/decode operations automatically use the installed accelerator.
 
 ## Check the current state
 
@@ -56,7 +56,7 @@ You can also provide WASM bytes directly through the `bytes` option.
 When the classic `quadqr.min.js` global build is loaded from a CDN, `QuadQR.initWasm()` resolves the bundled sibling WASM asset from the same package/version location.
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.0.1/dist/quadqr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.1.0/dist/quadqr.min.js"></script>
 <script>
   await QuadQR.initWasm();
 </script>

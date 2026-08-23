@@ -1,7 +1,10 @@
 import {
   encodeText,
+  encodeSignedText,
   encodeSecureText,
   decryptDecoded,
+  verifyDecodedSignature,
+  generateSigningKeyPair,
   generateRaw256Key,
   bytesToHex,
   renderToCanvas,
@@ -9,10 +12,14 @@ import {
   scanImageData,
   scanFile,
   startCameraScanner,
+  runImageStressTest,
+  applyStressDistortion,
+  estimateSafeLogoSize,
+  getPrintGuidance,
   getVersionInfo,
   MAX_VERSION
 } from "../library/quadqr.js";
-import { buildCapacityComparison, benchmarkCodec } from "../library/benchmark.js";
+import { buildCapacityComparison, benchmarkCodec, calculateCapacityPlan } from "../library/benchmark.js";
 
 const payloadEl = document.querySelector("#payload");
 const versionEl = document.querySelector("#version");
@@ -20,13 +27,22 @@ const eccLevelEl = document.querySelector("#eccLevel");
 const imageSizeEl = document.querySelector("#imageSize");
 const quietZoneEl = document.querySelector("#quietZone");
 const renderStyleEl = document.querySelector("#renderStyle");
+const renderModeEl = document.querySelector("#renderMode");
 const styleHintEl = document.querySelector("#styleHint");
+const compressionModeEl = document.querySelector("#compressionMode");
 const logoFileEl = document.querySelector("#logoFile");
 const logoUploadEl = document.querySelector("#logoUpload");
 const logoFileNameEl = document.querySelector("#logoFileName");
 const logoFileMetaEl = document.querySelector("#logoFileMeta");
+const logoEnabledEl = document.querySelector("#logoEnabled");
+const removeLogoBtn = document.querySelector("#removeLogoBtn");
 const logoSizeEl = document.querySelector("#logoSize");
 const logoClearBackgroundEl = document.querySelector("#logoClearBackground");
+const signPayloadEl = document.querySelector("#signPayload");
+const signingFieldsEl = document.querySelector("#signingFields");
+const signingKeyIdEl = document.querySelector("#signingKeyId");
+const generateSigningKeyBtn = document.querySelector("#generateSigningKeyBtn");
+const signingKeyStatusEl = document.querySelector("#signingKeyStatus");
 const securityModeEl = document.querySelector("#securityMode");
 const passwordSecurityFieldsEl = document.querySelector("#passwordSecurityFields");
 const rawKeySecurityFieldsEl = document.querySelector("#rawKeySecurityFields");
@@ -41,9 +57,15 @@ const canvas = document.querySelector("#qrCanvas");
 const qrPreviewEl = document.querySelector("#qrPreview");
 const verificationPill = document.querySelector("#verificationPill");
 const statsEl = document.querySelector("#stats");
+const scanabilityBtn = document.querySelector("#scanabilityBtn");
+const scanabilityScoreEl = document.querySelector("#scanabilityScore");
+const scanabilityMetaEl = document.querySelector("#scanabilityMeta");
+const scanabilityResultsEl = document.querySelector("#scanabilityResults");
 const errorBox = document.querySelector("#errorBox");
 const scanFileEl = document.querySelector("#scanFile");
 const scanResultEl = document.querySelector("#scanResult");
+const scanDebugEl = document.querySelector("#scanDebug");
+const scanDebugOutputEl = document.querySelector("#scanDebugOutput");
 const cameraVideo = document.querySelector("#cameraVideo");
 const cameraFreezeFrame = document.querySelector("#cameraFreezeFrame");
 const cameraOverlay = document.querySelector("#cameraOverlay");
@@ -68,11 +90,25 @@ const runBenchmarkBtn = document.querySelector("#runBenchmarkBtn");
 const benchmarkPill = document.querySelector("#benchmarkPill");
 const capacityBenchmarkBody = document.querySelector("#capacityBenchmarkBody");
 const speedBenchmarkBody = document.querySelector("#speedBenchmarkBody");
+const capacityPayloadBytesEl = document.querySelector("#capacityPayloadBytes");
+const capacityEccEl = document.querySelector("#capacityEcc");
+const capacitySignedEl = document.querySelector("#capacitySigned");
+const capacityCompressionEl = document.querySelector("#capacityCompression");
+const calculateCapacityBtn = document.querySelector("#calculateCapacityBtn");
+const capacityPlanResultEl = document.querySelector("#capacityPlanResult");
+const stressTypeEl = document.querySelector("#stressType");
+const stressSeverityEl = document.querySelector("#stressSeverity");
+const stressSeverityValueEl = document.querySelector("#stressSeverityValue");
+const stressCanvas = document.querySelector("#stressCanvas");
+const testStressBtn = document.querySelector("#testStressBtn");
+const runStressSuiteBtn = document.querySelector("#runStressSuiteBtn");
+const stressLabResultEl = document.querySelector("#stressLabResult");
 
 let currentCode = null;
 let currentRenderOptions = null;
 let currentLogoImage = null;
 let currentLogoDataUrl = null;
+let signingKeyPair = null;
 let cameraController = null;
 let cameraLogLines = [];
 let lastCameraLogSignature = "";
@@ -139,11 +175,15 @@ function formatFileSize(bytes) {
 }
 
 function updateLogoUploadUi(file = null) {
-  logoUploadEl.classList.toggle("has-file", Boolean(file));
+  const hasFile = Boolean(file);
+  logoUploadEl.classList.toggle("has-file", hasFile);
   logoFileNameEl.textContent = file?.name || "Choose a logo";
   logoFileMetaEl.textContent = file
     ? [file.type?.replace("image/", "").replace("svg+xml", "SVG").toUpperCase(), formatFileSize(file.size)].filter(Boolean).join(" · ")
     : "PNG, JPG, WEBP or SVG";
+  logoEnabledEl.disabled = !hasFile;
+  removeLogoBtn.disabled = !hasFile;
+  if (!hasFile) logoEnabledEl.checked = false;
 }
 
 function updateSvgPreview(svg) {
@@ -159,13 +199,14 @@ function generatorRenderOptions({ svg = false } = {}) {
   const options = {
     imageSize: Number(imageSizeEl.value),
     quietZone: Number(quietZoneEl.value),
-    style: renderStyleEl.value
+    style: renderStyleEl.value,
+    mode: renderModeEl.value
   };
 
-  if (currentLogoImage && currentLogoDataUrl) {
+  if (logoEnabledEl.checked && currentLogoImage && currentLogoDataUrl) {
     options.logo = {
       source: svg ? currentLogoDataUrl : currentLogoImage,
-      size: Number(logoSizeEl.value),
+      size: logoSizeEl.value === "auto" ? "auto" : Number(logoSizeEl.value),
       clearBackground: logoClearBackgroundEl.checked,
       padding: 0.65,
       radius: 0.8
@@ -179,7 +220,7 @@ function updateStats(code) {
   const values = [
     `${code.size}×${code.size} (v${code.version})`,
     `${Number(imageSizeEl.value)}×${Number(imageSizeEl.value)} px`,
-    `${code.payloadBytes} B`,
+    code.sourcePayloadBytes !== code.payloadBytes ? `${code.sourcePayloadBytes} B source · ${code.payloadBytes} B encoded` : `${code.payloadBytes} B`,
     `${code.capacityBytes} B`,
     `${code.bitsPerDataCell} bits/cell`,
     `${code.eccLevel} · ${code.eccParitySymbols} parity bytes`,
@@ -187,9 +228,11 @@ function updateStats(code) {
     `${code.eccBlocks} · correct ${code.correctableSymbolsPerBlock}/block`,
     String(code.maskId),
     `${(code.utilization * 100).toFixed(1)}%`,
-    code.secure
-      ? `${code.security?.mode === "raw-key" ? "Raw key" : "Password"} · ${code.security?.overheadBytes ?? 0} B overhead`
-      : "None",
+    [
+      code.compressed ? "LZ compressed" : null,
+      code.signed ? "Ed25519 signed" : null,
+      code.secure ? `${code.security?.mode === "raw-key" ? "Raw key" : "Password"} encrypted` : null
+    ].filter(Boolean).join(" · ") || "None",
     code.crc32.toString(16).padStart(8, "0").toUpperCase()
   ];
 
@@ -207,6 +250,80 @@ function securityOptionsFromGenerator() {
   }
   if (!securityRawKeyEl.value.trim()) throw new Error("Enter or generate a raw 256-bit key.");
   return { mode: "raw-key", key: securityRawKeyEl.value.trim() };
+}
+
+
+function signingOptionsFromGenerator() {
+  if (!signPayloadEl.checked) return null;
+  if (!signingKeyPair) throw new Error("Generate an Ed25519 signing key pair before creating a signed QuadQR.");
+  return {
+    privateKey: signingKeyPair.privateKey,
+    keyId: signingKeyIdEl.value.trim() || signingKeyPair.keyId
+  };
+}
+
+function updateSigningUi() {
+  signingFieldsEl.classList.toggle("hidden", !signPayloadEl.checked);
+  if (!signPayloadEl.checked) return;
+  signingKeyStatusEl.textContent = signingKeyPair
+    ? `Ready · key ID ${signingKeyPair.keyId} · public key kept outside QR`
+    : "No signing key generated.";
+}
+
+function updateRenderModeUi() {
+  const print = renderModeEl.value === "print";
+  renderStyleEl.disabled = print;
+  if (print && Number(quietZoneEl.value) < 4) quietZoneEl.value = "4";
+  if (print) {
+    styleHintEl.textContent = "Print mode forces Classic rendering, a minimum 4-module quiet zone, and darker print-safe RGB primaries. Use getPrintGuidance() when physical dimensions are known.";
+  }
+}
+
+async function encodeGeneratorPayload(commonOptions, security, signing) {
+  const compression = compressionModeEl.value;
+  if (security) {
+    return encodeSecureText(payloadEl.value, {
+      ...commonOptions,
+      compression,
+      security,
+      ...(signing ? { signing } : {})
+    });
+  }
+  if (signing) {
+    return encodeSignedText(payloadEl.value, {
+      ...commonOptions,
+      compression,
+      ...signing
+    });
+  }
+  return encodeText(payloadEl.value, { ...commonOptions, compression });
+}
+
+function demoSignatureVerificationOptions(result) {
+  if (!signingKeyPair || !result?.signed) return null;
+  if (result.signingKeyId && result.signingKeyId !== signingKeyPair.keyId && result.signingKeyId !== signingKeyIdEl.value.trim()) return null;
+  return { publicKey: signingKeyPair.publicKey };
+}
+
+async function tryVerifyWithDemoKey(result) {
+  const options = demoSignatureVerificationOptions(result);
+  if (!options) return result;
+  try {
+    return await verifyDecodedSignature(result, options);
+  } catch {
+    return result;
+  }
+}
+
+async function fullyVerifyDecoded(result, security = null) {
+  let verified = result;
+  if (verified.secure && verified.requiresDecryption) verified = await decryptDecoded(verified, security);
+  if (verified.signed) {
+    const options = demoSignatureVerificationOptions(verified);
+    if (!options) throw new Error("A trusted public key is required to verify this signed QuadQR.");
+    verified = await verifyDecodedSignature(verified, options);
+  }
+  return verified;
 }
 
 function updateSecurityUi() {
@@ -245,7 +362,8 @@ function formatResult(container, result, titleText, options = {}) {
     `v${result.version}, ECC ${result.eccLevel}, mask ${result.maskId}, ` +
     `${result.alignmentPatterns ?? result.geometry?.alignment?.patterns ?? 1} alignment pattern(s), ` +
     `${result.correctedSymbols ?? 0} RS byte symbols corrected, ${recovery}, ${spectrum}, ` +
-    `${geometry}, ${calibration}, CRC ${result.crc32.toString(16).padStart(8, "0").toUpperCase()}`;
+    `${geometry}, ${calibration}, confidence ${Math.round((result.confidence ?? result.diagnostics?.confidence ?? 0) * 100)}%, ` +
+    `CRC ${result.crc32.toString(16).padStart(8, "0").toUpperCase()}`;
 
   container.append(title, meta);
 
@@ -259,6 +377,19 @@ function formatResult(container, result, titleText, options = {}) {
       (keyId ? ` · key ID ${keyId}` : "") +
       (result.decrypted ? " · decrypted" : "");
     container.appendChild(secureMeta);
+  }
+
+  if (result.compressed || result.signed) {
+    const payloadMeta = document.createElement("div");
+    payloadMeta.className = "security-meta";
+    payloadMeta.textContent = [
+      result.compressed ? "LZ compressed" : null,
+      result.signed ? `Ed25519 signed${result.signingKeyId ? ` · key ID ${result.signingKeyId}` : ""}` : null,
+      result.signed && result.signatureVerified === true && result.signatureTrusted === true ? "trusted signature verified" : null,
+      result.signed && result.signatureVerified === true && result.signatureTrusted !== true ? "signature valid · signer not trusted" : null,
+      result.signed && result.signatureVerified !== true ? "needs trusted public key" : null
+    ].filter(Boolean).join(" · ");
+    container.appendChild(payloadMeta);
   }
 
   const data = document.createElement("pre");
@@ -292,7 +423,8 @@ function formatResult(container, result, titleText, options = {}) {
         const credentials = result.security?.mode === "raw-key"
           ? { key: input.value.trim() }
           : { password: input.value };
-        const decrypted = await decryptDecoded(result, credentials);
+        let decrypted = await decryptDecoded(result, credentials);
+        if (decrypted.signed) decrypted = await tryVerifyWithDemoKey(decrypted);
         formatResult(container, decrypted, `${titleText} · secure`, options);
       } catch (error) {
         const errorLine = document.createElement("div");
@@ -320,24 +452,24 @@ async function generate() {
   try {
     const requestedVersion = versionEl.value === "auto" ? "auto" : Number(versionEl.value);
     const security = securityOptionsFromGenerator();
+    const signing = signingOptionsFromGenerator();
     const commonOptions = {
       version: requestedVersion,
       ecc: eccLevelEl.value
     };
-    const code = security
-      ? await encodeSecureText(payloadEl.value, { ...commonOptions, security })
-      : encodeText(payloadEl.value, commonOptions);
+    const code = await encodeGeneratorPayload(commonOptions, security, signing);
 
     const renderOptions = generatorRenderOptions();
     renderToCanvas(code, canvas, renderOptions);
 
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    drawImageDataToStressCanvas(imageData);
     const scanned = scanImageData(imageData, {
       minVersion: code.version,
       maxVersion: code.version
     });
-    const verified = scanned.secure ? await decryptDecoded(scanned, security) : scanned;
+    const verified = await fullyVerifyDecoded(scanned, security);
 
     if (verified.text !== payloadEl.value) {
       throw new Error("Generated image decoded, but payload did not match.");
@@ -346,13 +478,35 @@ async function generate() {
     currentCode = code;
     currentRenderOptions = renderOptions;
     updateSvgPreview(renderToSVG(code, generatorRenderOptions({ svg: true })));
+    updateStats(code);
+    scanabilityBtn.disabled = true;
+    scanabilityScoreEl.textContent = "Testing…";
+    scanabilityMetaEl.textContent = "Running the automatic pre-export distortion suite.";
+    scanabilityResultsEl.innerHTML = "";
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    try {
+      const report = runImageStressTest(currentCanvasImageData(480), {
+        version: code.version,
+        crc32: code.crc32
+      });
+      scanabilityScoreEl.textContent = `${report.score.toFixed(0)}/100 · ${report.rating}`;
+      scanabilityMetaEl.textContent =
+        `${report.passed}/${report.total} scenarios decoded · weighted pass ${report.passPercent.toFixed(0)}%` +
+        (logoEnabledEl.checked && currentLogoImage && logoSizeEl.value === "auto"
+          ? ` · auto logo ${(estimateSafeLogoSize(code, renderOptions) * 100).toFixed(1)}%`
+          : "");
+      renderStressReport(report);
+    } catch (safetyError) {
+      scanabilityScoreEl.textContent = "Safety test unavailable";
+      scanabilityMetaEl.textContent = safetyError.message;
+    }
     downloadBtn.disabled = false;
     downloadSvgBtn.disabled = false;
-    updateStats(code);
+    scanabilityBtn.disabled = false;
     setPill(
       verificationPill,
       "good",
-      code.secure ? "Secure + Spectrum ECC verified" : "Spectrum ECC verified"
+      [code.signed ? "Signed" : null, code.secure ? "Secure" : null, "Spectrum ECC verified"].filter(Boolean).join(" + ")
     );
   } catch (error) {
     currentCode = null;
@@ -360,6 +514,7 @@ async function generate() {
     qrPreviewEl.innerHTML = "";
     downloadBtn.disabled = true;
     downloadSvgBtn.disabled = true;
+    scanabilityBtn.disabled = true;
     setPill(verificationPill, "bad", "Verification failed");
     showError(error.message);
   } finally {
@@ -367,6 +522,129 @@ async function generate() {
   }
 }
 
+
+
+function currentCanvasImageData(maxSize = null) {
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!maxSize || Math.max(canvas.width, canvas.height) <= maxSize) {
+    return ctx.getImageData(0, 0, canvas.width, canvas.height);
+  }
+  const scale = maxSize / Math.max(canvas.width, canvas.height);
+  const width = Math.max(1, Math.round(canvas.width * scale));
+  const height = Math.max(1, Math.round(canvas.height * scale));
+  const scratch = document.createElement("canvas");
+  scratch.width = width;
+  scratch.height = height;
+  const scratchCtx = scratch.getContext("2d", { willReadFrequently: true });
+  scratchCtx.imageSmoothingEnabled = true;
+  scratchCtx.imageSmoothingQuality = "high";
+  scratchCtx.drawImage(canvas, 0, 0, width, height);
+  return scratchCtx.getImageData(0, 0, width, height);
+}
+
+function drawImageDataToStressCanvas(imageData) {
+  stressCanvas.width = imageData.width;
+  stressCanvas.height = imageData.height;
+  const ctx = stressCanvas.getContext("2d");
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height), 0, 0);
+}
+
+function renderStressReport(report, container = scanabilityResultsEl) {
+  container.innerHTML = "";
+  for (const item of report.results) {
+    const chip = document.createElement("div");
+    chip.className = `stress-result-chip ${item.passed ? "good" : "bad"}`;
+    chip.textContent = `${item.passed ? "✓" : "✕"} ${item.label} · ${item.passed ? `${Math.round((item.confidence ?? 0) * 100)}%` : "failed"}`;
+    container.appendChild(chip);
+  }
+}
+
+async function runScanabilityTest() {
+  if (!currentCode) return;
+  scanabilityBtn.disabled = true;
+  scanabilityScoreEl.textContent = "Testing…";
+  scanabilityMetaEl.textContent = "Applying camera-style distortions and decoding each result.";
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  try {
+    const report = runImageStressTest(currentCanvasImageData(480), {
+      version: currentCode.version,
+      crc32: currentCode.crc32
+    });
+    scanabilityScoreEl.textContent = `${report.score.toFixed(0)}/100 · ${report.rating}`;
+    scanabilityMetaEl.textContent = `${report.passed}/${report.total} scenarios decoded · weighted pass ${report.passPercent.toFixed(0)}%`;
+    renderStressReport(report);
+  } catch (error) {
+    scanabilityScoreEl.textContent = "Test failed";
+    scanabilityMetaEl.textContent = error.message;
+  } finally {
+    scanabilityBtn.disabled = false;
+  }
+}
+
+function calculateCapacityUi() {
+  const plan = calculateCapacityPlan({
+    payloadBytes: Number(capacityPayloadBytesEl.value),
+    ecc: capacityEccEl.value,
+    signed: capacitySignedEl.value === "true",
+    compression: capacityCompressionEl.value
+  });
+  capacityPlanResultEl.className = `scan-result ${plan.quadqrVersion ? "good" : "bad"}`;
+  if (!plan.quadqrVersion) {
+    capacityPlanResultEl.textContent = `The requested payload does not fit QuadQR v1–v40 with ECC ${plan.ecc}.`;
+    return;
+  }
+  const standard = plan.standardQrVersion
+    ? `Standard QR byte mode: v${plan.standardQrVersion} (${plan.standardQrSize}×${plan.standardQrSize})`
+    : "Standard QR byte mode: exceeds v40";
+  capacityPlanResultEl.textContent =
+    `QuadQR: v${plan.quadqrVersion} (${plan.quadqrSize}×${plan.quadqrSize}), ${plan.encodedBytes} encoded bytes, ` +
+    `${plan.remainingBytes} bytes remaining, ${plan.utilizationPercent.toFixed(1)}% used. ${standard}.` +
+    (plan.matrixWidthSavingsPercent != null ? ` Matrix width reduction: ${plan.matrixWidthSavingsPercent.toFixed(1)}%.` : "") +
+    (plan.compression === "unknown" ? " Compression cannot be predicted from a byte count alone, so this estimate assumes no compression gain." : "");
+}
+
+async function applyAndScanStress() {
+  if (!currentCode) {
+    stressLabResultEl.className = "scan-result bad";
+    stressLabResultEl.textContent = "Generate a QuadQR first.";
+    return;
+  }
+  const severity = Number(stressSeverityEl.value) / 100;
+  const distorted = applyStressDistortion(currentCanvasImageData(), stressTypeEl.value, severity);
+  drawImageDataToStressCanvas(distorted);
+  stressLabResultEl.className = "scan-result";
+  stressLabResultEl.textContent = "Scanning distorted image…";
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  try {
+    const decoded = scanImageData(distorted, { minVersion: currentCode.version, maxVersion: currentCode.version });
+    const matches = decoded.crc32 === currentCode.crc32;
+    stressLabResultEl.className = `scan-result ${matches ? "good" : "bad"}`;
+    stressLabResultEl.textContent = matches
+      ? `Decoded successfully · confidence ${Math.round((decoded.confidence ?? 0) * 100)}% · ${decoded.correctedSymbols ?? 0} RS symbol(s) corrected.`
+      : "A code decoded, but its payload CRC did not match the generated QuadQR.";
+  } catch (error) {
+    stressLabResultEl.className = "scan-result bad";
+    stressLabResultEl.textContent = `Failed to decode · ${error.message}`;
+  }
+}
+
+async function runStressSuiteUi() {
+  if (!currentCode) return applyAndScanStress();
+  runStressSuiteBtn.disabled = true;
+  stressLabResultEl.className = "scan-result";
+  stressLabResultEl.textContent = "Running full scanability suite…";
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  try {
+    const report = runImageStressTest(currentCanvasImageData(480), { version: currentCode.version, crc32: currentCode.crc32 });
+    stressLabResultEl.className = `scan-result ${report.score >= 75 ? "good" : "bad"}`;
+    stressLabResultEl.textContent = `${report.score.toFixed(0)}/100 · ${report.rating} · ${report.passed}/${report.total} scenarios decoded.`;
+    renderStressReport(report, scanabilityResultsEl);
+    scanabilityScoreEl.textContent = `${report.score.toFixed(0)}/100 · ${report.rating}`;
+    scanabilityMetaEl.textContent = `${report.passed}/${report.total} scenarios decoded.`;
+  } finally {
+    runStressSuiteBtn.disabled = false;
+  }
+}
 
 function formatMs(value) {
   return `${value.toFixed(3)} ms`;
@@ -873,6 +1151,25 @@ for (const button of tabButtons) {
 }
 
 generateBtn.addEventListener("click", generate);
+scanabilityBtn.addEventListener("click", runScanabilityTest);
+compressionModeEl.addEventListener("change", () => currentCode && generate());
+signPayloadEl.addEventListener("change", () => { updateSigningUi(); generate(); });
+signingKeyIdEl.addEventListener("change", () => signPayloadEl.checked && generate());
+generateSigningKeyBtn.addEventListener("click", async () => {
+  generateSigningKeyBtn.disabled = true;
+  signingKeyStatusEl.textContent = "Generating…";
+  try {
+    signingKeyPair = await generateSigningKeyPair();
+    signingKeyIdEl.value = signingKeyPair.keyId;
+    updateSigningUi();
+    if (signPayloadEl.checked) await generate();
+  } catch (error) {
+    signingKeyStatusEl.textContent = error.message;
+  } finally {
+    generateSigningKeyBtn.disabled = false;
+  }
+});
+renderModeEl.addEventListener("change", () => { updateRenderModeUi(); generate(); });
 securityModeEl.addEventListener("change", () => {
   updateSecurityUi();
   currentCode = null;
@@ -889,6 +1186,14 @@ imageSizeEl.addEventListener("change", () => currentCode && generate());
 quietZoneEl.addEventListener("change", () => currentCode && generate());
 logoSizeEl.addEventListener("change", () => currentCode && generate());
 logoClearBackgroundEl.addEventListener("change", () => currentCode && generate());
+logoEnabledEl.addEventListener("change", () => currentCode && generate());
+removeLogoBtn.addEventListener("click", async () => {
+  currentLogoImage = null;
+  currentLogoDataUrl = null;
+  logoFileEl.value = "";
+  updateLogoUploadUi();
+  if (currentCode) await generate();
+});
 logoFileEl.addEventListener("change", async () => {
   const file = logoFileEl.files?.[0];
   if (!file) {
@@ -904,6 +1209,7 @@ logoFileEl.addEventListener("change", async () => {
     const image = await loadImage(dataUrl);
     currentLogoDataUrl = dataUrl;
     currentLogoImage = image;
+    logoEnabledEl.checked = true;
     updateLogoUploadUi(file);
     await generate();
   } catch (error) {
@@ -954,13 +1260,23 @@ scanFileEl.addEventListener("change", async () => {
   if (!file) return;
   scanResultEl.className = "scan-result";
   scanResultEl.textContent = "Scanning image...";
+  scanDebugOutputEl.classList.add("hidden");
 
   try {
-    const result = await scanFile(file);
+    let result = await scanFile(file, { debug: scanDebugEl.checked });
+    if (result.signed && !result.requiresDecryption) result = await tryVerifyWithDemoKey(result);
     formatResult(scanResultEl, result, "Verified QuadQR");
+    if (scanDebugEl.checked) {
+      scanDebugOutputEl.textContent = JSON.stringify(result.diagnostics, null, 2);
+      scanDebugOutputEl.classList.remove("hidden");
+    }
   } catch (error) {
     scanResultEl.className = "scan-result bad";
     scanResultEl.textContent = error.message;
+    if (scanDebugEl.checked && error.debug) {
+      scanDebugOutputEl.textContent = JSON.stringify(error.debug, null, 2);
+      scanDebugOutputEl.classList.remove("hidden");
+    }
   }
 });
 
@@ -996,12 +1312,14 @@ startCameraBtn.addEventListener("click", async () => {
           };
           drawCameraFinderOverlay(lastCameraFrameDiagnostic);
         }
-        formatResult(cameraResultEl, result, "Camera scan verified", {
-          onSecurityState(state) {
-            if (state === "locked") setPill(cameraPill, "neutral", "Secure QR");
-            else if (state === "decrypted") setPill(cameraPill, "good", "Decrypted");
-            else setPill(cameraPill, "good", "Decoded");
-          }
+        void tryVerifyWithDemoKey(result).then((checkedResult) => {
+          formatResult(cameraResultEl, checkedResult, "Camera scan verified", {
+            onSecurityState(state) {
+              if (state === "locked") setPill(cameraPill, "neutral", "Secure QR");
+              else if (state === "decrypted") setPill(cameraPill, "good", "Decrypted");
+              else setPill(cameraPill, "good", "Decoded");
+            }
+          });
         });
         cameraHudText.textContent = `Decoded v${result.version}`;
         cameraLiveHud.classList.remove("scanning");
@@ -1040,10 +1358,18 @@ window.addEventListener("resize", () => {
 stopCameraBtn.addEventListener("click", stopCamera);
 benchmarkEccEl.addEventListener("change", renderCapacityBenchmark);
 runBenchmarkBtn.addEventListener("click", runBenchmark);
+calculateCapacityBtn.addEventListener("click", calculateCapacityUi);
+stressSeverityEl.addEventListener("input", () => { stressSeverityValueEl.textContent = `${stressSeverityEl.value}%`; });
+testStressBtn.addEventListener("click", applyAndScanStress);
+runStressSuiteBtn.addEventListener("click", runStressSuiteUi);
 window.addEventListener("pagehide", () => cameraController?.stop());
 
 resetCameraDiagnosticsUi();
+updateLogoUploadUi();
 updateSecurityUi();
+updateSigningUi();
+updateRenderModeUi();
 rebuildVersions();
 renderCapacityBenchmark();
+calculateCapacityUi();
 generate();

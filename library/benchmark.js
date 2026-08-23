@@ -11,6 +11,7 @@ import {
   encodeBytes,
   decodeMatrix,
   getVersionInfo,
+  compressPayload,
   MAX_VERSION
 } from "./quadqr.js";
 
@@ -100,6 +101,85 @@ export function compareCapacity(version, ecc = "M") {
     quadqrPayloadBitsPerMatrixCell: quadqrBytes * 8 / (quadqr.size * quadqr.size),
     standardQrPayloadBitsPerMatrixCell: standardQrBytes * 8 / (quadqr.size * quadqr.size),
     note: "ECC profile letters are nominal only; recovery strength is not equivalent to ISO QR."
+  };
+}
+
+
+/** Calculate the smallest QuadQR and standard QR versions for a payload size. */
+export function calculateCapacityPlan(options = {}) {
+  const ecc = normalizeEcc(options.ecc ?? "M");
+  let sourceBytes;
+  const hasConcretePayload = options.payload instanceof Uint8Array || typeof options.payload === "string";
+  if (options.payload instanceof Uint8Array) sourceBytes = options.payload;
+  else if (typeof options.payload === "string") sourceBytes = new TextEncoder().encode(options.payload);
+  else sourceBytes = new Uint8Array(Math.max(0, Math.floor(options.payloadBytes ?? 0)));
+
+  const requestedCompression = options.compression ?? "none";
+  const signed = Boolean(options.signed);
+  const keyIdBytes = options.keyId ? new TextEncoder().encode(String(options.keyId)).length : 0;
+  const envelopeHeaderBytes = 16;
+  const signingBytes = signed ? 64 + keyIdBytes + (options.embedPublicKey ? 32 : 0) : 0;
+  let compression = requestedCompression;
+  let storedBytes = sourceBytes.length;
+  let compressed = false;
+
+  if (requestedCompression !== "none" && hasConcretePayload) {
+    const candidate = compressPayload(sourceBytes);
+    if (requestedCompression === "lz" || candidate.length < sourceBytes.length - 2) {
+      storedBytes = candidate.length;
+      compressed = true;
+      compression = "lz";
+    } else {
+      compression = "none";
+    }
+  } else if (requestedCompression !== "none" && !hasConcretePayload) {
+    compression = "unknown";
+  }
+
+  const needsEnvelope = signed || compressed || requestedCompression === "lz";
+  const encodedBytes = storedBytes + (needsEnvelope ? envelopeHeaderBytes + signingBytes : 0);
+  const extensionOverheadBytes = encodedBytes - storedBytes;
+
+  let quadqrVersion = null;
+  let quadqrInfo = null;
+  for (let version = 1; version <= MAX_VERSION; version++) {
+    const info = getVersionInfo(version, { ecc });
+    if (encodedBytes <= info.capacityBytes) {
+      quadqrVersion = version;
+      quadqrInfo = info;
+      break;
+    }
+  }
+
+  const standard = STANDARD_QR_BYTE_CAPACITY[ecc];
+  let standardQrVersion = null;
+  for (let version = 1; version <= MAX_VERSION; version++) {
+    if (sourceBytes.length <= standard[version - 1]) {
+      standardQrVersion = version;
+      break;
+    }
+  }
+
+  return {
+    ecc,
+    sourceBytes: sourceBytes.length,
+    encodedBytes,
+    storedBytes,
+    extensionOverheadBytes,
+    compression,
+    compressed,
+    signed,
+    quadqrVersion,
+    quadqrSize: quadqrInfo?.size ?? null,
+    quadqrCapacityBytes: quadqrInfo?.capacityBytes ?? null,
+    remainingBytes: quadqrInfo ? quadqrInfo.capacityBytes - encodedBytes : null,
+    utilizationPercent: quadqrInfo ? encodedBytes / quadqrInfo.capacityBytes * 100 : null,
+    standardQrVersion,
+    standardQrSize: standardQrVersion ? 21 + 4 * (standardQrVersion - 1) : null,
+    matrixWidthSavingsPercent: quadqrInfo && standardQrVersion
+      ? (1 - quadqrInfo.size / (21 + 4 * (standardQrVersion - 1))) * 100
+      : null,
+    note: "Compression is measured only when concrete payload bytes are provided. Byte-count-only estimates cannot predict compression gain."
   };
 }
 
