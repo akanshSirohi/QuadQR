@@ -1,6 +1,6 @@
 # QuadQR Documentation
 
-QuadQR is an experimental four-state RGBW matrix symbology. Each data cell carries exactly two bits using red, green, blue, or white. The JavaScript library supports encoding, rendering, matrix decoding, image and camera scanning, Spectrum ECC, optional authenticated encryption, Node.js PNG workflows, CDN usage, a CLI, TypeScript declarations, and optional prebuilt WebAssembly acceleration.
+QuadQR is an experimental four-state RGBW matrix symbology. Each data cell carries exactly two bits using red, green, blue, or white. The JavaScript library supports encoding, canvas/RGBA/SVG rendering, adjustable quiet zones, optional centered logos with transparent or cleared backgrounds, matrix decoding, image and camera scanning, Spectrum ECC, optional authenticated encryption, Node.js PNG/SVG workflows, CDN usage, a CLI, TypeScript declarations, and optional prebuilt WebAssembly acceleration.
 
 ## Live links
 
@@ -19,6 +19,7 @@ QuadQR is an experimental four-state RGBW matrix symbology. Each data cell carri
 - [Secure Payloads](./SECURITY.md)
 - [WebAssembly](./WASM.md)
 - [Wire Format](../FORMAT.md)
+- [Technical Specification](../SPECIFICATION.md)
 
 ## Package entry points
 
@@ -26,7 +27,7 @@ QuadQR is an experimental four-state RGBW matrix symbology. Each data cell carri
 | --- | --- |
 | `quadqr-js` | Runtime-neutral core API, rendering, scanning, secure payloads, utilities, and optional WASM |
 | `quadqr-js/browser` | Browser ESM entry for canvas, files, video, and camera workflows |
-| `quadqr-js/node` | Node.js core plus PNG, file, and buffer helpers |
+| `quadqr-js/node` | Node.js core plus PNG/SVG, file, and buffer helpers |
 | `quadqr-js/benchmark` | Capacity and codec benchmark helpers |
 | `quadqr-js/quadqr.min.js` | Classic browser global bundle for CDN/script-tag usage |
 
@@ -39,3 +40,20 @@ QuadQR is a custom experimental format, not ISO QR Code. Standard QR scanner app
 ## License
 
 QuadQR is licensed under AGPL-3.0. See [`LICENSE`](../LICENSE).
+
+## Advanced reliability and payload features
+
+The current library also includes:
+
+- normal text/byte payloads with optional internal LZ compression;
+- portable automatic LZ compression;
+- first-class binary `Uint8Array` APIs;
+- Ed25519 signed QuadQR payloads and trusted-key verification;
+- signed + AES-256-GCM encrypted composition;
+- screen and print rendering modes;
+- ECC-aware automatic logo sizing;
+- normalized scanner confidence and detailed debug mode;
+- deterministic scanability/torture testing;
+- an interactive browser stress-test lab and capacity calculator.
+
+See [`../SPECIFICATION.md`](../SPECIFICATION.md) for the layering and interoperability rules and [`API.md`](./API.md) for the public APIs.

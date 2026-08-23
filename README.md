@@ -21,7 +21,9 @@
   ·
   <a href="docs/README.md">Markdown Docs</a>
   ·
-  <a href="FORMAT.md">Format Specification</a>
+  <a href="FORMAT.md">Matrix Format</a>
+  ·
+  <a href="SPECIFICATION.md">Technical Specification</a>
 </p>
 
 **QuadQR** is an experimental open-source 2D matrix code that uses four visible data states instead of the two states used by a traditional black-and-white QR module.
@@ -176,6 +178,56 @@ The browser demo supports secure scanning in **both scanner paths**:
 - **Camera scanner:** live camera frames use the same secure-aware decode path. When an encrypted symbol is verified, scanning stops, the result is marked **Secure QR**, and plaintext is revealed only after successful authenticated decryption.
 
 The scanner never expects the secret to be embedded in the QuadQR itself. Raw-key symbols expose only their non-secret key ID/fingerprint.
+
+---
+
+## Compression, signatures, and robustness tooling
+
+QuadQR keeps the application payload simple: **text stays text and bytes stay bytes**. There is no public payload-type registry to maintain. Compression and signing metadata are added only as internal implementation details when those features are enabled.
+
+```js
+import {
+  encodeText,
+  encodeSignedText,
+  generateSigningKeyPair,
+  decodeMatrix,
+  verifyDecodedSignature
+} from "quadqr-js";
+
+// Auto compression is zero-overhead when it does not help.
+const compressed = encodeText("repeated repeated repeated", {
+  compression: "auto",
+  ecc: "M"
+});
+
+const keys = await generateSigningKeyPair();
+const signed = await encodeSignedText("verified offline", {
+  compression: "auto",
+  privateKey: keys.privateKey,
+  keyId: keys.keyId
+});
+
+const decoded = decodeMatrix(signed.matrix);
+const verified = await verifyDecodedSignature(decoded, {
+  publicKey: keys.publicKey
+});
+console.log(verified.signatureVerified); // true
+console.log(verified.signatureTrusted);  // true
+```
+
+Compression modes are `none`, `auto`, and `lz`. `auto` keeps the original payload untouched when compression would not save space. Ed25519 signing stores the signature plus an optional compact `keyId`; the public verification key stays outside the QuadQR by default. Applications do not need to choose or maintain content types.
+
+Signing can also be composed with Secure Payload. QuadQR compresses if requested, signs the normal payload with the private key, then encrypts the protected bytes with AES-256-GCM. A verifier supplies the trusted public key separately, or resolves it from `keyId`.
+
+The renderer supports an explicit `mode: "print"`. Print mode enforces a minimum 4-module quiet zone, uses darker print-safe RGB defaults, and prefers Classic solid modules. `getPrintGuidance()` converts a chosen physical size into module millimeters/pixels so print layouts can be checked before production testing.
+
+Centered logos support `size: "auto"`, which estimates a conservative ECC-aware ratio from code utilization and rendering choices. `findMaxSafeLogoSize()` can additionally probe ImageData output and empirically search for the largest size that still decodes.
+
+Scanner results include normalized diagnostics such as `confidence`, `geometryConfidence`, `calibrationConfidence`, `structureConfidence`, `eccUtilization`, and `correctedErrors`. Set `debug: true` or call `debugScanImageData()` to inspect finder/geometry candidates, the sampled matrix, color-confidence data, ECC stages, and the stage that failed.
+
+For regression and demo testing, `runImageStressTest()` / `assessScanability()` apply deterministic blur, brightness, exposure, shadow, contrast, perspective, JPEG-like artifacts, and downscaling. The browser demo exposes the same tools as an interactive stress-test lab and shows an overall scanability rating.
+
+The interoperability details are documented in [`SPECIFICATION.md`](./SPECIFICATION.md).
 
 ---
 
@@ -508,7 +560,7 @@ The `inset` style preserves the exact encoded R/G/B/W color around the center of
 
 ```js
 renderToCanvas(code, canvas, {
-  moduleSize: 12,
+  imageSize: 720,
   quietZone: 4,
   style: "inset" // classic | depth | soft | inset
 });
@@ -516,13 +568,58 @@ renderToCanvas(code, canvas, {
 
 The styling is deterministic. Generating the same matrix with the same style produces the same visual tile treatment rather than changing randomly on every render.
 
+`imageSize` sets the exact square output size in pixels. When neither `imageSize` nor `moduleSize` is supplied, QuadQR renders at **720 × 720 px** by default. `moduleSize` remains available as the lower-level legacy sizing control; when `imageSize` is supplied, the exact image size takes precedence.
+
+### Logo overlays, quiet zones, and SVG export
+
+The renderer can place a centered logo over the symbol. Transparent pixels in the logo stay transparent, so the QuadQR modules remain visible through those areas. Enable `clearBackground` when you want a clean padded white area behind the logo instead.
+
+```js
+const logoImage = new Image();
+logoImage.src = "/brand-mark.png";
+await logoImage.decode();
+
+renderToCanvas(code, canvas, {
+  imageSize: 720,
+  quietZone: 6,
+  style: "classic",
+  logo: {
+    source: logoImage,
+    size: 0.12,
+    clearBackground: true,
+    padding: 0.65,
+    radius: 0.8
+  }
+});
+```
+
+`quietZone` is measured in modules and can be set to `0` or increased for print/camera use. Four modules remains the recommended default.
+
+SVG uses the same matrix, palette, styles, quiet-zone size, and logo geometry:
+
+```js
+import { renderToSVG } from "quadqr-js";
+
+const svg = renderToSVG(code, {
+  imageSize: 720,
+  quietZone: 4,
+  logo: {
+    source: "data:image/png;base64,...",
+    size: 0.12,
+    clearBackground: true
+  }
+});
+```
+
+Logo overlays intentionally consume some ECC margin because they cover encoded cells. Keep logos conservative, especially with `L`/`M` ECC. The browser demo verifies the final rendered image before enabling downloads.
+
 ---
 
 ## Demo
 
 **Live demo:** https://akanshsirohi.github.io/QuadQR/demo/
 
-The browser demo runs directly on GitHub Pages and is split into separate views so the interface does not become overloaded.
+The browser demo runs directly on GitHub Pages and is split into separate views so the interface does not become overloaded. The generator keeps only payload, version, and ECC visible by default; optional capabilities are grouped into independent advanced accordions.
 
 ### Generator & Image Scanner
 
@@ -531,9 +628,13 @@ Use this tab to:
 - enter text/data;
 - generate a QuadQR code;
 - select ECC;
+- open Output & Rendering controls for image size, quiet zone, style, and print mode;
+- open the Center Logo accordion for branding;
+- enable internal automatic compression without choosing a payload type;
+- optionally add an Ed25519 signature;
 - optionally encrypt using a password or raw 256-bit key;
 - inspect version and capacity;
-- download the generated image;
+- download PNG or SVG output;
 - scan an uploaded image.
 
 ### Camera Scanner
@@ -552,7 +653,43 @@ The benchmark tab provides an easier visual view of:
 - comparison with standard QR;
 - byte gain;
 - capacity ratio;
-- codec timing.
+- codec timing;
+- capacity planning;
+- interactive stress testing.
+
+Benchmark tools are also separated into accordions so the page stays compact until a tool is needed.
+
+---
+
+## New API highlights
+
+```js
+import {
+  encodeText,
+  encodeUint8Array,
+  decodeUint8Array,
+  renderToImageData,
+  assessScanability,
+  getPrintGuidance
+} from "quadqr-js";
+
+const binary = encodeUint8Array(new Uint8Array([1, 2, 3, 4]), { ecc: "M" });
+const bytes = decodeUint8Array(binary.matrix);
+
+const code = encodeText("Hello hello hello hello", {
+  compression: "auto",
+  ecc: "Q"
+});
+
+const printImage = renderToImageData(code, {
+  imageSize: 1200,
+  mode: "print",
+  logo: { source: logoImageData, size: "auto", clearBackground: true }
+});
+
+console.log(getPrintGuidance(code, { physicalSizeMm: 45, dpi: 300 }));
+console.log(assessScanability(code, { imageSize: 480 }));
+```
 
 ---
 
@@ -583,14 +720,15 @@ const result = decodeMatrix(code.matrix);
 console.log(result.text);
 ```
 
-Node PNG usage:
+Node PNG/SVG usage:
 
 ```js
 import { encodeText } from "quadqr-js";
-import { savePNG, scanFile } from "quadqr-js/node";
+import { savePNG, saveSVG, scanFile } from "quadqr-js/node";
 
 const code = encodeText("Generated on Node.js");
-await savePNG(code, "quadqr.png", { moduleSize: 12, quietZone: 4 });
+await savePNG(code, "quadqr.png", { imageSize: 720, quietZone: 4 });
+await saveSVG(code, "quadqr.svg", { imageSize: 720, quietZone: 4 });
 
 const result = await scanFile("quadqr.png");
 console.log(result.text);
@@ -601,7 +739,7 @@ console.log(result.text);
 The `quadqr-js` package can be loaded directly from npm-backed CDNs:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.0.1/dist/quadqr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.1.0/dist/quadqr.min.js"></script>
 <script>
   const code = QuadQR.encodeText("Hello from a script tag");
 </script>
@@ -618,6 +756,16 @@ npx quadqr-js encode "Hello QuadQR" -o hello.png
 npx quadqr-js decode hello.png
 ```
 
+Compressed, print-safe, and signed output are also available:
+
+```bash
+npx quadqr-js encode "repeat repeat repeat" --compression auto -o compressed.svg
+npx quadqr-js encode "Print me" --print -o print.svg
+npx quadqr-js signkeygen -o signing-key.json
+npx quadqr-js encode "Verified ticket" --sign-key signing-key.json -o signed.png
+npx quadqr-js decode signed.png --verify-key signing-key.json
+```
+
 Password-protected payloads use the same commands:
 
 ```bash
@@ -625,7 +773,7 @@ npx quadqr-js encode "Private data" --password "my-password" -o secure.png
 npx quadqr-js decode secure.png --password "my-password"
 ```
 
-See [`docs/CLI.md`](docs/CLI.md) for all CLI options, including raw 256-bit key mode.
+See [`docs/CLI.md`](docs/CLI.md) for all CLI options, including compression, raw 256-bit key mode, signing, print mode, and scanner diagnostics.
 
 ### Run from source
 
@@ -862,7 +1010,7 @@ The result reports fields such as `spectralInterleaving`, `confidenceAssisted`, 
 
 ### `renderToCanvas(codeOrMatrix, canvas, options?)`
 
-Renders a QuadQR symbol into a browser canvas. `options.style` supports `classic`, `depth`, `soft`, and `inset`.
+Renders a QuadQR symbol into a browser canvas. `imageSize` sets the exact square pixel output and defaults to 720 when neither sizing option is supplied. `moduleSize` remains available for legacy pixels-per-module sizing. `options.style` supports `classic`, `depth`, `soft`, and `inset`. `quietZone` controls the border in modules. `logo` accepts a loaded image/canvas source or `{ source, size, clearBackground, padding, radius, backgroundColor }`.
 
 ### `renderToImageData(codeOrMatrix, options?)`
 
@@ -877,6 +1025,12 @@ Returns an ImageData-like object and supports the same rendering styles as `rend
 ```
 
 This is also useful for tests and non-DOM workflows.
+
+When a logo is used with `renderToImageData()`, its source must be an ImageData-like `{ width, height, data }` object so the renderer can composite it without DOM APIs.
+
+### `renderToSVG(codeOrMatrix, options?)`
+
+Returns a standalone SVG string using the same exact `imageSize`, render styles, and quiet-zone controls. SVG logo sources can be a URL/data URL string or an object with a `src` string. The SVG remains vector-sharp regardless of how large the preview is displayed.
 
 ### `scanImageData(imageData, options?)`
 

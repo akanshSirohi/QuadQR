@@ -1,7 +1,7 @@
 {
   "name": "quadqr-js",
-  "version": "1.0.2",
-  "description": "QuadQR: experimental four-state RGBW matrix code with Spectrum ECC, browser/Node scanning, CDN builds, and optional AES-256-GCM secure payloads.",
+  "version": "1.2.0",
+  "description": "QuadQR: experimental four-state RGBW matrix code with Spectrum ECC, compression, Ed25519 signing, browser/Node scanning, diagnostics, stress testing, and optional AES-256-GCM security.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -44,6 +44,7 @@
     "bin",
     "docs",
     "FORMAT.md",
+    "SPECIFICATION.md",
     "README.md",
     "LICENSE"
   ],
@@ -89,7 +90,11 @@
     "camera-scanner",
     "encryption",
     "aes-gcm",
-    "wasm"
+    "wasm",
+    "compression",
+    "ed25519",
+    "scan-diagnostics",
+    "print-qr"
   ],
   "sideEffects": false
 }

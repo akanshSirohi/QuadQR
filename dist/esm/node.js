@@ -10,7 +10,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { deflateSync, inflateSync } from "node:zlib";
 import { webcrypto } from "node:crypto";
 
-import { renderToImageData, scanImageData } from "./quadqr.js";
+import { renderToImageData, renderToSVG, scanImageData } from "./quadqr.js";
 
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 
@@ -240,6 +240,18 @@ export async function savePNG(codeOrMatrix, filename, options = {}) {
   const png = toPNG(codeOrMatrix, options);
   await writeFile(filename, png);
   return { filename, bytes: png.length };
+}
+
+/** Render a QuadQR code/matrix directly to an SVG string. */
+export function toSVG(codeOrMatrix, options = {}) {
+  return renderToSVG(codeOrMatrix, options);
+}
+
+/** Render a QuadQR code/matrix and save it as SVG. */
+export async function saveSVG(codeOrMatrix, filename, options = {}) {
+  const svg = toSVG(codeOrMatrix, options);
+  await writeFile(filename, svg, "utf8");
+  return { filename, bytes: Buffer.byteLength(svg, "utf8") };
 }
 
 async function decodeWithOptionalSharp(buffer) {

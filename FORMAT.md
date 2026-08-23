@@ -388,3 +388,14 @@ Format v5 is intentionally incompatible with standard QR scanners and with the p
 ## Rendering profiles are not part of the wire format
 
 The canonical QuadQR matrix is independent of presentation style. Renderers may offer styles such as `classic`, `depth`, `soft`, or `inset`, provided structural finder/timing/alignment/calibration references remain sufficiently faithful for decoding. Style selection is not encoded in the payload/header and does not change matrix cell values.
+
+## Compression and signature flags
+
+Format v5 keeps the physical matrix and ECC framing unchanged while reserving two protected-header flags for optional internal payload metadata:
+
+```text
+bit 4 = internal payload-extension metadata present
+bit 5 = signed-payload hint
+```
+
+These bits are not a public payload-type mode. Applications continue to encode normal UTF-8 text or arbitrary bytes. Compression and Ed25519 signing use a compact internal extension envelope only when metadata is required. The envelope, print profile, diagnostics, and scanability test model are specified in [`SPECIFICATION.md`](./SPECIFICATION.md). None of these features changes RGBW cell mapping or Spectrum ECC.

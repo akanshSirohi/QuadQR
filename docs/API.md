@@ -110,11 +110,31 @@ Renders to an HTML canvas.
 
 ```js
 renderToCanvas(code, canvas, {
-  moduleSize: 12,
+  imageSize: 720,
   quietZone: 4,
-  style: "classic"
+  style: "classic",
+  logo: {
+    source: loadedImage,
+    size: 0.12,
+    clearBackground: true,
+    padding: 0.65,
+    radius: 0.8
+  }
 });
 ```
+
+`imageSize` sets the exact square output width/height in pixels. The default is `720` when neither `imageSize` nor `moduleSize` is provided. `moduleSize` remains supported as a lower-level pixels-per-module sizing option and is used when `imageSize` is omitted.
+
+`quietZone` is measured in modules. The default is `4`.
+
+Logo options:
+
+- `source`: loaded CanvasImageSource for canvas rendering, ImageData-like RGBA data for `renderToImageData()`, or URL/data URL for SVG.
+- `size`: fraction of the matrix width/height, clamped to `0.05..0.30`. Default `0.18`.
+- `clearBackground`: clears modules behind the logo using a solid background before drawing the logo.
+- `padding`: clear-background padding in modules. Default `0.65`.
+- `radius`: clear-background corner radius in modules. Default `0.8`.
+- `backgroundColor`: background color when clearing. Defaults to palette white.
 
 Supported styles:
 
@@ -133,6 +153,23 @@ Returns runtime-neutral RGBA pixels:
   height,
   data: Uint8ClampedArray
 }
+```
+
+### `renderToSVG(codeOrMatrix, options?)`
+
+Returns a standalone SVG string. It supports the same exact `imageSize`, palette, render style, quiet-zone, and logo geometry options as the browser canvas renderer. Because the preview/export is vector, it stays sharp when displayed above or below its nominal pixel size.
+
+```js
+const svg = renderToSVG(code, {
+  imageSize: 720,
+  quietZone: 6,
+  style: "soft",
+  logo: {
+    source: "data:image/png;base64,...",
+    size: 0.12,
+    clearBackground: true
+  }
+});
 ```
 
 ## Image and camera scanning
@@ -225,7 +262,22 @@ Writes a PNG file.
 
 ```js
 await savePNG(code, "quadqr.png", {
-  moduleSize: 12,
+  imageSize: 720,
+  quietZone: 4
+});
+```
+
+### `toSVG(codeOrMatrix, options?)`
+
+Returns the standalone SVG string from the Node entry point.
+
+### `saveSVG(codeOrMatrix, filename, options?)`
+
+Writes SVG directly to disk.
+
+```js
+await saveSVG(code, "quadqr.svg", {
+  imageSize: 720,
   quietZone: 4
 });
 ```
@@ -315,6 +367,10 @@ Common exported constants include:
 - `CELL`
 - `DEFAULT_PALETTE`
 - `RENDER_STYLES`
+- `RENDER_MODES`
+- `COMPRESSION_MODES`
+- `SIGNATURE_ALGORITHMS`
+- `STRESS_PROFILES`
 - `ECC_LEVELS`
 
 ## Benchmark entry
@@ -324,6 +380,166 @@ Benchmark helpers are available from `quadqr-js/benchmark`:
 ```js
 import {
   buildCapacityComparison,
-  benchmarkCodec
+  benchmarkCodec,
+  calculateCapacityPlan
 } from "quadqr-js/benchmark";
 ```
+
+### `calculateCapacityPlan(options)`
+
+Estimates the smallest QuadQR version for a byte count or concrete payload and reports remaining capacity plus the standard QR byte-mode version at the same nominal ECC letter. When only a byte count is known, compression gain is intentionally not guessed.
+
+---
+
+## Compression
+
+### `encodeText(text, options?)` / `encodeBytes(input, options?)`
+
+Both normal encoding APIs accept an optional compression mode:
+
+```js
+const code = QuadQR.encodeText("hello hello hello", {
+  compression: "auto",
+  ecc: "M"
+});
+```
+
+`compression` may be `none`, `auto`, or `lz`.
+
+- `none` stores the payload directly.
+- `auto` compresses only when the result is meaningfully smaller. If compression does not help, no internal envelope is added.
+- `lz` always stores the payload through QuadQR's portable LZ compressor.
+
+There is no public content-type registry. Text remains text and byte arrays remain byte arrays.
+
+### `compressPayload(input)` / `decompressPayload(input, expectedLength?)`
+
+Portable synchronous LZSS-style compression helpers. They do not require Node zlib or browser `CompressionStream`.
+
+## Binary convenience APIs
+
+### `encodeUint8Array(input, options?)`
+
+Explicit byte-oriented alias of `encodeBytes()`. It supports the same optional `compression` setting.
+
+### `decodeUint8Array(matrix, options?)`
+
+Decodes a matrix and returns only the application payload bytes.
+
+## Signed QuadQR
+
+### `generateSigningKeyPair()`
+
+Generates an extractable Ed25519 key pair using Web Crypto and returns the CryptoKeys, raw public-key bytes, PKCS#8 private-key bytes, and a compact SHA-256-derived `keyId`.
+
+### `encodeSignedText(text, options)` / `encodeSignedBytes(input, options)`
+
+Signs the normal application payload with Ed25519. Any required signature and compression metadata is handled internally.
+
+```js
+const pair = await QuadQR.generateSigningKeyPair();
+const code = await QuadQR.encodeSignedText("certificate payload", {
+  ecc: "Q",
+  compression: "auto",
+  privateKey: pair.privateKey,
+  keyId: pair.keyId
+});
+```
+
+Only the private key is required for signing. `publicKey` is accepted only for the explicit `embedPublicKey: true` compatibility mode.
+
+### `verifyDecodedSignature(result, options?)`
+
+Verifies a signed decode result against a trusted external Ed25519 public key.
+
+```js
+const decoded = QuadQR.decodeMatrix(code.matrix);
+const verified = await QuadQR.verifyDecodedSignature(decoded, {
+  publicKey: knownPublicKey
+});
+```
+
+For multiple issuers, pass a `trustedKeys` object or `Map` keyed by the embedded `keyId`:
+
+```js
+const verified = await QuadQR.verifyDecodedSignature(decoded, {
+  trustedKeys: {
+    [decoded.signingKeyId]: knownPublicKey
+  }
+});
+```
+
+`signatureVerified: true` means the signature is mathematically valid. `signatureTrusted: true` means it was checked using an external trusted key. `allowEmbeddedKey: true` may be used for compatibility/self-contained integrity checks, but such a result is not considered a trusted signer.
+
+### Signing + encryption
+
+`encodeSecureText()` and `encodeSecureBytes()` accept an optional `signing` object alongside `security` and `compression`. The internal pipeline is compression → signing → AES-256-GCM → Spectrum ECC.
+
+```js
+const code = await QuadQR.encodeSecureText("private signed payload", {
+  compression: "auto",
+  security: { mode: "password", password: "secret" },
+  signing: {
+    privateKey: pair.privateKey,
+    keyId: pair.keyId
+  }
+});
+```
+
+## Print rendering
+
+All render APIs accept:
+
+```js
+{ mode: "screen" | "print" }
+```
+
+Print mode uses a darker print-safe palette, forces Classic modules by default, and enforces a minimum 4-module quiet zone unless `allowUnsafePrintQuietZone: true` is explicitly set.
+
+### `getPrintGuidance(codeOrMatrix, options?)`
+
+Returns physical module size, pixels/module at a DPI, recommended minimum physical size, and print recommendations.
+
+## Automatic logo safety
+
+A logo can use:
+
+```js
+logo: {
+  source: logo,
+  size: "auto",
+  clearBackground: true
+}
+```
+
+`estimateSafeLogoSize()` exposes the conservative ratio used by auto mode. `findMaxSafeLogoSize()` performs an empirical binary search when the logo source is ImageData-like.
+
+## Scanner confidence and debug mode
+
+Normal successful scans now include:
+
+- `confidence`
+- `geometryConfidence`
+- `calibrationConfidence`
+- `structureConfidence`
+- `eccUtilization`
+- `correctedErrors`
+- `diagnostics`
+
+Use `scanImageData(image, { debug: true })` for detailed geometry/sampling information. `debugScanImageData()` is a non-throwing helper that returns `{ ok, result, debug }` or `{ ok: false, error, debug }`.
+
+## Scanability and stress testing
+
+### `applyStressDistortion(imageData, type, severity?)`
+
+Deterministically applies a selected synthetic distortion.
+
+### `runImageStressTest(imageData, expected?, options?)`
+
+Runs the standard torture profiles and returns a 0–100 score plus per-scenario decode results.
+
+### `assessScanability(code, renderOptions?, options?)`
+
+Renders a code and runs the standard test suite. It returns `Excellent`, `Good`, `Risky`, or `Likely unscannable` together with recommendations.
+
+Synthetic scores are regression aids and do not replace physical camera/print testing.

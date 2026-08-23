@@ -8,6 +8,7 @@ With Vite, webpack, Rollup, Next.js client code, or another browser bundler:
 import {
   encodeText,
   renderToCanvas,
+  renderToSVG,
   scanFile,
   startCameraScanner
 } from "quadqr-js/browser";
@@ -21,13 +22,57 @@ The main `quadqr-js` entry also works in modern browser bundlers for runtime-neu
 const code = encodeText("Hello browser");
 
 renderToCanvas(code, document.querySelector("#qr"), {
-  moduleSize: 12,
+  imageSize: 720,
   quietZone: 4,
   style: "classic"
 });
+
+const svg = renderToSVG(code, {
+  imageSize: 720,
+  quietZone: 4
+});
 ```
 
+`imageSize` controls the exact square output size. If neither `imageSize` nor `moduleSize` is supplied, the renderer defaults to 720 × 720 px.
+
 Available styles are `classic`, `depth`, `soft`, and `inset`.
+
+## Compressed, signed, and print-safe output
+
+```js
+import {
+  assessScanability,
+  decodeMatrix,
+  encodeText,
+  encodeSignedText,
+  generateSigningKeyPair,
+  renderToCanvas,
+  verifyDecodedSignature
+} from "quadqr-js/browser";
+
+const compressed = encodeText("repeat repeat repeat repeat", {
+  compression: "auto"
+});
+
+const keys = await generateSigningKeyPair();
+const signed = await encodeSignedText("ticket", {
+  compression: "auto",
+  privateKey: keys.privateKey,
+  keyId: keys.keyId
+});
+
+const checked = await verifyDecodedSignature(decodeMatrix(signed.matrix), {
+  publicKey: keys.publicKey
+});
+console.log(checked.signatureVerified, checked.signatureTrusted);
+
+const canvas = document.querySelector("#qr");
+renderToCanvas(compressed, canvas, { mode: "print", imageSize: 720 });
+const report = assessScanability(compressed, { imageSize: 480 });
+console.log(report.score, report.rating);
+```
+
+Compression and signing use internal metadata only when required. There is no public content-type mode to configure. The private key signs, while the public verification key stays outside the QuadQR by default. Use the stored `keyId` to select an application-trusted public key. Scanability testing is deterministic synthetic regression testing and should be supplemented with real devices and print samples.
 
 ## Scan an uploaded image
 
@@ -88,12 +133,12 @@ The global browser build exposes `window.QuadQR` / `globalThis.QuadQR`.
 
 ```html
 <canvas id="qr"></canvas>
-<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.0.1/dist/quadqr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.1.0/dist/quadqr.min.js"></script>
 <script>
   const code = QuadQR.encodeText("Hello CDN");
 
   QuadQR.renderToCanvas(code, document.querySelector("#qr"), {
-    moduleSize: 12,
+    imageSize: 720,
     quietZone: 4
   });
 </script>
@@ -102,7 +147,7 @@ The global browser build exposes `window.QuadQR` / `globalThis.QuadQR`.
 ## unpkg
 
 ```html
-<script src="https://unpkg.com/quadqr-js@1.0.1/dist/quadqr.min.js"></script>
+<script src="https://unpkg.com/quadqr-js@1.1.0/dist/quadqr.min.js"></script>
 ```
 
 ## Direct CDN ESM
@@ -112,7 +157,7 @@ The global browser build exposes `window.QuadQR` / `globalThis.QuadQR`.
   import {
     encodeText,
     renderToCanvas
-  } from "https://cdn.jsdelivr.net/npm/quadqr-js@1.0.1/dist/browser.js";
+  } from "https://cdn.jsdelivr.net/npm/quadqr-js@1.1.0/dist/browser.js";
 
   const code = encodeText("ES module CDN");
   renderToCanvas(code, document.querySelector("#qr"));
@@ -139,4 +184,4 @@ WASM is optional. The normal JavaScript implementation remains available if it c
 
 ## Production recommendation
 
-Pin a concrete package version such as `@1.0.1` in CDN URLs so an existing site does not silently change when a newer package version becomes available.
+Pin a concrete package version such as `@1.1.0` in CDN URLs so an existing site does not silently change when a newer package version becomes available.

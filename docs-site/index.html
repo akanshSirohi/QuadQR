@@ -33,7 +33,10 @@
         <a href="#node">Node.js</a>
         <a href="#scanner">Scanning</a>
         <a href="#security">Secure payloads</a>
+        <a href="#payload-tools">Compression + signing</a>
         <a href="#rendering">Rendering</a>
+        <a href="#diagnostics">Diagnostics</a>
+        <a href="#testing">Stress testing</a>
         <p>Reference</p>
         <a href="#api">API</a>
         <a href="#cdn">CDN</a>
@@ -45,9 +48,9 @@
     <main class="content">
       <section class="hero" id="overview">
         <div>
-          <span class="eyebrow">QUADQR 1.0.1</span>
+          <span class="eyebrow">QUADQR 1.1.0</span>
           <h1>Build with QuadQR in the browser or Node.js.</h1>
-          <p>Generate, render, scan, and optionally protect QuadQR payloads with one shared JavaScript codec. Use the npm package, a browser bundler, Node.js, the CLI, or a plain script tag from a CDN.</p>
+          <p>Generate, render, scan, compress, sign, encrypt, diagnose, and stress-test QuadQR payloads with one shared JavaScript codec. Use the npm package, a browser bundler, Node.js, the CLI, or a plain script tag from a CDN.</p>
           <div class="hero-actions">
             <a class="primary" href="#quick-start">Quick start</a>
             <a class="secondary" href="../demo/">Open live demo</a>
@@ -66,7 +69,7 @@
         <div class="cards three">
           <article><strong>Core</strong><code>quadqr-js</code><p>Encoding, decoding, secure payloads, RGBA scanning, rendering, utilities, and optional WASM.</p></article>
           <article><strong>Browser</strong><code>quadqr-js/browser</code><p>Browser ESM entry for canvas rendering, image files, video frames, and live camera scanning.</p></article>
-          <article><strong>Node.js</strong><code>quadqr-js/node</code><p>Shared core plus PNG generation, file scanning, and buffer scanning.</p></article>
+          <article><strong>Node.js</strong><code>quadqr-js/node</code><p>Shared core plus PNG/SVG generation, file scanning, and buffer scanning.</p></article>
         </div>
       </section>
 
@@ -88,12 +91,20 @@ console.log(result.text); // Hello QuadQR</code></pre></div>
         <div class="code"><button data-copy>Copy</button><pre><code>import {
   encodeText,
   renderToCanvas,
+  renderToSVG,
   scanFile,
   startCameraScanner
 } from "quadqr-js/browser";
 
 const code = encodeText("Hello from the browser", { ecc: "M" });
-renderToCanvas(code, document.querySelector("#qr"));
+renderToCanvas(code, document.querySelector("#qr"), {
+  quietZone: 4
+});
+
+const svg = renderToSVG(code, {
+  imageSize: 720,
+  quietZone: 4
+});
 
 // Image upload
 const fileInput = document.querySelector("#image");
@@ -118,13 +129,18 @@ scanner = await startCameraScanner(document.querySelector("#video"), {
 
       <section id="node">
         <span class="eyebrow">NODE.JS</span>
-        <h2>Generate and scan PNG files on the server</h2>
+        <h2>Generate PNG/SVG files and scan images on the server</h2>
         <div class="code"><button data-copy>Copy</button><pre><code>import { encodeText } from "quadqr-js";
-import { savePNG, scanFile } from "quadqr-js/node";
+import { savePNG, saveSVG, scanFile } from "quadqr-js/node";
 
 const code = encodeText("Generated on Node.js");
 await savePNG(code, "quadqr.png", {
-  moduleSize: 12,
+  imageSize: 720,
+  quietZone: 4
+});
+
+await saveSVG(code, "quadqr.svg", {
+  imageSize: 720,
   quietZone: 4
 });
 
@@ -177,15 +193,74 @@ console.log(result.text);</code></pre></div>
         <p>For application-managed keys, set <code>mode: "raw-key"</code> and provide an exact 32-byte key. The key itself is never stored in the QuadQR symbol.</p>
       </section>
 
+      <section id="payload-tools">
+        <span class="eyebrow">PAYLOAD TOOLS</span>
+        <h2>Normal payloads with optional compression and signatures</h2>
+        <p>QuadQR does not require a semantic payload type. Encode normal text or bytes, then enable compression or Ed25519 signing only when your application needs them. Any transport metadata is handled internally.</p>
+        <div class="code"><button data-copy>Copy</button><pre><code>const compressed = QuadQR.encodeText("repeat repeat repeat repeat", {
+  compression: "auto",
+  ecc: "Q"
+});
+
+const keys = await QuadQR.generateSigningKeyPair();
+const signed = await QuadQR.encodeSignedText("ticket", {
+  compression: "auto",
+  privateKey: keys.privateKey,
+  keyId: keys.keyId
+});
+
+const checked = await QuadQR.verifyDecodedSignature(
+  QuadQR.decodeMatrix(signed.matrix),
+  { publicKey: keys.publicKey }
+);
+console.log(checked.signatureVerified, checked.signatureTrusted);</code></pre></div>
+        <p class="note"><code>compression: "auto"</code> adds no compression envelope when it does not save space. The private key signs, while the trusted public key stays outside the QuadQR by default. The compact key ID helps a scanner select the correct trusted verification key.</p>
+      </section>
+
       <section id="rendering">
         <span class="eyebrow">RENDERING</span>
-        <h2>Use the same matrix with multiple visual styles</h2>
+        <h2>Use styles, logos, quiet zones, and vector export</h2>
         <div class="code"><button data-copy>Copy</button><pre><code>renderToCanvas(code, document.querySelector("#qr"), {
-  moduleSize: 12,
-  quietZone: 4,
-  style: "classic" // classic | depth | soft | inset
+  imageSize: 720,
+  quietZone: 6,
+  style: "classic", // classic | depth | soft | inset
+  logo: {
+    source: loadedLogoImage,
+    size: "auto",
+    clearBackground: true
+  }
+});
+
+const svg = renderToSVG(code, {
+  imageSize: 720,
+  quietZone: 6,
+  mode: "print"
 });</code></pre></div>
-        <p>Styles affect presentation only. They do not change the encoded matrix, payload, or wire format.</p>
+        <p>Use <code>mode: "print"</code> for a minimum 4-module quiet zone, darker print-safe primaries, and Classic solid modules. <code>size: "auto"</code> estimates a conservative ECC-aware logo size. <code>getPrintGuidance()</code> reports physical module sizing when you know the target millimeters and DPI.</p>
+      </section>
+
+      <section id="diagnostics">
+        <span class="eyebrow">SCANNER DIAGNOSTICS</span>
+        <h2>See where a scan succeeds or fails</h2>
+        <div class="code"><button data-copy>Copy</button><pre><code>const result = QuadQR.scanImageData(imageData, { debug: true });
+console.log(result.confidence);
+console.log(result.geometryConfidence);
+console.log(result.calibrationConfidence);
+console.log(result.eccUtilization);
+console.log(result.diagnostics.stages);</code></pre></div>
+        <p>Debug mode can expose finder/geometry candidates, color-normalization method, sampled matrix and confidence matrix, ECC correction usage, and the stage that failed. <code>debugScanImageData()</code> is a non-throwing helper for diagnostic tools.</p>
+      </section>
+
+      <section id="testing">
+        <span class="eyebrow">SCANABILITY LAB</span>
+        <h2>Deterministic torture tests for generated codes</h2>
+        <div class="code"><button data-copy>Copy</button><pre><code>const report = QuadQR.assessScanability(code, {
+  imageSize: 480,
+  logo: { source: logoImageData, size: "auto" }
+});
+
+console.log(report.score, report.rating);</code></pre></div>
+        <p>The standard suite covers blur, low/high exposure, shadow, contrast loss, perspective, JPEG-like artifacts, and downscaling. The live demo also provides an interactive stress-test lab. Synthetic scores are regression aids, not a replacement for real camera and printer testing.</p>
       </section>
 
       <section id="api">
@@ -195,14 +270,21 @@ console.log(result.text);</code></pre></div>
           <article><code>encodeText()</code><p>Encode UTF-8 text.</p></article>
           <article><code>encodeBytes()</code><p>Encode arbitrary bytes.</p></article>
           <article><code>encodeSecureText()</code><p>Encrypt and encode text.</p></article>
+          <article><code>compressPayload()</code><p>Portable LZ compression helper.</p></article>
+          <article><code>encodeSignedText()</code><p>Sign with Ed25519.</p></article>
+          <article><code>encodeUint8Array()</code><p>Explicit binary API.</p></article>
           <article><code>decodeMatrix()</code><p>Decode a sampled matrix.</p></article>
-          <article><code>scanImageData()</code><p>Scan RGBA pixels.</p></article>
+          <article><code>scanImageData()</code><p>Scan RGBA pixels with confidence diagnostics.</p></article>
+          <article><code>debugScanImageData()</code><p>Non-throwing detailed scan diagnostics.</p></article>
+          <article><code>assessScanability()</code><p>Run the standard torture suite.</p></article>
           <article><code>scanFile()</code><p>Scan browser files.</p></article>
           <article><code>startCameraScanner()</code><p>Live browser camera scanner.</p></article>
           <article><code>decryptDecoded()</code><p>Unlock secure scan results.</p></article>
           <article><code>renderToCanvas()</code><p>Render in a browser canvas.</p></article>
           <article><code>renderToImageData()</code><p>Render runtime-neutral RGBA pixels.</p></article>
+          <article><code>renderToSVG()</code><p>Render a standalone vector SVG.</p></article>
           <article><code>getVersionInfo()</code><p>Inspect capacity and geometry.</p></article>
+          <article><code>getPrintGuidance()</code><p>Plan physical print sizing.</p></article>
           <article><code>initWasm()</code><p>Enable optional WASM acceleration.</p></article>
         </div>
         <p>See <a href="https://github.com/akanshsirohi/QuadQR/blob/master/docs/API.md" rel="noreferrer">the complete API reference</a> for options and Node-specific helpers.</p>
@@ -212,7 +294,7 @@ console.log(result.text);</code></pre></div>
         <span class="eyebrow">CDN</span>
         <h2>Use QuadQR from a script tag with no build step</h2>
         <div class="code"><button data-copy>Copy</button><pre><code>&lt;canvas id="qr"&gt;&lt;/canvas&gt;
-&lt;script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.0.1/dist/quadqr.min.js"&gt;&lt;/script&gt;
+&lt;script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.1.0/dist/quadqr.min.js"&gt;&lt;/script&gt;
 &lt;script&gt;
   const code = QuadQR.encodeText("Hello from a script tag");
   QuadQR.renderToCanvas(code, document.querySelector("#qr"));
@@ -227,10 +309,21 @@ console.log(result.text);</code></pre></div>
 npx quadqr-js encode "Hello QuadQR" -o hello.png
 npx quadqr-js decode hello.png
 
+# Automatic compression
+npx quadqr-js encode "repeat repeat repeat" --compression auto -o compressed.svg
+
+# Print-safe output
+npx quadqr-js encode "Print me" --print -o print.svg
+
+# Ed25519 signed payload
+npx quadqr-js signkeygen -o signing-key.json
+npx quadqr-js encode "Verified ticket" --sign-key signing-key.json -o signed.png
+npx quadqr-js decode signed.png --verify-key signing-key.json
+
 # Password-protected QuadQR
 npx quadqr-js encode "Private data" --password "my-password" -o secure.png
 npx quadqr-js decode secure.png --password "my-password"</code></pre></div>
-        <p>For application-managed key workflows, the CLI also supports <code>--key &lt;64-hex-key&gt;</code> and <code>keygen</code>. See <a href="https://github.com/akanshsirohi/QuadQR/blob/master/docs/CLI.md" rel="noreferrer">the CLI guide</a> for all options.</p>
+        <p>The CLI also supports <code>--debug</code> scanner diagnostics, <code>--key &lt;64-hex-key&gt;</code>, and signed + encrypted composition. See <a href="https://github.com/akanshsirohi/QuadQR/blob/master/docs/CLI.md" rel="noreferrer">the CLI guide</a> for all options.</p>
       </section>
 
       <section id="wasm">
@@ -239,7 +332,7 @@ npx quadqr-js decode secure.png --password "my-password"</code></pre></div>
         <div class="code"><button data-copy>Copy</button><pre><code>import { initWasm } from "quadqr-js";
 
 await initWasm();</code></pre></div>
-        <p>The JavaScript codec works without WASM. In 0.7.x the optional prebuilt module accelerates CRC-32 while keeping the same public API and wire format.</p>
+        <p>The JavaScript codec works without WASM. In 1.x the optional prebuilt module accelerates CRC-32 while keeping the same public API and wire format.</p>
       </section>
 
       <footer>

@@ -10,13 +10,27 @@ import { webcrypto } from "node:crypto";
 
 import * as esm from "../dist/index.js";
 import * as nodeApi from "../dist/node.js";
+import * as benchmarkApi from "../dist/benchmark.js";
 
 console.log("Running package distribution tests...");
 
-// ESM core entry.
+// ESM core entry and the v1.1 public feature surface.
 {
   const code = esm.encodeText("npm ESM roundtrip", { ecc: "M" });
   assert.equal(esm.decodeMatrix(code.matrix).text, "npm ESM roundtrip");
+  for (const name of [
+    "encodeUint8Array",
+    "encodeSignedText",
+    "generateSigningKeyPair",
+    "deriveSigningKeyId",
+    "verifyDecodedSignature",
+    "debugScanImageData",
+    "assessScanability",
+    "estimateSafeLogoSize",
+    "findMaxSafeLogoSize",
+    "getPrintGuidance"
+  ]) assert.equal(typeof esm[name], "function", `${name} must be exported from the ESM entry.`);
+  assert.equal(typeof benchmarkApi.calculateCapacityPlan, "function");
 }
 
 // CommonJS wrapper on supported modern Node.
@@ -83,6 +97,21 @@ console.log("Running package distribution tests...");
     command = spawnSync(process.execPath, [cliPath, "decode", output], { encoding: "utf8" });
     assert.equal(command.status, 0, command.stderr);
     assert.equal(command.stdout.trim(), "CLI roundtrip");
+
+    const compressedOutput = path.join(dir, "compressed.svg");
+    command = spawnSync(process.execPath, [cliPath, "encode", "CLI compressed roundtrip repeated repeated repeated", "--compression", "auto", "--print", "-o", compressedOutput], { encoding: "utf8" });
+    assert.equal(command.status, 0, command.stderr);
+    assert.match(await readFile(compressedOutput, "utf8"), /<svg\b/);
+
+    const signingKey = path.join(dir, "signing-key.json");
+    const signedOutput = path.join(dir, "signed.png");
+    command = spawnSync(process.execPath, [cliPath, "signkeygen", "-o", signingKey], { encoding: "utf8" });
+    assert.equal(command.status, 0, command.stderr);
+    command = spawnSync(process.execPath, [cliPath, "encode", "CLI signed roundtrip", "--sign-key", signingKey, "-o", signedOutput], { encoding: "utf8" });
+    assert.equal(command.status, 0, command.stderr);
+    command = spawnSync(process.execPath, [cliPath, "decode", signedOutput, "--verify-key", signingKey], { encoding: "utf8" });
+    assert.equal(command.status, 0, command.stderr);
+    assert.equal(command.stdout.trim(), "CLI signed roundtrip");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -109,6 +138,8 @@ console.log("Running package distribution tests...");
   assert.ok(context.QuadQR);
   const code = context.QuadQR.encodeText("CDN global roundtrip");
   assert.equal(context.QuadQR.decodeMatrix(code.matrix).text, "CDN global roundtrip");
+  assert.equal(typeof context.QuadQR.assessScanability, "function");
+  assert.equal(typeof context.QuadQR.generateSigningKeyPair, "function");
 }
 
 console.log("Package distribution tests passed.");
