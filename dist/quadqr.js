@@ -1224,6 +1224,31 @@ function detectFinderCandidates(binary, width, height, options = {}) {
   return clusterFinderCandidates(raw, minConfirmations);
 }
 
+function recoverFinderSetFromTwo(binary, width, height, strongFinders, detector = {}) {
+  if (strongFinders.length !== 2) return strongFinders;
+  const moduleMean = (strongFinders[0].moduleSize + strongFinders[1].moduleSize) / 2;
+  const loose = detectFinderCandidates(binary, width, height, {
+    toleranceScale: Math.max(1.45, (detector.toleranceScale ?? 1) * 1.35),
+    moduleSpreadLimit: Math.max(0.72, detector.moduleSpreadLimit ?? 0.45),
+    minConfirmations: 1
+  });
+
+  const extra = loose.filter((candidate) => {
+    const moduleRatio = Math.abs(candidate.moduleSize - moduleMean) / Math.max(candidate.moduleSize, moduleMean);
+    if (moduleRatio > 0.62) return false;
+    return strongFinders.every((known) =>
+      Math.hypot(candidate.x - known.x, candidate.y - known.y) > Math.max(moduleMean, known.moduleSize) * 5
+    );
+  }).slice(0, 12);
+
+  if (!extra.length) return strongFinders;
+  return strongFinders.concat(extra).sort((a, b) =>
+    (b.confirmations - a.confirmations) ||
+    (a.score - b.score) ||
+    (b.moduleSize - a.moduleSize)
+  );
+}
+
 function dot(a, b) {
   return a.x * b.x + a.y * b.y;
 }
@@ -1396,6 +1421,183 @@ function scoreAlignmentGrid(binary, width, height, homography, version) {
   return { score, patternScores };
 }
 
+function localProjectiveBasis(homography, moduleX, moduleY) {
+  const center = projectPoint(homography, moduleX, moduleY);
+  const alongU = projectPoint(homography, moduleX + 1, moduleY);
+  const alongV = projectPoint(homography, moduleX, moduleY + 1);
+  return {
+    center,
+    basisU: { x: alongU.x - center.x, y: alongU.y - center.y },
+    basisV: { x: alongV.x - center.x, y: alongV.y - center.y }
+  };
+}
+
+function searchProjectedAlignment(binary, width, height, homography, pattern) {
+  const moduleX = pattern.col + 0.5;
+  const moduleY = pattern.row + 0.5;
+  const local = localProjectiveBasis(homography, moduleX, moduleY);
+  const moduleScale = Math.max(
+    0.5,
+    (Math.hypot(local.basisU.x, local.basisU.y) + Math.hypot(local.basisV.x, local.basisV.y)) / 2
+  );
+  const offsets = [-1, -0.5, 0, 0.5, 1];
+  const scales = [0.88, 1, 1.12];
+  let best = {
+    score: projectedAlignmentScore(binary, width, height, homography, pattern),
+    center: local.center,
+    scale: 1,
+    offsetU: 0,
+    offsetV: 0,
+    displacementModules: 0
+  };
+
+  for (const offsetU of offsets) {
+    for (const offsetV of offsets) {
+      const center = {
+        x: local.center.x + local.basisU.x * offsetU + local.basisV.x * offsetV,
+        y: local.center.y + local.basisU.y * offsetU + local.basisV.y * offsetV
+      };
+      for (const scale of scales) {
+        const score = alignmentScore(
+          binary,
+          width,
+          height,
+          center,
+          local.basisU,
+          local.basisV,
+          scale,
+          pattern
+        );
+        if (score > best.score) {
+          best = {
+            score,
+            center,
+            scale,
+            offsetU,
+            offsetV,
+            displacementModules: Math.hypot(offsetU, offsetV),
+            displacementPixels: Math.hypot(offsetU, offsetV) * moduleScale
+          };
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+function refineHomographyWithAlignmentGrid(
+  binary,
+  width,
+  height,
+  initialHomography,
+  version,
+  sourcePoints,
+  destinationPoints,
+  initialGrid,
+  options = {}
+) {
+  const patterns = alignmentPatternCentersForVersion(version);
+  if (patterns.length <= 1 || options.alignmentRefinement === false) {
+    return {
+      homography: initialHomography,
+      grid: initialGrid,
+      refined: false,
+      points: []
+    };
+  }
+
+  const primary = patterns.find((pattern) => pattern.primary);
+  const secondaries = patterns.filter((pattern) => !pattern.primary);
+  const minimumScore = options.alignmentRefinePatternThreshold ?? 0.84;
+  const maxPoints = Math.max(1, Math.min(18, Math.round(options.alignmentRefineMaxPoints ?? 12)));
+  const candidates = [];
+
+  for (const pattern of secondaries) {
+    const found = searchProjectedAlignment(binary, width, height, initialHomography, pattern);
+    if (found.score < minimumScore) continue;
+    if (found.displacementModules > (options.alignmentRefineMaxDisplacement ?? 1.45)) continue;
+    candidates.push({ pattern, ...found });
+  }
+
+  if (!candidates.length) {
+    return { homography: initialHomography, grid: initialGrid, refined: false, points: [] };
+  }
+
+  // Prefer confident references, but retain spatial distribution so dense
+  // versions use alignment information across the entire matrix rather than
+  // allowing a cluster of nearby markers to dominate the fit.
+  candidates.sort((a, b) =>
+    (b.score - a.score) ||
+    ((b.pattern.row + b.pattern.col) - (a.pattern.row + a.pattern.col))
+  );
+  const selected = [];
+  for (const candidate of candidates) {
+    if (selected.length >= maxPoints) break;
+    const tooClose = selected.some((item) =>
+      Math.hypot(item.pattern.col - candidate.pattern.col, item.pattern.row - candidate.pattern.row) < 6
+    );
+    if (!tooClose || selected.length < 3) selected.push(candidate);
+  }
+  if (!selected.length) return { homography: initialHomography, grid: initialGrid, refined: false, points: [] };
+
+  const refinedSource = sourcePoints.slice();
+  const refinedDestination = destinationPoints.slice();
+  const weights = [4, 4, 4, 5];
+  const pointInfo = [];
+
+  for (const candidate of selected) {
+    refinedSource.push(candidate.center);
+    refinedDestination.push({
+      x: candidate.pattern.col + 0.5,
+      y: candidate.pattern.row + 0.5
+    });
+    // A 3x3 marker carries less evidence than the 5x5 primary and the three
+    // finder patterns, so it helps average geometry without overpowering them.
+    weights.push(0.8 + candidate.score * 1.7);
+    pointInfo.push({
+      row: candidate.pattern.row,
+      col: candidate.pattern.col,
+      score: candidate.score,
+      x: candidate.center.x,
+      y: candidate.center.y,
+      displacementModules: candidate.displacementModules
+    });
+  }
+
+  let refinedHomography;
+  try {
+    refinedHomography = computeHomographyLeastSquares(refinedSource, refinedDestination, weights);
+  } catch {
+    return { homography: initialHomography, grid: initialGrid, refined: false, points: [] };
+  }
+
+  const refinedGrid = scoreAlignmentGrid(binary, width, height, refinedHomography, version);
+  const primaryBefore = primary
+    ? projectedAlignmentScore(binary, width, height, initialHomography, primary)
+    : 1;
+  const primaryAfter = primary
+    ? projectedAlignmentScore(binary, width, height, refinedHomography, primary)
+    : 1;
+  const allowedGridDrop = options.alignmentRefineAllowedGridDrop ?? 0.006;
+  const allowedPrimaryDrop = options.alignmentRefineAllowedPrimaryDrop ?? 0.04;
+
+  if (
+    refinedGrid.score + allowedGridDrop < initialGrid.score ||
+    primaryAfter + allowedPrimaryDrop < primaryBefore
+  ) {
+    return { homography: initialHomography, grid: initialGrid, refined: false, points: [] };
+  }
+
+  return {
+    homography: refinedHomography,
+    grid: refinedGrid,
+    refined: true,
+    points: pointInfo,
+    initialGridScore: initialGrid.score
+  };
+}
+
 function solveLinearSystemFloat(matrix, vector) {
   const n = vector.length;
   const a = matrix.map((row, index) => row.slice().concat([vector[index]]));
@@ -1434,6 +1636,43 @@ function computeHomography(sourcePoints, destinationPoints) {
     b.push(y);
   }
   const h = solveLinearSystemFloat(A, b);
+  return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+}
+
+function computeHomographyLeastSquares(sourcePoints, destinationPoints, weights = null) {
+  // Same destination -> source convention as computeHomography(), but accepts
+  // more than four correspondences and averages locator/alignment measurement
+  // noise. This is used only as a refinement after a valid four-point projective
+  // solution already exists.
+  assert(
+    sourcePoints.length === destinationPoints.length && sourcePoints.length >= 4,
+    "At least four matching point pairs are required."
+  );
+
+  const normal = Array.from({ length: 8 }, () => Array(8).fill(0));
+  const rhs = Array(8).fill(0);
+
+  const addEquation = (row, value, weight) => {
+    for (let i = 0; i < 8; i++) {
+      rhs[i] += row[i] * value * weight;
+      for (let j = 0; j < 8; j++) normal[i][j] += row[i] * row[j] * weight;
+    }
+  };
+
+  for (let i = 0; i < sourcePoints.length; i++) {
+    const u = destinationPoints[i].x;
+    const v = destinationPoints[i].y;
+    const x = sourcePoints[i].x;
+    const y = sourcePoints[i].y;
+    const weight = Math.max(0.05, Number(weights?.[i] ?? 1));
+    addEquation([u, v, 1, 0, 0, 0, -u * x, -v * x], x, weight);
+    addEquation([0, 0, 0, u, v, 1, -u * y, -v * y], y, weight);
+  }
+
+  // Tiny Tikhonov regularisation keeps near-degenerate noisy fits numerically
+  // stable without moving a normal QR-sized solution in any meaningful way.
+  for (let i = 0; i < 8; i++) normal[i][i] += 1e-9;
+  const h = solveLinearSystemFloat(normal, rhs);
   return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
 }
 
@@ -1486,8 +1725,34 @@ function geometryCandidatesFromBinary(binary, width, height, finders, threshold,
         continue;
       }
 
-      const alignmentGrid = scoreAlignmentGrid(binary, width, height, homography, version);
-      if (alignmentGrid.score < (options.alignmentGridThreshold ?? 0.68)) continue;
+      const initialAlignmentGrid = scoreAlignmentGrid(binary, width, height, homography, version);
+      const alignmentGridThreshold = options.alignmentGridThreshold ?? 0.68;
+      const refinementFloor = Math.max(0, alignmentGridThreshold - (options.alignmentRefineCandidateMargin ?? 0.10));
+      const skipRefinementScore = options.alignmentRefineSkipScore ?? 0.985;
+      const refinement = (
+        initialAlignmentGrid.score >= refinementFloor &&
+        initialAlignmentGrid.score < skipRefinementScore
+      )
+        ? refineHomographyWithAlignmentGrid(
+            binary,
+            width,
+            height,
+            homography,
+            version,
+            src,
+            dest,
+            initialAlignmentGrid,
+            options
+          )
+        : {
+            homography,
+            grid: initialAlignmentGrid,
+            refined: false,
+            points: []
+          };
+      homography = refinement.homography;
+      const alignmentGrid = refinement.grid;
+      if (alignmentGrid.score < alignmentGridThreshold) continue;
 
       const versionPenalty = item.error / 4;
       const alignmentConfidence = 0.55 * alignment.score + 0.45 * alignmentGrid.score;
@@ -1506,6 +1771,9 @@ function geometryCandidatesFromBinary(binary, width, height, finders, threshold,
           target: { row: alignmentTarget.row, col: alignmentTarget.col },
           patterns: alignmentGrid.patternScores.length,
           gridScore: alignmentGrid.score,
+          initialGridScore: refinement.initialGridScore ?? initialAlignmentGrid.score,
+          refined: refinement.refined,
+          refinementPoints: refinement.points,
           patternScores: alignmentGrid.patternScores
         },
         threshold,
@@ -1577,19 +1845,21 @@ function detectCodeGeometry(imageData, options = {}) {
   const maxCandidates = options.maxCandidates ?? 8;
 
   const evaluatePass = (pass, recovery = false) => {
-    const finders = detectFinderCandidates(pass.binary, width, height, pass.detector ?? {});
-    const geometries = geometryCandidatesFromBinary(
+    const detector = pass.detector ?? {};
+    const finders = detectFinderCandidates(pass.binary, width, height, detector);
+    const geometryOptions = {
+      ...options,
+      finderMethod: pass.finderMethod,
+      alignmentThreshold: recovery ? 0.68 : 0.72,
+      alignmentGridThreshold: recovery ? 0.64 : 0.68
+    };
+    let geometries = geometryCandidatesFromBinary(
       pass.binary,
       width,
       height,
       finders,
       pass.threshold,
-      {
-        ...options,
-        finderMethod: pass.finderMethod,
-        alignmentThreshold: recovery ? 0.68 : 0.72,
-        alignmentGridThreshold: recovery ? 0.64 : 0.68
-      }
+      geometryOptions
     );
 
     pushFinderDiagnostic(
@@ -1599,6 +1869,35 @@ function detectCodeGeometry(imageData, options = {}) {
       finders,
       geometries
     );
+
+    // Dense codes under projective distortion can leave two finder patterns
+    // perfectly strong while the third is stretched enough to miss the normal
+    // 1:1:3:1:1 tolerance. Only in that very specific recovery state, run one
+    // bounded looser detector and let the normal three-finder geometry checks
+    // reject false data-cell lookalikes. The clean fast path is unchanged.
+    if (!geometries.length && recovery && finders.length === 2) {
+      const recoveredFinders = recoverFinderSetFromTwo(pass.binary, width, height, finders, detector);
+      if (recoveredFinders.length > 2) {
+        const finderMethod = `${pass.finderMethod}-two-finder-recovery`;
+        geometries = geometryCandidatesFromBinary(
+          pass.binary,
+          width,
+          height,
+          recoveredFinders,
+          pass.threshold,
+          { ...geometryOptions, finderMethod }
+        );
+        pushFinderDiagnostic(
+          { ...options, width, height, diagnosticLabel: `${options.diagnosticLabel ?? "perspective"}-two-finder` },
+          finderMethod,
+          pass.threshold,
+          recoveredFinders,
+          geometries
+        );
+        if (geometries.length) return { finders: recoveredFinders, geometries };
+      }
+    }
+
     return { finders, geometries };
   };
 
@@ -1613,6 +1912,38 @@ function detectCodeGeometry(imageData, options = {}) {
   }, false);
   if (fast.geometries.length) return fast.geometries.slice(0, maxCandidates);
   if (options.finderRecovery === false) return [];
+
+  // If the clean threshold already found exactly two strong locators, try the
+  // bounded perspective-tolerant third-finder pass before any color processing.
+  // This is substantially cheaper than Auto Color and targets the dense-code
+  // projective failure mode directly.
+  if (fast.finders.length === 2) {
+    const recoveredFinders = recoverFinderSetFromTwo(valueInfo.binary, width, height, fast.finders, {});
+    if (recoveredFinders.length > 2) {
+      const finderMethod = "rgb-value-otsu-two-finder-recovery";
+      const recoveredGeometries = geometryCandidatesFromBinary(
+        valueInfo.binary,
+        width,
+        height,
+        recoveredFinders,
+        valueInfo.threshold,
+        {
+          ...options,
+          finderMethod,
+          alignmentThreshold: 0.68,
+          alignmentGridThreshold: 0.64
+        }
+      );
+      pushFinderDiagnostic(
+        { ...options, width, height, diagnosticLabel: `${options.diagnosticLabel ?? "perspective"}-two-finder` },
+        finderMethod,
+        valueInfo.threshold,
+        recoveredFinders,
+        recoveredGeometries
+      );
+      if (recoveredGeometries.length) return recoveredGeometries.slice(0, maxCandidates);
+    }
+  }
 
   // Camera recovery #1: Photoshop Auto Color-style per-channel levels before
   // finder thresholding. Live camera frames are usually much larger than the
@@ -5497,7 +5828,7 @@ function perspectiveStress(imageData, severity) {
     { x: width - 1 - inset * 1.0, y: height - 1 - inset * 0.35 },
     { x: inset * 0.20, y: height - 1 - inset * 0.95 }
   ];
-  const inverse = computeHomography(destination, source);
+  const inverse = computeHomography(source, destination);
   const out = new Uint8ClampedArray(width * height * 4);
   out.fill(255);
   for (let y = 0; y < height; y++) {
@@ -6185,6 +6516,7 @@ async function startCameraScanner(video, options = {}) {
 
   const scanInterval = Math.max(80, options.scanInterval ?? 180);
   const scratchCanvas = document.createElement("canvas");
+  const highResolutionCanvas = document.createElement("canvas");
   const multiFrameEnabled = options.multiFrame !== false;
   const multiFrameWindow = Math.max(2, Math.min(8, Math.round(options.multiFrameWindow ?? 4)));
   const multiFrameMinFrames = Math.max(2, Math.min(multiFrameWindow, Math.round(options.multiFrameMinFrames ?? 2)));
@@ -6192,6 +6524,12 @@ async function startCameraScanner(video, options = {}) {
   const cameraAutoColorEvery = Math.max(1, Math.round(options.cameraAutoColorEvery ?? 1));
   const cameraAutoEnhanceEvery = Math.max(1, Math.round(options.cameraAutoEnhanceEvery ?? 2));
   const cameraFinderRecoveryEvery = Math.max(1, Math.round(options.cameraFinderRecoveryEvery ?? 2));
+  const cameraHighResolutionEvery = Math.max(1, Math.round(options.cameraHighResolutionEvery ?? 2));
+  const baseCameraMaxDimension = Math.max(480, Math.round(options.maxDimension ?? 1080));
+  const cameraHighResolutionMaxDimension = Math.max(
+    baseCameraMaxDimension,
+    Math.round(options.cameraHighResolutionMaxDimension ?? 1600)
+  );
   let missStreak = 0;
   let stopped = false;
   let busy = false;
@@ -6239,7 +6577,7 @@ async function startCameraScanner(video, options = {}) {
 
   const scanNow = () => scanVideoFrame(video, {
     ...options,
-    maxDimension: options.maxDimension ?? 1080,
+    maxDimension: baseCameraMaxDimension,
     canvas: scratchCanvas
   });
 
@@ -6306,7 +6644,7 @@ async function startCameraScanner(video, options = {}) {
       busy = true;
       frameNumber++;
       const observations = [];
-      const frameDiagnostics = diagnosticsEnabled ? {} : null;
+      const frameDiagnostics = {};
       const capturedFrame = {};
       const frameStarted = nowMs();
       let allowAutoEnhance = false;
@@ -6334,7 +6672,7 @@ async function startCameraScanner(video, options = {}) {
           // If geometry exists, the rectified QR-only pixel enhancer is both
           // stronger and much cheaper than reprocessing the whole live frame.
           fullFrameAutoEnhanceRecovery: options.fullFrameAutoEnhanceRecovery ?? false,
-          maxDimension: options.maxDimension ?? 1080,
+          maxDimension: baseCameraMaxDimension,
           canvas: scratchCanvas,
           _capturedFrame: capturedFrame,
           _observationCollector: observations,
@@ -6374,6 +6712,71 @@ async function startCameraScanner(video, options = {}) {
           error: error?.message ?? String(error),
           ...frameDiagnostics
         });
+
+        // Geometry-aware high-resolution retry. A dense QuadQR can look large
+        // enough in the preview while each individual module has become too
+        // small after the normal 1080 px scanner cap. If the fast pass already
+        // sees at least two convincing finders, spend one bounded retry on a
+        // higher-resolution copy of the visible camera ROI. Empty frames and
+        // ordinary small codes never pay this cost.
+        const shouldTryHighResolution = options.cameraHighResolutionRecovery !== false &&
+          cameraHighResolutionMaxDimension > baseCameraMaxDimension &&
+          (frameDiagnostics?.finderCount ?? 0) >= (options.cameraHighResolutionMinFinders ?? 2) &&
+          ((missStreak - 1) % cameraHighResolutionEvery === 0);
+        if (shouldTryHighResolution) {
+          const highResolutionObservations = [];
+          const highResolutionDiagnostics = {};
+          const highResolutionCapturedFrame = {};
+          emitDiagnostic({
+            type: "method",
+            state: "trying",
+            method: "high-resolution-geometry-recovery",
+            message: `Dense geometry detected · retrying at up to ${cameraHighResolutionMaxDimension}px`,
+            ...frameDiagnostics
+          });
+          try {
+            const recoveryStarted = nowMs();
+            const recovered = scanVideoFrame(video, {
+              ...options,
+              _diagnosticLabel: "high-resolution-geometry-recovery",
+              finderRecovery: true,
+              autoEnhanceRecovery: false,
+              fullFrameAutoEnhanceRecovery: false,
+              maxDimension: cameraHighResolutionMaxDimension,
+              canvas: highResolutionCanvas,
+              _capturedFrame: highResolutionCapturedFrame,
+              _observationCollector: highResolutionObservations,
+              _frameDiagnostics: highResolutionDiagnostics
+            });
+            const recoveryElapsedMs = nowMs() - recoveryStarted;
+            emitDiagnostic({
+              type: "success",
+              state: "decoded",
+              method: "high-resolution-geometry-recovery",
+              elapsedMs: recoveryElapsedMs,
+              message: `High-resolution retry decoded v${recovered.version} · ${Math.round(recoveryElapsedMs)} ms`,
+              ...(highResolutionDiagnostics ?? frameDiagnostics)
+            });
+            missStreak = 0;
+            observationHistory.clear();
+            if (emitResult({
+              ...recovered,
+              cameraHighResolutionRecovery: true,
+              cameraProgressiveRecovery: true,
+              recoveryMode: recovered.recoveryMode ?? "high-resolution-geometry-recovery"
+            }, highResolutionCapturedFrame, highResolutionDiagnostics ?? frameDiagnostics)) return;
+          } catch (highResolutionError) {
+            observations.push(...highResolutionObservations);
+            emitDiagnostic({
+              type: "method",
+              state: "failed",
+              method: "high-resolution-geometry-recovery",
+              message: `High-resolution geometry retry did not decode${highResolutionDiagnostics?.finderCount != null ? ` · ${highResolutionDiagnostics.finderCount} finder(s)` : ""}`,
+              error: highResolutionError?.message ?? String(highResolutionError),
+              ...(highResolutionDiagnostics ?? frameDiagnostics)
+            });
+          }
+        }
 
         // The user's real phone-camera case is dominated by color cast before
         // finder detection: Photoshop Auto Color alone makes the same live QR

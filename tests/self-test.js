@@ -1009,6 +1009,20 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   assert.ok(decoded.geometry.alignment.score >= 0.72);
 }
 
+// Dense symbols must survive the built-in perspective stress transform at
+// roughly the same module density used by the demo scanability test. This also
+// guards the destination->source homography direction used by the raster warp.
+{
+  const text = ("QuadQR dense perspective regression with Spectrum ECC. ").repeat(8).slice(0, 350);
+  const encoded = encodeText(text, { version: 8, ecc: "M", compression: "none" });
+  const clean = renderToImageData(encoded, { imageSize: 570, quietZone: 4 });
+  const distorted = applyStressDistortion(clean, "perspective", 0.55);
+  const decoded = scanImageData(distorted, { minVersion: 8, maxVersion: 8 });
+  assert.equal(decoded.text, text);
+  assert.equal(decoded.crc32, encoded.crc32);
+  assert.ok(decoded.geometry.alignment.gridScore >= 0.68);
+}
+
 // A multi-alignment symbol must survive image scanning and perspective/color cast.
 {
   const text = "QuadQR v10 distributed alignment geometry";

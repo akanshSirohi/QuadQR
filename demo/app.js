@@ -485,7 +485,7 @@ async function generate() {
     scanabilityResultsEl.innerHTML = "";
     await new Promise((resolve) => requestAnimationFrame(resolve));
     try {
-      const report = runImageStressTest(currentCanvasImageData(480), {
+      const report = runImageStressTest(currentCanvasImageData(scanabilityImageSize()), {
         version: code.version,
         crc32: code.crc32
       });
@@ -542,6 +542,21 @@ function currentCanvasImageData(maxSize = null) {
   return scratchCtx.getImageData(0, 0, width, height);
 }
 
+function scanabilityImageSize() {
+  if (!currentCode) return 480;
+  const matrixModules = currentCode.matrix?.length ?? (21 + 4 * (currentCode.version - 1));
+  const quietZone = Math.max(0, Number(quietZoneEl.value) || 0);
+  const totalModules = matrixModules + quietZone * 2;
+  // Keep roughly 10 pixels/module when the rendered output has them available.
+  // Dense versions should not be penalized simply because the benchmark used
+  // to force every symbol through the same 480 px intermediate image.
+  const densityAwareTarget = Math.ceil(totalModules * 10);
+  return Math.min(
+    Math.max(canvas.width, canvas.height),
+    Math.max(480, densityAwareTarget)
+  );
+}
+
 function drawImageDataToStressCanvas(imageData) {
   stressCanvas.width = imageData.width;
   stressCanvas.height = imageData.height;
@@ -566,7 +581,7 @@ async function runScanabilityTest() {
   scanabilityMetaEl.textContent = "Applying camera-style distortions and decoding each result.";
   await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
-    const report = runImageStressTest(currentCanvasImageData(480), {
+    const report = runImageStressTest(currentCanvasImageData(scanabilityImageSize()), {
       version: currentCode.version,
       crc32: currentCode.crc32
     });
@@ -635,7 +650,7 @@ async function runStressSuiteUi() {
   stressLabResultEl.textContent = "Running full scanability suite…";
   await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
-    const report = runImageStressTest(currentCanvasImageData(480), { version: currentCode.version, crc32: currentCode.crc32 });
+    const report = runImageStressTest(currentCanvasImageData(scanabilityImageSize()), { version: currentCode.version, crc32: currentCode.crc32 });
     stressLabResultEl.className = `scan-result ${report.score >= 75 ? "good" : "bad"}`;
     stressLabResultEl.textContent = `${report.score.toFixed(0)}/100 · ${report.rating} · ${report.passed}/${report.total} scenarios decoded.`;
     renderStressReport(report, scanabilityResultsEl);
@@ -747,6 +762,7 @@ function friendlyScanMethod(method) {
     "camera": "Camera",
     "fast-scan": "Fast scan",
     "finder-recovery": "Finder recovery",
+    "high-resolution-geometry-recovery": "High-res geometry",
     "camera-auto-color": "Camera Auto Color",
     "progressive-color-recovery": "Color recovery",
     "qr-region-auto-enhance": "QR color enhance",
@@ -767,6 +783,7 @@ function friendlyScanMethod(method) {
 function friendlyFinderMethod(method) {
   const names = {
     "rgb-value-otsu": "RGB value/Otsu",
+    "rgb-value-otsu-two-finder-recovery": "RGB value/two-finder recovery",
     "auto-color-value-otsu": "Auto Color value/Otsu",
     "rgb-value-high-threshold": "RGB value/high threshold",
     "rgb-value-low-threshold": "RGB value/low threshold",
@@ -774,6 +791,7 @@ function friendlyFinderMethod(method) {
   };
   if (!method) return "";
   if (names[method]) return names[method];
+  if (String(method).endsWith("-two-finder-recovery")) return `${String(method).replace("-two-finder-recovery", "").replaceAll("-", " ")} / two-finder recovery`;
   const match = String(method).match(/^auto-color-center(\d+)-(otsu|high)$/);
   if (match) return `Auto Color center ${Number(match[1])}%/${match[2] === "otsu" ? "Otsu" : "high"}`;
   return String(method).replaceAll("-", " ");

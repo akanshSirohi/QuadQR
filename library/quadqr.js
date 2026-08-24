@@ -3307,7 +3307,7 @@ function perspectiveStress(imageData, severity) {
     { x: width - 1 - inset * 1.0, y: height - 1 - inset * 0.35 },
     { x: inset * 0.20, y: height - 1 - inset * 0.95 }
   ];
-  const inverse = computeHomography(destination, source);
+  const inverse = computeHomography(source, destination);
   const out = new Uint8ClampedArray(width * height * 4);
   out.fill(255);
   for (let y = 0; y < height; y++) {
@@ -3995,6 +3995,7 @@ export async function startCameraScanner(video, options = {}) {
 
   const scanInterval = Math.max(80, options.scanInterval ?? 180);
   const scratchCanvas = document.createElement("canvas");
+  const highResolutionCanvas = document.createElement("canvas");
   const multiFrameEnabled = options.multiFrame !== false;
   const multiFrameWindow = Math.max(2, Math.min(8, Math.round(options.multiFrameWindow ?? 4)));
   const multiFrameMinFrames = Math.max(2, Math.min(multiFrameWindow, Math.round(options.multiFrameMinFrames ?? 2)));
@@ -4002,6 +4003,12 @@ export async function startCameraScanner(video, options = {}) {
   const cameraAutoColorEvery = Math.max(1, Math.round(options.cameraAutoColorEvery ?? 1));
   const cameraAutoEnhanceEvery = Math.max(1, Math.round(options.cameraAutoEnhanceEvery ?? 2));
   const cameraFinderRecoveryEvery = Math.max(1, Math.round(options.cameraFinderRecoveryEvery ?? 2));
+  const cameraHighResolutionEvery = Math.max(1, Math.round(options.cameraHighResolutionEvery ?? 2));
+  const baseCameraMaxDimension = Math.max(480, Math.round(options.maxDimension ?? 1080));
+  const cameraHighResolutionMaxDimension = Math.max(
+    baseCameraMaxDimension,
+    Math.round(options.cameraHighResolutionMaxDimension ?? 1600)
+  );
   let missStreak = 0;
   let stopped = false;
   let busy = false;
@@ -4049,7 +4056,7 @@ export async function startCameraScanner(video, options = {}) {
 
   const scanNow = () => scanVideoFrame(video, {
     ...options,
-    maxDimension: options.maxDimension ?? 1080,
+    maxDimension: baseCameraMaxDimension,
     canvas: scratchCanvas
   });
 
@@ -4116,7 +4123,7 @@ export async function startCameraScanner(video, options = {}) {
       busy = true;
       frameNumber++;
       const observations = [];
-      const frameDiagnostics = diagnosticsEnabled ? {} : null;
+      const frameDiagnostics = {};
       const capturedFrame = {};
       const frameStarted = nowMs();
       let allowAutoEnhance = false;
@@ -4144,7 +4151,7 @@ export async function startCameraScanner(video, options = {}) {
           // If geometry exists, the rectified QR-only pixel enhancer is both
           // stronger and much cheaper than reprocessing the whole live frame.
           fullFrameAutoEnhanceRecovery: options.fullFrameAutoEnhanceRecovery ?? false,
-          maxDimension: options.maxDimension ?? 1080,
+          maxDimension: baseCameraMaxDimension,
           canvas: scratchCanvas,
           _capturedFrame: capturedFrame,
           _observationCollector: observations,
@@ -4184,6 +4191,71 @@ export async function startCameraScanner(video, options = {}) {
           error: error?.message ?? String(error),
           ...frameDiagnostics
         });
+
+        // Geometry-aware high-resolution retry. A dense QuadQR can look large
+        // enough in the preview while each individual module has become too
+        // small after the normal 1080 px scanner cap. If the fast pass already
+        // sees at least two convincing finders, spend one bounded retry on a
+        // higher-resolution copy of the visible camera ROI. Empty frames and
+        // ordinary small codes never pay this cost.
+        const shouldTryHighResolution = options.cameraHighResolutionRecovery !== false &&
+          cameraHighResolutionMaxDimension > baseCameraMaxDimension &&
+          (frameDiagnostics?.finderCount ?? 0) >= (options.cameraHighResolutionMinFinders ?? 2) &&
+          ((missStreak - 1) % cameraHighResolutionEvery === 0);
+        if (shouldTryHighResolution) {
+          const highResolutionObservations = [];
+          const highResolutionDiagnostics = {};
+          const highResolutionCapturedFrame = {};
+          emitDiagnostic({
+            type: "method",
+            state: "trying",
+            method: "high-resolution-geometry-recovery",
+            message: `Dense geometry detected · retrying at up to ${cameraHighResolutionMaxDimension}px`,
+            ...frameDiagnostics
+          });
+          try {
+            const recoveryStarted = nowMs();
+            const recovered = scanVideoFrame(video, {
+              ...options,
+              _diagnosticLabel: "high-resolution-geometry-recovery",
+              finderRecovery: true,
+              autoEnhanceRecovery: false,
+              fullFrameAutoEnhanceRecovery: false,
+              maxDimension: cameraHighResolutionMaxDimension,
+              canvas: highResolutionCanvas,
+              _capturedFrame: highResolutionCapturedFrame,
+              _observationCollector: highResolutionObservations,
+              _frameDiagnostics: highResolutionDiagnostics
+            });
+            const recoveryElapsedMs = nowMs() - recoveryStarted;
+            emitDiagnostic({
+              type: "success",
+              state: "decoded",
+              method: "high-resolution-geometry-recovery",
+              elapsedMs: recoveryElapsedMs,
+              message: `High-resolution retry decoded v${recovered.version} · ${Math.round(recoveryElapsedMs)} ms`,
+              ...(highResolutionDiagnostics ?? frameDiagnostics)
+            });
+            missStreak = 0;
+            observationHistory.clear();
+            if (emitResult({
+              ...recovered,
+              cameraHighResolutionRecovery: true,
+              cameraProgressiveRecovery: true,
+              recoveryMode: recovered.recoveryMode ?? "high-resolution-geometry-recovery"
+            }, highResolutionCapturedFrame, highResolutionDiagnostics ?? frameDiagnostics)) return;
+          } catch (highResolutionError) {
+            observations.push(...highResolutionObservations);
+            emitDiagnostic({
+              type: "method",
+              state: "failed",
+              method: "high-resolution-geometry-recovery",
+              message: `High-resolution geometry retry did not decode${highResolutionDiagnostics?.finderCount != null ? ` · ${highResolutionDiagnostics.finderCount} finder(s)` : ""}`,
+              error: highResolutionError?.message ?? String(highResolutionError),
+              ...(highResolutionDiagnostics ?? frameDiagnostics)
+            });
+          }
+        }
 
         // The user's real phone-camera case is dominated by color cast before
         // finder detection: Photoshop Auto Color alone makes the same live QR

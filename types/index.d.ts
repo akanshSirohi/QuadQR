@@ -236,6 +236,13 @@ export interface ScanOptions {
   maxErasureConfidence?: number;
   geometryRefinement?: boolean;
   finderRecovery?: boolean;
+  /** Refine a valid projective solution with reliable secondary alignment markers on dense versions. */
+  alignmentRefinement?: boolean;
+  alignmentRefinePatternThreshold?: number;
+  alignmentRefineMaxPoints?: number;
+  alignmentRefineMaxDisplacement?: number;
+  alignmentRefineCandidateMargin?: number;
+  alignmentRefineSkipScore?: number;
   finderAutoColorBlackClip?: number;
   finderAutoColorWhiteClip?: number;
   finderAutoColorHighlightPercentile?: number;
@@ -300,6 +307,11 @@ export interface CameraScanOptions extends ScanOptions {
   cameraAutoColorTargetSamples?: number;
   cameraAutoEnhanceEvery?: number;
   cameraFinderRecoveryEvery?: number;
+  /** Retry a dense/partial geometry frame at higher resolution after at least two finders are detected. */
+  cameraHighResolutionRecovery?: boolean;
+  cameraHighResolutionMaxDimension?: number;
+  cameraHighResolutionEvery?: number;
+  cameraHighResolutionMinFinders?: number;
   constraints?: MediaStreamConstraints;
   onResult?: (result: DecodeResult, frame?: CameraFrameMeta | null) => void | Promise<void>;
   onDecode?: (result: DecodeResult, frame?: CameraFrameMeta | null) => void | Promise<void>;

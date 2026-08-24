@@ -176,7 +176,7 @@ const svg = renderToSVG(code, {
 
 ### `scanImageData(imageData, options?)`
 
-Scans an ImageData-like RGBA object. Clean frames use the normal observed-RGB path first. Difficult frames then get bounded fallback attempts using per-channel white balancing, spatial black/white normalization, tighter centre sampling, module-grid Auto Tone / Auto Contrast / Auto Color recovery, a rectified QR-region pixel enhancement pass, and sub-module geometry micro-refinement before the scan is rejected.
+Scans an ImageData-like RGBA object. Clean frames use the normal observed-RGB path first. Difficult frames then get bounded fallback attempts using per-channel white balancing, spatial black/white normalization, tighter centre sampling, module-grid Auto Tone / Auto Contrast / Auto Color recovery, a rectified QR-region pixel enhancement pass, and sub-module geometry micro-refinement before the scan is rejected. Dense versions also use their distributed alignment markers to refine a noisy four-point projective solution when the initial alignment-grid score is plausible but imperfect. If exactly two strong finder patterns survive a steep angle, a bounded perspective-tolerant third-finder recovery pass is attempted before heavier color recovery.
 
 ```js
 const result = scanImageData({
@@ -186,7 +186,7 @@ const result = scanImageData({
 });
 ```
 
-Useful scanner options include `sampleRadius`, `robustSampleRadius`, `adaptiveSampling`, `spatialColorNormalization`, `autoEnhanceRecovery`, `rectifiedAutoEnhanceRecovery`, `rectifiedRecoveryModuleSize`, `autoEnhanceBlackClip`, `autoEnhanceWhiteClip`, `autoEnhanceSaturation`, `geometryRefinement`, `refinementOffset`, `structureTolerance`, and `maxErasureConfidence`. Auto enhancement and geometry refinement are enabled by default, but only run after the normal scan path fails.
+Useful scanner options include `sampleRadius`, `robustSampleRadius`, `adaptiveSampling`, `spatialColorNormalization`, `autoEnhanceRecovery`, `rectifiedAutoEnhanceRecovery`, `rectifiedRecoveryModuleSize`, `autoEnhanceBlackClip`, `autoEnhanceWhiteClip`, `autoEnhanceSaturation`, `geometryRefinement`, `alignmentRefinement`, `alignmentRefinePatternThreshold`, `refinementOffset`, `structureTolerance`, and `maxErasureConfidence`. Auto enhancement and geometry refinement are enabled by default, but bounded recovery work only runs when the normal scan path or initial geometry needs it.
 
 ### Browser `scanFile(file, options?)`
 
@@ -206,7 +206,7 @@ const result = scanVideoFrame(video);
 
 ### `startCameraScanner(video, options?)`
 
-Starts live camera scanning. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. It scans the CSS-visible preview region by default. Finder detection uses a QuadQR-specific RGB value channel (`max(R,G,B)`) on the fast pass so saturated blue/red/green data cells are not mistaken for structural black. If that fast pass fails, the **same captured frame** is retried through code-centric Auto Color recovery before finder detection. The default recovery sequence crops 8%, 16%, and 22% from the camera-frame edges, then falls back to the full frame. This prevents dark room pixels, browser UI, or monitor bezels outside the guide from controlling Auto Color and Otsu thresholds. Each crop uses the Photoshop-style per-channel shadow/highlight correction with a neutral mid-high highlight target (190 by default). Finder-only recovery also tries multiple center-weighted Auto Color histogram windows before raw threshold bracketing. The normal fast path is untouched; these extra passes run only after a miss. If geometry is found but color decoding fails, the captured ROI is retried with the stronger color/geometry recovery, and consecutive failed frames can still be combined with confidence-weighted module voting.
+Starts live camera scanning. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. It scans the CSS-visible preview region by default. Finder detection uses a QuadQR-specific RGB value channel (`max(R,G,B)`) on the fast pass so saturated blue/red/green data cells are not mistaken for structural black. If a miss still contains at least two strong finder patterns, the scanner can retry the visible ROI at up to 1600 px before heavier recovery, which preserves more pixels per module for dense versions. If that does not decode, the **same captured frame** is retried through code-centric Auto Color recovery. The default recovery sequence crops 8%, 16%, and 22% from the camera-frame edges, then falls back to the full frame. This prevents dark room pixels, browser UI, or monitor bezels outside the guide from controlling Auto Color and Otsu thresholds. Each crop uses the Photoshop-style per-channel shadow/highlight correction with a neutral mid-high highlight target (190 by default). Finder-only recovery also tries multiple center-weighted Auto Color histogram windows before raw threshold bracketing. The normal fast path is untouched; these extra passes run only after a miss. If geometry is found but color decoding fails, the captured ROI is retried with the stronger color/geometry recovery, and consecutive failed frames can still be combined with confidence-weighted module voting.
 
 ```js
 const scanner = await startCameraScanner(video, {
@@ -220,6 +220,9 @@ const scanner = await startCameraScanner(video, {
   cameraAutoColorAnalysisInset: 0.10,
   cameraAutoEnhanceEvery: 2,
   cameraFinderRecoveryEvery: 2,
+  cameraHighResolutionRecovery: true,
+  cameraHighResolutionMaxDimension: 1600,
+  cameraHighResolutionEvery: 2,
   onResult(result) {
     console.log(result);
   },
