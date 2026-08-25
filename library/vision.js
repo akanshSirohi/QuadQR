@@ -399,6 +399,14 @@ function alignmentTemplateValue(pattern, r, c) {
   return alignmentPatternIsBlack(pattern, r, c) ? 1 : 0;
 }
 
+const ALIGNMENT_SUBCELL_PROBES = Object.freeze([
+  Object.freeze([0, 0]),
+  Object.freeze([-0.32, 0]),
+  Object.freeze([0.32, 0]),
+  Object.freeze([0, -0.32]),
+  Object.freeze([0, 0.32])
+]);
+
 function alignmentScore(binary, width, height, center, basisU, basisV, scale, pattern) {
   let matches = 0;
   let total = 0;
@@ -416,7 +424,31 @@ function alignmentScore(binary, width, height, center, basisU, basisV, scale, pa
   return total ? matches / total : 0;
 }
 
-function searchAlignment(binary, width, height, triple, version) {
+function preciseAlignmentScore(binary, width, height, center, basisU, basisV, scale, pattern) {
+  let matches = 0;
+  let total = 0;
+  const radius = alignmentPatternRadius(pattern);
+  for (let r = -radius; r <= radius; r++) {
+    for (let c = -radius; c <= radius; c++) {
+      const expected = alignmentTemplateValue(pattern, r, c);
+      // Centre-only alignment scoring has a broad plateau: a candidate can be
+      // wrong by almost half a module while every centre still lands in the
+      // correct solid tile. This denser score is reserved for the slow recovery
+      // path, where Triangle16 needs sub-module geometry precision.
+      for (const [du, dv] of ALIGNMENT_SUBCELL_PROBES) {
+        const x = center.x + basisU.x * (c + du) * scale + basisV.x * (r + dv) * scale;
+        const y = center.y + basisU.y * (c + du) * scale + basisV.y * (r + dv) * scale;
+        const value = sampleBinaryAt(binary, width, height, x, y);
+        if (value === null) continue;
+        total++;
+        if (value === expected) matches++;
+      }
+    }
+  }
+  return total ? matches / total : 0;
+}
+
+function searchAlignment(binary, width, height, triple, version, options = {}) {
   const size = sizeForVersion(version);
   const separation = size - 7;
   const basisU = {
@@ -436,8 +468,12 @@ function searchAlignment(binary, width, height, triple, version) {
   };
 
   let best = { score: 0, center: predicted, scale: 1 };
-  const offsets = [-2.5, -1.5, -0.75, 0, 0.75, 1.5, 2.5];
+  const precise = options.preciseAlignment === true;
+  const offsets = precise
+    ? [-2.5, -1.5, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1.5, 2.5]
+    : [-2.5, -1.5, -0.75, 0, 0.75, 1.5, 2.5];
   const scales = [0.72, 0.85, 1, 1.15, 1.3];
+  const scoreAlignment = precise ? preciseAlignmentScore : alignmentScore;
 
   for (const ou of offsets) {
     for (const ov of offsets) {
@@ -446,7 +482,7 @@ function searchAlignment(binary, width, height, triple, version) {
         y: predicted.y + basisU.y * ou + basisV.y * ov
       };
       for (const scale of scales) {
-        const score = alignmentScore(binary, width, height, center, basisU, basisV, scale, target);
+        const score = scoreAlignment(binary, width, height, center, basisU, basisV, scale, target);
         if (score > best.score) best = { score, center, scale };
       }
     }
@@ -769,7 +805,7 @@ function geometryCandidatesFromBinary(binary, width, height, finders, threshold,
     for (const item of versions) {
       const version = item.version;
       const size = sizeForVersion(version);
-      const alignment = searchAlignment(binary, width, height, triple, version);
+      const alignment = searchAlignment(binary, width, height, triple, version, options);
       if (alignment.score < (options.alignmentThreshold ?? 0.72)) continue;
 
       const alignmentTarget = alignment.target;
@@ -1419,6 +1455,49 @@ export function samplePerspectiveMatrix(imageData, homography, size, options = {
   return { rgbGrid };
 }
 
+/**
+ * Sample the two protected regions of every Triangle16 module.
+ *
+ * Triangle16 uses a fixed "/" diagonal. Samples are intentionally placed well
+ * inside the upper-left and lower-right triangles, away from the diagonal and
+ * module borders. This makes the decoder much less sensitive to antialiasing,
+ * blur, resampling and small homography errors than center sampling.
+ */
+export function samplePerspectiveTriangleMatrix(imageData, homography, size, options = {}) {
+  const triangleGrid = Array.from({ length: size }, () => new Array(size));
+  const mode = options.sampleMode ?? "cross";
+  const radius = options.highDensitySampleRadius ?? options.triangleSampleRadius ??
+    (mode === "median" ? 0.075 : 0.085);
+  const inset = Math.max(0.18, Math.min(0.36, Number(options.highDensitySampleInset ?? options.triangleSampleInset ?? 0.28)));
+  const firstOffset = inset;
+  const secondOffset = 1 - inset;
+  const offsetX = Number.isFinite(options.sampleOffsetX) ? options.sampleOffsetX : 0;
+  const offsetY = Number.isFinite(options.sampleOffsetY) ? options.sampleOffsetY : 0;
+  const sampler = mode === "median" ? robustProjectedSample : averageProjectedSample;
+
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      triangleGrid[r][c] = {
+        first: sampler(
+          imageData,
+          homography,
+          c + firstOffset + offsetX,
+          r + firstOffset + offsetY,
+          radius
+        ),
+        second: sampler(
+          imageData,
+          homography,
+          c + secondOffset + offsetX,
+          r + secondOffset + offsetY,
+          radius
+        )
+      };
+    }
+  }
+  return { triangleGrid };
+}
+
 function meanRgb(values) {
   if (!values.length) throw new Error("No calibration samples available.");
   return values.reduce(
@@ -1613,6 +1692,34 @@ export function sampleAxisAlignedGrid(imageData, bounds, size, radiusRatio = 0.1
     }
   }
   return { rgbGrid, moduleWidth: moduleW, moduleHeight: moduleH };
+}
+
+export function sampleAxisAlignedTriangleGrid(imageData, bounds, size, radiusRatio = 0.085, insetRatio = 0.28) {
+  const moduleW = bounds.width / size;
+  const moduleH = bounds.height / size;
+  const inset = Math.max(0.18, Math.min(0.36, insetRatio));
+  const radius = Math.max(0, Math.min(moduleW, moduleH) * radiusRatio);
+  const triangleGrid = Array.from({ length: size }, () => new Array(size));
+
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      triangleGrid[r][c] = {
+        first: sampleAverageAxis(
+          imageData,
+          bounds.x + (c + inset) * moduleW,
+          bounds.y + (r + inset) * moduleH,
+          radius
+        ),
+        second: sampleAverageAxis(
+          imageData,
+          bounds.x + (c + 1 - inset) * moduleW,
+          bounds.y + (r + 1 - inset) * moduleH,
+          radius
+        )
+      };
+    }
+  }
+  return { triangleGrid, moduleWidth: moduleW, moduleHeight: moduleH };
 }
 
 export const visionInternals = Object.freeze({

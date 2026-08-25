@@ -30,6 +30,16 @@ function normalizeEcc(ecc = "M") {
   return value;
 }
 
+function resolveHighDensity(options = {}) {
+  if (typeof options.highDensity === "boolean") return options.highDensity;
+  // Backward compatibility for the first experimental Triangle16 branch.
+  return options.cellEncoding === "triangle16";
+}
+
+function encodingForHighDensity(highDensity) {
+  return highDensity ? "triangle16" : "rgbw";
+}
+
 function nowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
     return performance.now();
@@ -76,9 +86,11 @@ export function getStandardQrByteCapacity(version, ecc = "M") {
   return STANDARD_QR_BYTE_CAPACITY[normalizeEcc(ecc)][version - 1];
 }
 
-export function compareCapacity(version, ecc = "M") {
+export function compareCapacity(version, ecc = "M", options = {}) {
   const level = normalizeEcc(ecc);
-  const quadqr = getVersionInfo(version, { ecc: level });
+  const highDensity = resolveHighDensity(options);
+  const cellEncoding = encodingForHighDensity(highDensity);
+  const quadqr = getVersionInfo(version, { ecc: level, highDensity });
   const standardQrBytes = getStandardQrByteCapacity(version, level);
   const quadqrBytes = quadqr.capacityBytes;
   const differenceBytes = quadqrBytes - standardQrBytes;
@@ -94,6 +106,8 @@ export function compareCapacity(version, ecc = "M") {
     differenceBytes,
     ratio,
     gainPercent,
+    highDensity,
+    cellEncoding: quadqr.cellEncoding,
     quadqrBitsPerDataCell: quadqr.bitsPerDataCell,
     quadqrPayloadEfficiencyPercent: quadqr.theoreticalBits > 0
       ? (quadqrBytes * 8 / quadqr.theoreticalBits) * 100
@@ -108,6 +122,8 @@ export function compareCapacity(version, ecc = "M") {
 /** Calculate the smallest QuadQR and standard QR versions for a payload size. */
 export function calculateCapacityPlan(options = {}) {
   const ecc = normalizeEcc(options.ecc ?? "M");
+  const highDensity = resolveHighDensity(options);
+  const cellEncoding = encodingForHighDensity(highDensity);
   let sourceBytes;
   const hasConcretePayload = options.payload instanceof Uint8Array || typeof options.payload === "string";
   if (options.payload instanceof Uint8Array) sourceBytes = options.payload;
@@ -143,7 +159,7 @@ export function calculateCapacityPlan(options = {}) {
   let quadqrVersion = null;
   let quadqrInfo = null;
   for (let version = 1; version <= MAX_VERSION; version++) {
-    const info = getVersionInfo(version, { ecc });
+    const info = getVersionInfo(version, { ecc, highDensity });
     if (encodedBytes <= info.capacityBytes) {
       quadqrVersion = version;
       quadqrInfo = info;
@@ -162,6 +178,8 @@ export function calculateCapacityPlan(options = {}) {
 
   return {
     ecc,
+    highDensity,
+    cellEncoding,
     sourceBytes: sourceBytes.length,
     encodedBytes,
     storedBytes,
@@ -185,12 +203,15 @@ export function calculateCapacityPlan(options = {}) {
 
 export function buildCapacityComparison(options = {}) {
   const ecc = normalizeEcc(options.ecc ?? "M");
+  const highDensity = resolveHighDensity(options);
   const versions = options.versions ?? Array.from({ length: MAX_VERSION }, (_, i) => i + 1);
-  return versions.map((version) => compareCapacity(version, ecc));
+  return versions.map((version) => compareCapacity(version, ecc, { highDensity }));
 }
 
 export function benchmarkCodec(options = {}) {
   const ecc = normalizeEcc(options.ecc ?? "M");
+  const highDensity = resolveHighDensity(options);
+  const cellEncoding = encodingForHighDensity(highDensity);
   const iterations = Math.max(1, Math.floor(options.iterations ?? 30));
   const warmup = Math.max(0, Math.floor(options.warmup ?? Math.min(5, iterations)));
   const requestedSizes = options.payloadSizes ?? [24, 32, 128, 512, 1024, 2048];
@@ -202,14 +223,14 @@ export function benchmarkCodec(options = {}) {
 
     let probe;
     try {
-      probe = encodeBytes(payload, { ecc });
+      probe = encodeBytes(payload, { ecc, highDensity });
     } catch (error) {
       results.push({ payloadBytes, skipped: true, reason: error.message });
       continue;
     }
 
     for (let i = 0; i < warmup; i++) {
-      const encoded = encodeBytes(payload, { ecc, version: probe.version });
+      const encoded = encodeBytes(payload, { ecc, highDensity, version: probe.version });
       decodeMatrix(encoded.matrix);
     }
 
@@ -219,7 +240,7 @@ export function benchmarkCodec(options = {}) {
 
     for (let i = 0; i < iterations; i++) {
       let start = nowMs();
-      encoded = encodeBytes(payload, { ecc, version: probe.version });
+      encoded = encodeBytes(payload, { ecc, highDensity, version: probe.version });
       encodeSamples.push(nowMs() - start);
 
       start = nowMs();
@@ -231,7 +252,7 @@ export function benchmarkCodec(options = {}) {
       }
     }
 
-    const versionInfo = getVersionInfo(encoded.version, { ecc });
+    const versionInfo = getVersionInfo(encoded.version, { ecc, highDensity });
     results.push({
       payloadBytes,
       skipped: false,
@@ -250,6 +271,8 @@ export function benchmarkCodec(options = {}) {
   return {
     format: "QuadQR",
     ecc,
+    highDensity,
+    cellEncoding,
     iterations,
     warmup,
     generatedAt: new Date().toISOString(),
@@ -259,11 +282,13 @@ export function benchmarkCodec(options = {}) {
 
 export function benchmarkReport(options = {}) {
   const ecc = normalizeEcc(options.ecc ?? "M");
+  const highDensity = resolveHighDensity(options);
   const versions = options.versions ?? [1, 2, 5, 10, 20, 30, 40];
   return {
-    capacity: buildCapacityComparison({ ecc, versions }),
+    capacity: buildCapacityComparison({ ecc, versions, highDensity }),
     performance: benchmarkCodec({
       ecc,
+      highDensity,
       iterations: options.iterations ?? 30,
       warmup: options.warmup,
       payloadSizes: options.payloadSizes

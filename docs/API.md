@@ -11,11 +11,14 @@ import { encodeText } from "quadqr-js";
 
 const code = encodeText("Hello", {
   ecc: "M",
-  version: 5
+  version: 5,
+  highDensity: true // optional experimental 4-bit cells
 });
 ```
 
 If `version` is omitted, QuadQR selects the smallest version that fits.
+
+`highDensity` is a boolean. It defaults to `false`. Set `highDensity: true` to enable the experimental Triangle16 layout with two RGBW triangles, 16 states, and 4 raw bits per body cell. The protected header remains solid-color in High Density Mode. Image and camera scanners auto-detect it.
 
 ### `encodeBytes(bytes, options?)`
 
@@ -176,7 +179,7 @@ const svg = renderToSVG(code, {
 
 ### `scanImageData(imageData, options?)`
 
-Scans an ImageData-like RGBA object. Clean frames use the normal observed-RGB path first. Difficult frames then get bounded fallback attempts using per-channel white balancing, spatial black/white normalization, tighter centre sampling, module-grid Auto Tone / Auto Contrast / Auto Color recovery, a rectified QR-region pixel enhancement pass, and sub-module geometry micro-refinement before the scan is rejected. Dense versions also use their distributed alignment markers to refine a noisy four-point projective solution when the initial alignment-grid score is plausible but imperfect. If exactly two strong finder patterns survive a steep angle, a bounded perspective-tolerant third-finder recovery pass is attempted before heavier color recovery.
+Scans an ImageData-like RGBA object. The scanner automatically attempts both normal RGBW center sampling and Triangle16 dual-region sampling when geometry is found. When normal projective geometry is locatable but too coarse for half-cell Triangle16 regions, one bounded precise-alignment recovery pass refines the alignment center at sub-module resolution. Clean frames use the normal observed-RGB path first. Difficult frames then get bounded fallback attempts using per-channel white balancing, spatial black/white normalization, tighter centre sampling, module-grid Auto Tone / Auto Contrast / Auto Color recovery, a rectified QR-region pixel enhancement pass, and sub-module geometry micro-refinement before the scan is rejected. Dense versions also use their distributed alignment markers to refine a noisy four-point projective solution when the initial alignment-grid score is plausible but imperfect. If exactly two strong finder patterns survive a steep angle, a bounded perspective-tolerant third-finder recovery pass is attempted before heavier color recovery.
 
 ```js
 const result = scanImageData({

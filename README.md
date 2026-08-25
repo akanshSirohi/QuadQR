@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Four visible states. Two bits per data cell. A modern experiment in high-density matrix codes.</strong>
+  <strong>Normal RGBW mode by default, with an optional experimental High Density Mode using Triangle16 split cells.</strong>
 </p>
 
 <p align="center">
@@ -26,9 +26,9 @@
   <a href="SPECIFICATION.md">Technical Specification</a>
 </p>
 
-**QuadQR** is an experimental open-source 2D matrix code that uses four visible data states instead of the two states used by a traditional black-and-white QR module.
+**QuadQR** is an experimental open-source 2D matrix code that uses RGBW color states instead of the two states used by a traditional black-and-white QR module. Normal mode stores **2 bits per RGBW data cell**. This experimental branch also includes an optional **High Density Mode**, implemented with Triangle16 split cells, that stores **4 raw bits per body cell**. High Density Mode is disabled by default.
 
-Each QuadQR data cell represents exactly **2 bits**:
+Default RGBW mapping:
 
 | Color | Bits |
 |---|---|
@@ -38,6 +38,28 @@ Each QuadQR data cell represents exactly **2 bits**:
 | White | `11` |
 
 That gives QuadQR a four-symbol alphabet and a raw density of **2 bits per data cell**.
+
+### Experimental High Density Mode
+
+When `highDensity: true` is enabled, Triangle16 splits each payload cell along one fixed `/` diagonal. The upper-left and lower-right triangles independently use Red, Green, Blue, or White:
+
+```text
+4 colors × 4 colors = 16 states
+log2(16) = 4 bits per data cell
+```
+
+The protected bootstrap/header deliberately remains solid-color even in High Density Mode, while the ECC-protected body uses the full 16-state alphabet. This sacrifices a small amount of theoretical capacity to make mode detection and damaged-camera recovery more reliable. Finder, timing, alignment, calibration, ECC, CRC, and matrix dimensions remain unchanged.
+
+```js
+const code = encodeText("High-density QuadQR", {
+  ecc: "M",
+  highDensity: true
+});
+```
+
+Image and camera scanning automatically detect High Density Mode, so a separate scanner mode is not required. High Density Mode is experimental and should be stress-tested at the intended physical size and camera distance.
+
+See [`docs/HIGH_DENSITY_MODE.md`](docs/HIGH_DENSITY_MODE.md) for the physical cell mapping, protected-header strategy, scanner sampling rules, and reliability caveats.
 
 QuadQR keeps the parts that make QR-like codes practical, such as a square matrix, finder patterns, timing structures, error correction, masking, perspective recovery, and camera scanning, while experimenting with a higher-density color-based data layer.
 
@@ -131,7 +153,8 @@ So at the raw data-cell level:
 | Format | States per data cell | Raw information |
 |---|---:|---:|
 | Binary QR | 2 | 1 bit |
-| QuadQR | 4 | 2 bits |
+| QuadQR RGBW | 4 | 2 bits |
+| QuadQR High Density Mode (Triangle16) | 16 | 4 bits |
 
 This is a **2× raw symbol-density advantage**.
 
@@ -280,7 +303,7 @@ Therefore:
 
 > The capacity benchmark is a same-dimension and same-label comparison, not yet an equal-damage-tolerance comparison.
 
-The raw QuadQR data alphabet is exactly **2 bits per data cell**. Ratios approaching ~3× in the current usable-payload benchmark are caused by differences in total structural and ECC overhead between the two formats, not because a QuadQR cell contains 3 bits.
+The published baseline benchmark uses **normal RGBW mode at exactly 2 bits per data cell**. Ratios approaching ~3× in that RGBW usable-payload benchmark are caused by differences in total structural and ECC overhead between the two formats, not because an RGBW QuadQR cell contains 3 bits. The experimental **Triangle16** profile is a separate 4-bit/body-cell mode and should be benchmarked independently because its real-world advantage depends on camera resolution, perspective, blur, resizing, and print quality.
 
 A future goal is to add **equal-reliability benchmarking**, where QuadQR and standard QR are compared after calibrating both to similar real-world damage recovery.
 

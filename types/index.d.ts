@@ -17,6 +17,8 @@ export interface EncodeOptions {
   minVersion?: number;
   maxVersion?: number;
   ecc?: EccLevel;
+  /** Enable the experimental High Density Mode. Default: false. Uses Triangle16 payload cells at 4 raw bits/body cell. */
+  highDensity?: boolean;
   maskId?: number;
   text?: boolean;
   compression?: CompressionMode;
@@ -59,6 +61,9 @@ export interface QuadQRCode {
   size: number;
   formatVersion: number;
   eccLevel: EccLevel;
+  highDensity?: boolean;
+  bitsPerDataCell?: 2 | 4;
+  statesPerDataCell?: 4 | 16;
   payloadBytes: number;
   capacityBytes: number;
   secure?: boolean;
@@ -106,6 +111,9 @@ export interface DecodeResult {
   size: number;
   formatVersion: number;
   eccLevel: EccLevel;
+  highDensity?: boolean;
+  bitsPerDataCell?: 2 | 4;
+  statesPerDataCell?: 4 | 16;
   secure: boolean;
   requiresDecryption?: boolean;
   decrypted?: boolean;
@@ -230,6 +238,14 @@ export interface ScanOptions {
   maxDimension?: number;
   sampleRadius?: number;
   robustSampleRadius?: number;
+  /** Disable automatic High Density Mode dual-region sampling. Default: enabled. */
+  highDensitySampling?: boolean;
+  /** Position of the two High Density Mode samples inside each module. Default: 0.28. */
+  highDensitySampleInset?: number;
+  /** Radius used around each High Density Mode sample point. */
+  highDensitySampleRadius?: number;
+  /** Retry failed perspective scans with finer alignment localization. Default: true. */
+  preciseAlignmentRecovery?: boolean;
   adaptiveSampling?: boolean;
   spatialColorNormalization?: boolean;
   structureTolerance?: number;
@@ -373,7 +389,7 @@ export function runImageStressTest(imageData: ImageDataLike, expected?: { versio
 export function assessScanability(code: QuadQRCode, renderOptions?: RenderOptions, options?: Record<string, unknown>): Record<string, unknown>;
 export function rectifyDetectedCode(imageData: ImageDataLike, options?: Record<string, unknown>): ImageDataLike;
 export function rotateMatrix(matrix: number[][], quarterTurns?: number): number[][];
-export function getVersionInfo(version: number, options?: { ecc?: EccLevel }): Record<string, unknown>;
+export function getVersionInfo(version: number, options?: { ecc?: EccLevel; highDensity?: boolean }): Record<string, unknown>;
 export function crc32(bytes: Uint8Array): number;
 export function installCrc32Accelerator(accelerator?: ((bytes: Uint8Array) => number) | null): void;
 export function generateRaw256Key(): Uint8Array;

@@ -3,9 +3,9 @@
   const meta = document.querySelector("#qrMeta");
 
   try {
-    const code = QuadQR.encodeText("QuadQR library docs - browser + Node + secure payloads", { ecc: "M" });
+    const code = QuadQR.encodeText("QuadQR docs - browser + Node + secure payloads", { ecc: "M" });
     QuadQR.renderToCanvas(code, canvas, { moduleSize: 7, quietZone: 3, style: "classic" });
-    meta.textContent = `v${code.version} · ${code.size}×${code.size}`;
+    meta.textContent = `v${code.version} · ${code.size}×${code.size} · ${code.bitsPerDataCell} bits/cell`;
   } catch (error) {
     meta.textContent = error.message;
   }
