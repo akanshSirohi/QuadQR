@@ -42,7 +42,7 @@ Structural black is separate from the data alphabet. One encoded byte maps to ex
 
 ### High Density Mode
 
-When `highDensity: true` is selected, each payload module has a fixed `/` diagonal and two independently classified RGBW regions. This creates 16 states and 4 raw bits per body cell. The protected header stays solid-color at 2 bits per cell for robust bootstrap recovery, then header flag bit 6 tells the decoder that the ECC/body stream uses Triangle16 packing. Scanner sampling uses two points well inside the triangles and excludes the diagonal boundary.
+When `highDensity: true` is selected, each payload module has a fixed `/` diagonal and two independently classified RGBW regions. This creates 16 states and 4 raw bits per body cell. The protected header stays solid-color at 2 bits per cell for robust bootstrap recovery, then header flag bit 6 tells the decoder that the ECC/body stream uses Triangle16 packing. Scanner sampling uses three interior anchors per triangle, robust aggregation, and a spatial-instability penalty while excluding the diagonal boundary.
 
 ## 3. Matrix sizing
 
@@ -87,7 +87,7 @@ Version 2+ parity profiles:
 | Q | 36 | 18 |
 | H | 48 | 24 |
 
-The decoder retains per-cell color confidence. Low-confidence bytes can be promoted to known erasures, allowing Reed-Solomon recovery to use the existing parity budget more efficiently.
+The decoder retains per-cell color confidence and one bounded alternate hypothesis from image/camera classification. Low-confidence bytes can first be promoted to known erasures, allowing Reed-Solomon recovery to use the existing parity budget more efficiently. If hard and error/erasure decoding still fail, Spectrum ECC 2.0 may try the alternate state for a bounded set of the least-confident cells. Candidate search is limited to single substitutions and a small pair set by default, and every successful path must still satisfy Reed-Solomon verification and CRC-32.
 
 ## 6. Internal payload extension envelope
 

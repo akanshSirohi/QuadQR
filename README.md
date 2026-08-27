@@ -158,13 +158,13 @@ So at the raw data-cell level:
 
 This is a **2× raw symbol-density advantage**.
 
-### Spectrum ECC: QuadQR-specific reliability without capacity loss
+### Spectrum ECC 2.0: confidence-aware + soft decoding
 
-QuadQR now uses a second idea that is possible because the scanner already measures calibrated color rather than only black/white state: **confidence-aware Reed-Solomon recovery**.
+QuadQR uses the fact that a color scanner knows more than only the winning state. For each sampled data cell it now retains the selected state, a confidence score, and a bounded second hypothesis. Triangle16 does the same after classifying both color regions.
 
-For every sampled RGBW data module, the scanner keeps both the selected state and a confidence score based on the distance to the nearest and second-nearest calibrated color states. Four module confidences are combined into the confidence of their GF(256) byte symbol.
+The first recovery layer is still confidence-aware GF(256) Reed-Solomon: if normal hard-decision decoding fails, the least-confident byte symbols can be promoted to **known erasures**, allowing the existing parity budget to be spent more efficiently.
 
-If normal hard-decision Reed-Solomon decoding fails, the least-confident byte symbols can be promoted to **known erasures**. Reed-Solomon can spend parity more efficiently on known erasure locations than on completely unknown errors. CRC-32 remains the final acceptance check.
+**Spectrum ECC 2.0** adds a bounded soft-decision fallback. If hard decoding and erasure decoding still fail, the decoder tries the second hypothesis for a small number of the least-confident data cells, first singly and then in tightly bounded pairs. Every candidate must still pass the normal Reed-Solomon checks and final CRC-32, so soft decoding does not relax integrity validation or add parity overhead.
 
 QuadQR also applies a deterministic **spectral-spatial interleaver** after ECC. Neighboring logical codeword cells are scattered across distant physical data positions, so a scratch, glare patch, shadow, or localized print defect tends to affect many different RS symbols instead of destroying a contiguous run. The permutation is reversible and consumes **zero extra data cells**.
 
@@ -465,7 +465,7 @@ White → (255, 255, 255)
 
 Real camera input is not expected to match those exact values.
 
-QuadQR includes calibration and nearest-color classification so the scanner can work with observed colors after lighting, camera processing, perspective changes, and other image transformations. The clean-frame path stays fast: QuadQR tries the normal detected geometry and observed palette first. Dense versions can refine an imperfect four-point homography with reliable secondary alignment markers already present in the matrix, without reserving any new cells. If a steep angle leaves exactly two strong finder patterns, a bounded looser third-finder pass runs before heavier color recovery. Only after geometry/color decoding still fails does QuadQR progressively try stronger recovery, including white balancing, spatial normalization, Auto Tone / Auto Contrast / Auto Color-style enhancement, and bounded sub-module geometry refinement. For live video, QuadQR scans the CSS-visible `object-fit: cover` camera region instead of the hidden full sensor frame, so the code keeps the same apparent size/resolution the user sees in the guide. When a dense frame already exposes at least two finders, the camera scanner can also retry the visible ROI at up to 1600 px before expensive color recovery. If finder geometry is already strong but color decoding fails, a QR-only rectified pixel enhancement retry is performed immediately; whole-frame enhancement remains reserved for harder locator failures.
+QuadQR includes calibration and nearest-color classification so the scanner can work with observed colors after lighting, camera processing, perspective changes, and other image transformations. The clean-frame path stays fast: QuadQR tries the normal detected geometry and observed palette first. Dense versions can refine an imperfect four-point homography with reliable secondary alignment markers already present in the matrix, without reserving any new cells. If a steep angle leaves exactly two strong finder patterns, a bounded looser third-finder pass runs before heavier color recovery. Only after geometry/color decoding still fails does QuadQR progressively try stronger recovery, including white balancing, a 3×4 affine color-calibration model learned from the known black/white/R/G/B references, spatial normalization, Auto Tone / Auto Contrast / Auto Color-style enhancement, and bounded sub-module geometry refinement. For live video, QuadQR scans the CSS-visible `object-fit: cover` camera region instead of the hidden full sensor frame, so the code keeps the same apparent size/resolution the user sees in the guide. When a dense frame already exposes at least two finders, the camera scanner can also retry the visible ROI at up to 1600 px before expensive color recovery. If finder geometry is already strong but color decoding fails, a QR-only rectified pixel enhancement retry is performed immediately; whole-frame enhancement remains reserved for harder locator failures.
 
 ---
 
@@ -537,7 +537,7 @@ module-grid reconstruction
   ↓
 fast observed-RGB decode attempt
   ↓ (only if needed)
-white balance + spatial normalization
+white balance + affine cross-channel calibration + spatial normalization
   ↓ (only if still needed)
 Auto Tone / Auto Contrast / Auto Color-style recovery
   ↓ (only if still needed)
@@ -545,15 +545,17 @@ sub-module geometry refinement
   ↓
 RGB + structural black/white calibration
   ↓
-nearest-color classification + confidence scoring
+RGBW/Triangle16 classification + confidence + second hypothesis
   ↓
-four-state unmasking
+unmasking
   ↓
 reverse spectral-spatial permutation
   ↓
 protected header Reed-Solomon hard decode
   ↓
 confidence-guided erasure retry when needed
+  ↓
+bounded Spectrum ECC 2.0 soft-hypothesis retry when needed
   ↓
 body deinterleaving + error/erasure Reed-Solomon decode
   ↓
@@ -1070,7 +1072,7 @@ Scans one frame from an HTML video element. By default, if the video is displaye
 
 ### `startCameraScanner(video, options?)`
 
-Starts a reusable live-camera scanning loop. On supported browsers it requests continuous focus/exposure/white-balance camera modes and scans the CSS-visible preview crop. A normal frame always gets the fast RGB-value finder pass first. If a miss still exposes at least two strong finder patterns, QuadQR retries the visible camera ROI at up to 1600 px by default so dense symbols retain more pixels per module. This high-resolution retry is bounded and does not run on empty frames. If it still fails, the **same captured frame** enters a QR-guide recovery path: QuadQR progressively crops away 8%, 16%, and 22% of the surrounding camera frame (then tries the full frame as a final fallback), applies the Photoshop-style Auto Color correction inside that code-centric region, and runs finder detection again. This matters because a live preview can contain dark room pixels, browser chrome, a monitor bezel, or other content that completely changes global Auto Color/Otsu statistics even though a manually cropped screenshot scans instantly. Normal scanning stays unchanged and fast because these recovery paths run only after a miss. Finder-only recovery also tries multiple center-weighted Auto Color histograms before threshold bracketing. `cameraHighResolutionMaxDimension` defaults to 1600, `cameraHighResolutionEvery` defaults to 2, and `cameraAutoColorEvery` defaults to 1. Multi-frame voting remains enabled by default with a four-frame history. The optional `onDiagnostic(event)` callback exposes finder candidates, active locator method, crop/geometry/version hypothesis, recovery method, timing, and scan dimensions. `onResult(result, frame)` receives the exact raw decoded camera frame and, when Auto Color was used, the enhanced recovery pixels and their crop rectangle, so UIs can keep the frozen frame and finder overlay aligned.
+Starts a reusable live-camera scanning loop. On supported browsers it requests continuous focus/exposure/white-balance camera modes and scans the CSS-visible preview crop. A normal frame always gets the fast RGB-value finder pass first. If a miss still exposes at least two strong finder patterns, QuadQR retries the visible camera ROI at up to 1600 px by default so dense symbols retain more pixels per module. This high-resolution retry is bounded and does not run on empty frames. If it still fails, the **same captured frame** enters a QR-guide recovery path: QuadQR progressively crops away 8%, 16%, and 22% of the surrounding camera frame (then tries the full frame as a final fallback), applies the Photoshop-style Auto Color correction inside that code-centric region, and runs finder detection again. This matters because a live preview can contain dark room pixels, browser chrome, a monitor bezel, or other content that completely changes global Auto Color/Otsu statistics even though a manually cropped screenshot scans instantly. Normal scanning stays unchanged and fast because these recovery paths run only after a miss. Finder-only recovery also tries multiple center-weighted Auto Color histograms before threshold bracketing. `cameraHighResolutionMaxDimension` defaults to 1600, `cameraHighResolutionEvery` defaults to 2, and `cameraAutoColorEvery` defaults to 1. Multi-frame confidence fusion remains enabled by default with a four-frame history. Frames are kept only when their high-confidence data cells are consistent with the current tracked symbol. Per-cell evidence is weighted by confidence, frame quality, and recency, while second hypotheses are retained for Spectrum ECC 2.0. The optional `onDiagnostic(event)` callback exposes finder candidates, active locator method, crop/geometry/version hypothesis, recovery method, timing, and scan dimensions. `onResult(result, frame)` receives the exact raw decoded camera frame and, when Auto Color was used, the enhanced recovery pixels and their crop rectangle, so UIs can keep the frozen frame and finder overlay aligned.
 
 ### `getVersionInfo(version, options?)`
 
@@ -1111,7 +1113,10 @@ The current test suite covers areas including:
 - color-cast scanning;
 - dirty-camera stress scanning with strong yellow cast, haze, blue-channel suppression, and blur;
 - low-contrast warm-camera regression where normal scanning fails but progressive Auto Tone / Contrast / Color recovery succeeds;
-- multi-frame classification voting;
+- multi-frame confidence fusion and tracked-symbol consistency;
+- Spectrum ECC 2.0 bounded soft-decision recovery;
+- affine cross-channel color calibration;
+- multi-point Triangle16 region sampling with instability-aware confidence;
 - benchmark reference data;
 - timed codec round trips;
 - password-mode secure round trips and wrong-password rejection;

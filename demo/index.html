@@ -23,6 +23,7 @@
     <nav class="tabs" aria-label="Demo sections">
       <button class="tab active" data-tab="lab" type="button" aria-label="Generator and image scanner">Generator</button>
       <button class="tab" data-tab="camera" type="button" aria-label="Camera scanner">Camera</button>
+      <button class="tab" data-tab="reliability" type="button">Reliability Lab</button>
       <button class="tab" data-tab="benchmark" type="button">Benchmark</button>
     </nav>
 
@@ -264,11 +265,11 @@
           <h2>Four states, exactly two bits per data cell</h2>
           <div class="feature-grid">
             <p><strong>Direct 2-bit mapping.</strong> Red = 00, green = 01, blue = 10, and white = 11. One byte occupies exactly four data cells.</p>
-            <p><strong>High Density Mode.</strong> When enabled, the experimental Triangle16 layout splits each payload module on a fixed / diagonal. The upper-left and lower-right triangles independently use RGBW, creating 16 states and 4 bits per body cell. The protected header remains solid-color for more reliable mode recovery. It is disabled by default.</p>
-            <p><strong>Spectrum ECC.</strong> GF(256) Reed-Solomon first tries normal correction, then uses low-confidence RGBW byte symbols as known erasures when hard decoding is not enough.</p>
+            <p><strong>High Density Mode.</strong> When enabled, the experimental Triangle16 layout splits each payload module on a fixed / diagonal. Each triangle uses multiple protected interior samples with instability-aware confidence, creating 16 states and 4 bits per body cell while keeping the protected header solid-color. It is disabled by default.</p>
+            <p><strong>Spectrum ECC 2.0.</strong> GF(256) Reed-Solomon first tries normal correction, then confidence-guided erasures. If that still fails, a bounded soft-decision pass can try the scanner's second hypothesis for a few least-confident cells without adding ECC overhead.</p>
             <p><strong>Spectral-spatial interleaving.</strong> Logical codeword cells are scattered across distant physical modules with a reversible zero-overhead permutation, improving resistance to localized damage without reducing capacity.</p>
             <p><strong>Perspective geometry.</strong> Three large finder patterns stay fixed. Larger versions keep one 5×5 primary alignment reference and add compact 3×3 secondary markers for stronger geometry and version validation with less capacity overhead.</p>
-            <p><strong>Adaptive color confidence.</strong> RGB swatches plus known structural black/white cells calibrate the palette, while nearest-vs-second-nearest distance gives every sampled data cell a confidence score for ECC.</p>
+            <p><strong>Advanced color calibration.</strong> RGB swatches plus structural black/white references support observed-palette matching, white balance, and a learned affine cross-channel correction. Every data cell keeps confidence plus a second hypothesis for Spectrum ECC 2.0.</p>
             <p><strong>Secure Payload v1.</strong> Optional AES-256-GCM authenticated encryption supports password-derived keys and exact raw 256-bit keys. Encryption sits above Spectrum ECC, so standard symbols keep their existing scan path.</p>
             <p><strong>Compact v1.</strong> The 21×21 symbol uses a reduced protected header and size-appropriate ECC, giving v1-M 24 payload bytes while retaining CRC-32.</p>
           </div>
@@ -337,6 +338,90 @@
           <p class="camera-note">Camera access requires HTTPS or localhost. Fill most of the guide, keep the code flat when possible, and avoid glare over white or colored cells. Yellow boxes mark finder candidates and green boxes lock onto validated finder geometry. After a successful scan, the verified camera frame stays visible behind the overlay.</p>
           <p class="secure-scan-note"><strong>Secure scanning supported.</strong> Live scanning automatically recognizes password and raw 256-bit-key payloads, stops on a verified symbol, and asks for the matching credential before revealing the plaintext.</p>
           <div id="cameraResult" class="scan-result empty">No camera result yet.</div>
+        </article>
+      </div>
+    </section>
+
+    <section id="reliabilityView" class="tab-view" data-view="reliability" hidden>
+      <div class="reliability-page">
+        <article class="panel reliability-panel">
+          <div class="panel-head">
+            <div>
+              <p class="kicker">Reliability Lab</p>
+              <h2>Real-world scan torture testing</h2>
+            </div>
+            <span id="reliabilityPill" class="pill neutral">Not run</span>
+          </div>
+
+          <p class="benchmark-intro">
+            Test the currently generated QuadQR against deterministic camera, lighting, resampling and projective damage.
+            The lab verifies the decoded CRC, not just finder detection. Generate a code first, then run a suite or tune the 3D perspective controls manually.
+          </p>
+
+          <div class="reliability-summary-grid">
+            <div class="reliability-metric"><span>Reliability score</span><strong id="reliabilityScore">--</strong><small id="reliabilityRating">Not tested</small></div>
+            <div class="reliability-metric"><span>Scenarios passed</span><strong id="reliabilityPassed">--</strong><small>CRC-verified decodes</small></div>
+            <div class="reliability-metric"><span>Average confidence</span><strong id="reliabilityConfidence">--</strong><small>Successful scans</small></div>
+            <div class="reliability-metric"><span>Weakest area</span><strong id="reliabilityWeakest">--</strong><small>Lowest category pass score</small></div>
+          </div>
+
+          <div class="row benchmark-controls reliability-controls">
+            <label class="field">
+              <span>Test suite</span>
+              <select id="reliabilitySuite">
+                <option value="quick">Quick</option>
+                <option value="full" selected>Full</option>
+                <option value="extreme">Extreme perspective</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Test image</span>
+              <select id="reliabilityImageScale">
+                <option value="8">8 px/module</option>
+                <option value="10" selected>10 px/module</option>
+                <option value="12">12 px/module</option>
+              </select>
+            </label>
+          </div>
+          <div class="actions">
+            <button id="runReliabilityBtn" class="primary" type="button">Run Reliability Lab</button>
+          </div>
+          <div id="reliabilityStatus" class="scan-result empty">Generate a QuadQR, then run the reliability suite.</div>
+
+          <div class="table-wrap reliability-table-wrap">
+            <table class="benchmark-table reliability-table">
+              <thead><tr><th>Scenario</th><th>Category</th><th>Result</th><th>Confidence</th><th>RS corrected</th><th>Time</th></tr></thead>
+              <tbody id="reliabilityResultsBody"><tr><td colspan="6" class="muted-cell">No reliability run yet.</td></tr></tbody>
+            </table>
+          </div>
+
+          <div class="reliability-perspective-grid">
+            <section class="reliability-perspective-controls">
+              <div class="advanced-heading">
+                <div><p class="kicker">3D perspective playground</p><h3>Pitch, yaw and Z rotation</h3></div>
+              </div>
+              <p class="benchmark-intro compact-intro">X/Y tilt creates depth perspective. Z rotation rotates the code in the image plane. These controls can be combined to stress the scanner beyond the standard suite.</p>
+
+              <label class="field range-field"><span>X pitch <b id="perspectivePitchValue">0°</b></span><input id="perspectivePitch" type="range" min="-55" max="55" value="0" /></label>
+              <label class="field range-field"><span>Y yaw <b id="perspectiveYawValue">35°</b></span><input id="perspectiveYaw" type="range" min="-65" max="65" value="35" /></label>
+              <label class="field range-field"><span>Z rotation <b id="perspectiveRollValue">0°</b></span><input id="perspectiveRoll" type="range" min="-90" max="90" value="0" /></label>
+
+              <div class="actions reliability-perspective-actions">
+                <button id="testPerspectiveBtn" class="secondary" type="button">Apply + scan</button>
+                <button id="runPerspectiveSweepBtn" class="primary" type="button">Run angle sweep</button>
+              </div>
+
+              <div class="row benchmark-controls sweep-controls">
+                <label class="field"><span>Sweep axis</span><select id="perspectiveSweepAxis"><option value="yaw" selected>Y yaw</option><option value="pitch">X pitch</option><option value="roll">Z rotation</option></select></label>
+              </div>
+              <div id="perspectiveResult" class="scan-result empty">Move the sliders and test a synthetic camera angle.</div>
+              <div id="perspectiveSweepResults" class="stress-results"></div>
+            </section>
+
+            <div class="stress-stage reliability-preview-stage">
+              <canvas id="stressCanvas" width="520" height="520"></canvas>
+            </div>
+          </div>
         </article>
       </div>
     </section>
@@ -433,22 +518,7 @@
               </div>
             </details>
 
-            <details class="accordion">
-              <summary>
-                <span class="accordion-title"><strong>Stress test lab</strong><small>Blur, exposure, shadow, perspective and compression damage</small></span>
-                <span class="accordion-chevron" aria-hidden="true"></span>
-              </summary>
-              <div class="accordion-content">
-                <p class="benchmark-intro">Apply deterministic distortions to the currently generated QuadQR and immediately test whether it still decodes.</p>
-                <div class="row benchmark-controls">
-                  <label class="field"><span>Distortion</span><select id="stressType"><option value="blur">Blur</option><option value="brightness-low">Low brightness</option><option value="brightness-high">High exposure</option><option value="shadow">Uneven shadow</option><option value="contrast-loss">Contrast loss</option><option value="perspective">Perspective</option><option value="jpeg">JPEG-like compression</option><option value="downscale">Downscale</option><option value="warm">Warm color cast</option></select></label>
-                  <label class="field range-field"><span>Severity <b id="stressSeverityValue">50%</b></span><input id="stressSeverity" type="range" min="0" max="100" value="50" /></label>
-                </div>
-                <div class="stress-stage"><canvas id="stressCanvas" width="420" height="420"></canvas></div>
-                <div class="actions"><button id="testStressBtn" class="secondary" type="button">Apply + scan</button><button id="runStressSuiteBtn" class="primary" type="button">Run full suite</button></div>
-                <div id="stressLabResult" class="scan-result empty">Generate a QuadQR, then test it here.</div>
-              </div>
-            </details>
+            
           </div>
 
           <p class="benchmark-note">For repeatable CLI output run <code>npm run benchmark</code>. For clean JSON use <code>npm run --silent benchmark -- --json</code>.</p>

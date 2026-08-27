@@ -27,6 +27,8 @@ import {
   debugScanImageData,
   applyStressDistortion,
   runImageStressTest,
+  runReliabilityLab,
+  runPerspectiveSweep,
   estimateSafeLogoSize,
   findMaxSafeLogoSize,
   getPrintGuidance
@@ -374,6 +376,45 @@ for (const ecc of ["L", "M", "Q", "H"]) {
   assert.equal(decoded.confidenceAssisted, true);
   assert.ok(decoded.erasureSymbols > 0);
   assert.ok(decoded.correctedBodySymbols >= 16);
+}
+
+
+// Spectrum ECC 2.0 soft decoding uses scanner-provided second hypotheses when
+// hard decoding and confidence-to-erasure recovery are both just beyond the
+// correction budget. One targeted substitution should bring this one-block
+// codeword back inside the normal 12-error M-profile limit.
+{
+  const payload = new Uint8Array(Array.from({ length: 20 }, (_, i) => (i * 17 + 11) & 0xff));
+  const encoded = encodeBytes(payload, { version: 3, ecc: "M" });
+  const layout = internals.createLayout(encoded.version);
+  const permutation = internals.spectralPermutation(layout.dataPositions.length, encoded.version);
+  const bodyStart = internals.getHeaderPlan(encoded.version).codewordCells;
+  const damaged = cloneMatrix(encoded.matrix);
+  const confidence = Array.from({ length: encoded.size }, () => Array(encoded.size).fill(1));
+  const alternatives = Array.from({ length: encoded.size }, () => Array(encoded.size).fill(null));
+
+  for (let symbolIndex = 0; symbolIndex < 13; symbolIndex++) {
+    const logicalCell = bodyStart + symbolIndex * 4;
+    const physicalCell = permutation[logicalCell];
+    const [row, col] = layout.dataPositions[physicalCell];
+    const original = damaged[row][col];
+    damaged[row][col] = (original + 1 + (symbolIndex & 1)) & 3;
+    confidence[row][col] = 0.70; // above erasure threshold, inside soft-search threshold
+    alternatives[row][col] = original;
+  }
+
+  assert.throws(() => decodeMatrix(damaged, { cellConfidence: confidence, maxErasureConfidence: 0.68 }));
+  const decoded = decodeMatrix(damaged, {
+    cellConfidence: confidence,
+    cellAlternatives: alternatives,
+    maxErasureConfidence: 0.68,
+    softDecodeConfidence: 0.72
+  });
+  bytesEqual(decoded.payload, payload);
+  assert.equal(decoded.spectrumEccVersion, 2);
+  assert.equal(decoded.softDecoded, true);
+  assert.equal(decoded.softSubstitutions, 1);
+  assert.ok(decoded.softDecodeAttempts >= 1);
 }
 
 for (const length of [0, 1, 2, 7, 8, 9, 31, 32, 33, 64, 200, 700]) {
@@ -861,6 +902,33 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   bytesEqual(decoded.payload, payload);
 }
 
+
+// Advanced affine color calibration compensates for cross-channel camera/print
+// mixing, not only per-channel white balance. This synthetic palette is a
+// deliberately anisotropic transform where raw Euclidean matching confuses a
+// noisy red sample with blue, while the fitted 3x4 affine calibration restores
+// the correct logical class.
+{
+  const observed = {
+    black: { r: 30, g: 25, b: 35 },
+    white: { r: 157.5, g: 190.75, b: 131.9 },
+    red: { r: 93.75, g: 37.75, b: 47.75 },
+    green: { r: 81, g: 152.5, b: 73.25 },
+    blue: { r: 42.75, g: 50.5, b: 80.9 }
+  };
+  const sample = { r: 61.6744, g: 51.9523, b: 56.0861 };
+  const rawClassifier = internals.classifierFromPaletteRgb(observed, "raw");
+  rawClassifier.entries = rawClassifier.entries.filter(({ cell }) => cell !== CELL.BLACK);
+  const affineClassifier = internals.classifierFromPaletteRgb(observed, "affine");
+  affineClassifier.entries = affineClassifier.entries.filter(({ cell }) => cell !== CELL.BLACK);
+  const raw = internals.classifyRgb(sample, rawClassifier);
+  const affine = internals.classifyRgb(sample, affineClassifier);
+  assert.equal(raw.cell, CELL.BLUE);
+  assert.equal(affine.cell, CELL.RED);
+  assert.equal(affineClassifier.calibrationModel, "affine-3x4");
+  assert.ok(affineClassifier.calibrationError < 25);
+}
+
 // Clean image scan uses perspective geometry and observed color calibration.
 {
   const text = "Clean RGBW image scanner";
@@ -1292,6 +1360,69 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   const decoded = scanImageData(distorted, { minVersion: 10, maxVersion: 10 });
   bytesEqual(decoded.payload, payload);
   assert.equal(decoded.highDensity, true);
+}
+
+// Reliability Lab 3D perspective regressions. Strong camera yaw now uses a
+// bounded projective alignment search rather than assuming the primary
+// alignment marker stays close to the three-finder affine extrapolation.
+{
+  const text = "QuadQR Reliability Lab projective geometry";
+  const normal = encodeText(text, { version: 8, ecc: "M", compression: "none" });
+  const normalImage = renderToImageData(normal, { imageSize: 720, quietZone: 4 });
+  const yaw55 = applyStressDistortion(normalImage, "perspective-3d", 0.5, {
+    pitchDegrees: 0,
+    yawDegrees: 55,
+    rollDegrees: 0
+  });
+  const normalDecoded = scanImageData(yaw55, { minVersion: 8, maxVersion: 8 });
+  assert.equal(normalDecoded.text, text);
+  assert.equal(normalDecoded.crc32, normal.crc32);
+
+  const dense = encodeText(text.repeat(4), {
+    version: 8,
+    ecc: "M",
+    compression: "none",
+    highDensity: true
+  });
+  const denseImage = renderToImageData(dense, { imageSize: 720, quietZone: 4 });
+  const denseYaw = applyStressDistortion(denseImage, "perspective-3d", 0.5, {
+    pitchDegrees: 0,
+    yawDegrees: 45,
+    rollDegrees: 0
+  });
+  const denseDecoded = scanImageData(denseYaw, { minVersion: 8, maxVersion: 8 });
+  assert.equal(denseDecoded.crc32, dense.crc32);
+  assert.equal(denseDecoded.highDensity, true);
+
+  const z75 = applyStressDistortion(denseImage, "perspective-3d", 0.5, {
+    pitchDegrees: 0,
+    yawDegrees: 0,
+    rollDegrees: 75
+  });
+  assert.equal(scanImageData(z75, { minVersion: 8, maxVersion: 8 }).crc32, dense.crc32);
+}
+
+// Reliability Lab reports category scores and perspective sweeps using final
+// payload CRC verification rather than finder detection alone.
+{
+  const encoded = encodeText("Reliability API smoke", { version: 4, ecc: "M" });
+  const image = renderToImageData(encoded, { imageSize: 480, quietZone: 4 });
+  const report = runReliabilityLab(image, { version: 4, crc32: encoded.crc32 }, {
+    profiles: [
+      { id: "clean-api", label: "Clean", category: "Baseline", type: "clean", severity: 0, weight: 1 },
+      { id: "roll-api", label: "Z rotation", category: "Perspective", type: "perspective-3d", severity: 0.5, pitchDegrees: 0, yawDegrees: 0, rollDegrees: 55, weight: 1 }
+    ]
+  });
+  assert.equal(report.passed, 2);
+  assert.equal(report.total, 2);
+  assert.ok(report.categories.some((item) => item.category === "Perspective" && item.score === 100));
+
+  const sweep = runPerspectiveSweep(image, { version: 4, crc32: encoded.crc32 }, {
+    axis: "yaw",
+    angles: [0, 20, 35]
+  });
+  assert.equal(sweep.total, 3);
+  assert.equal(sweep.maxPassedAngle, 35);
 }
 
 // Benchmark helpers and stable standard QR byte-mode reference capacities.

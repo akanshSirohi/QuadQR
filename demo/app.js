@@ -13,6 +13,8 @@ import {
   scanFile,
   startCameraScanner,
   runImageStressTest,
+  runReliabilityLab,
+  runPerspectiveSweep,
   applyStressDistortion,
   estimateSafeLogoSize,
   getPrintGuidance,
@@ -98,13 +100,29 @@ const capacitySignedEl = document.querySelector("#capacitySigned");
 const capacityCompressionEl = document.querySelector("#capacityCompression");
 const calculateCapacityBtn = document.querySelector("#calculateCapacityBtn");
 const capacityPlanResultEl = document.querySelector("#capacityPlanResult");
-const stressTypeEl = document.querySelector("#stressType");
-const stressSeverityEl = document.querySelector("#stressSeverity");
-const stressSeverityValueEl = document.querySelector("#stressSeverityValue");
 const stressCanvas = document.querySelector("#stressCanvas");
-const testStressBtn = document.querySelector("#testStressBtn");
-const runStressSuiteBtn = document.querySelector("#runStressSuiteBtn");
-const stressLabResultEl = document.querySelector("#stressLabResult");
+const reliabilityPill = document.querySelector("#reliabilityPill");
+const reliabilityScoreEl = document.querySelector("#reliabilityScore");
+const reliabilityRatingEl = document.querySelector("#reliabilityRating");
+const reliabilityPassedEl = document.querySelector("#reliabilityPassed");
+const reliabilityConfidenceEl = document.querySelector("#reliabilityConfidence");
+const reliabilityWeakestEl = document.querySelector("#reliabilityWeakest");
+const reliabilitySuiteEl = document.querySelector("#reliabilitySuite");
+const reliabilityImageScaleEl = document.querySelector("#reliabilityImageScale");
+const runReliabilityBtn = document.querySelector("#runReliabilityBtn");
+const reliabilityStatusEl = document.querySelector("#reliabilityStatus");
+const reliabilityResultsBody = document.querySelector("#reliabilityResultsBody");
+const perspectivePitchEl = document.querySelector("#perspectivePitch");
+const perspectiveYawEl = document.querySelector("#perspectiveYaw");
+const perspectiveRollEl = document.querySelector("#perspectiveRoll");
+const perspectivePitchValueEl = document.querySelector("#perspectivePitchValue");
+const perspectiveYawValueEl = document.querySelector("#perspectiveYawValue");
+const perspectiveRollValueEl = document.querySelector("#perspectiveRollValue");
+const testPerspectiveBtn = document.querySelector("#testPerspectiveBtn");
+const runPerspectiveSweepBtn = document.querySelector("#runPerspectiveSweepBtn");
+const perspectiveSweepAxisEl = document.querySelector("#perspectiveSweepAxis");
+const perspectiveResultEl = document.querySelector("#perspectiveResult");
+const perspectiveSweepResultsEl = document.querySelector("#perspectiveSweepResults");
 
 let currentCode = null;
 let currentRenderOptions = null;
@@ -361,9 +379,11 @@ function formatResult(container, result, titleText, options = {}) {
   const geometry = result.perspectiveCorrected ? "perspective corrected" : "axis aligned";
   const calibration = result.colorCalibrated ? "color calibrated" : "fixed palette";
   const spectrum = result.spectralInterleaving ? "spectral interleaving" : "legacy placement";
-  const recovery = result.confidenceAssisted
-    ? `${result.erasureSymbols ?? 0} confidence erasure(s) used`
-    : "hard-decision ECC sufficient";
+  const recovery = result.softDecoded
+    ? `Spectrum ECC 2.0 soft recovery (${result.softSubstitutions ?? 0} cell substitution${result.softSubstitutions === 1 ? "" : "s"})`
+    : result.confidenceAssisted
+      ? `${result.erasureSymbols ?? 0} confidence erasure(s) used`
+      : "hard-decision ECC sufficient";
   meta.textContent =
     `v${result.version}, ECC ${result.eccLevel}, mask ${result.maskId}, ` +
     `${result.alignmentPatterns ?? result.geometry?.alignment?.patterns ?? 1} alignment pattern(s), ` +
@@ -626,46 +646,172 @@ function calculateCapacityUi() {
     (plan.compression === "unknown" ? " Compression cannot be predicted from a byte count alone, so this estimate assumes no compression gain." : "");
 }
 
-async function applyAndScanStress() {
-  if (!currentCode) {
-    stressLabResultEl.className = "scan-result bad";
-    stressLabResultEl.textContent = "Generate a QuadQR first.";
-    return;
-  }
-  const severity = Number(stressSeverityEl.value) / 100;
-  const distorted = applyStressDistortion(currentCanvasImageData(), stressTypeEl.value, severity);
-  drawImageDataToStressCanvas(distorted);
-  stressLabResultEl.className = "scan-result";
-  stressLabResultEl.textContent = "Scanning distorted image…";
-  await new Promise((resolve) => requestAnimationFrame(resolve));
-  try {
-    const decoded = scanImageData(distorted, { minVersion: currentCode.version, maxVersion: currentCode.version });
-    const matches = decoded.crc32 === currentCode.crc32;
-    stressLabResultEl.className = `scan-result ${matches ? "good" : "bad"}`;
-    stressLabResultEl.textContent = matches
-      ? `Decoded successfully · confidence ${Math.round((decoded.confidence ?? 0) * 100)}% · ${decoded.correctedSymbols ?? 0} RS symbol(s) corrected.`
-      : "A code decoded, but its payload CRC did not match the generated QuadQR.";
-  } catch (error) {
-    stressLabResultEl.className = "scan-result bad";
-    stressLabResultEl.textContent = `Failed to decode · ${error.message}`;
+function reliabilityImageSize() {
+  if (!currentCode) return 520;
+  const matrixModules = currentCode.matrix?.length ?? (21 + 4 * (currentCode.version - 1));
+  const quietZone = Math.max(0, Number(quietZoneEl.value) || 0);
+  const pixelsPerModule = Math.max(6, Number(reliabilityImageScaleEl.value) || 10);
+  const target = Math.ceil((matrixModules + quietZone * 2) * pixelsPerModule);
+  return Math.min(Math.max(canvas.width, canvas.height), Math.max(360, target));
+}
+
+function renderReliabilityReport(report) {
+  reliabilityResultsBody.innerHTML = "";
+  for (const item of report.results) {
+    const tr = document.createElement("tr");
+    const values = [
+      item.label,
+      item.category ?? "Other",
+      item.passed ? "Passed" : "Failed",
+      item.passed && Number.isFinite(item.confidence) ? `${Math.round(item.confidence * 100)}%` : "--",
+      item.correctedSymbols == null ? "--" : String(item.correctedSymbols),
+      `${item.elapsedMs.toFixed(1)} ms`
+    ];
+    const labels = ["Scenario", "Category", "Result", "Confidence", "RS corrected", "Time"];
+    values.forEach((value, index) => {
+      const td = document.createElement("td");
+      td.textContent = value;
+      td.dataset.label = labels[index];
+      if (index === 2) td.className = item.passed ? "reliability-pass" : "reliability-fail";
+      tr.appendChild(td);
+    });
+    reliabilityResultsBody.appendChild(tr);
   }
 }
 
-async function runStressSuiteUi() {
-  if (!currentCode) return applyAndScanStress();
-  runStressSuiteBtn.disabled = true;
-  stressLabResultEl.className = "scan-result";
-  stressLabResultEl.textContent = "Running full scanability suite…";
+async function runReliabilityUi() {
+  if (!currentCode) {
+    reliabilityStatusEl.className = "scan-result bad";
+    reliabilityStatusEl.textContent = "Generate a QuadQR first.";
+    return;
+  }
+  runReliabilityBtn.disabled = true;
+  setPill(reliabilityPill, "neutral", "Running");
+  reliabilityStatusEl.className = "scan-result";
+  reliabilityStatusEl.textContent = "Running deterministic camera and perspective scenarios…";
+  reliabilityResultsBody.innerHTML = '<tr><td colspan="6" class="muted-cell">Running reliability tests…</td></tr>';
   await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
-    const report = runImageStressTest(currentCanvasImageData(scanabilityImageSize()), { version: currentCode.version, crc32: currentCode.crc32 });
-    stressLabResultEl.className = `scan-result ${report.score >= 75 ? "good" : "bad"}`;
-    stressLabResultEl.textContent = `${report.score.toFixed(0)}/100 · ${report.rating} · ${report.passed}/${report.total} scenarios decoded.`;
-    renderStressReport(report, scanabilityResultsEl);
-    scanabilityScoreEl.textContent = `${report.score.toFixed(0)}/100 · ${report.rating}`;
-    scanabilityMetaEl.textContent = `${report.passed}/${report.total} scenarios decoded.`;
+    const report = runReliabilityLab(
+      currentCanvasImageData(reliabilityImageSize()),
+      { version: currentCode.version, crc32: currentCode.crc32 },
+      { suite: reliabilitySuiteEl.value }
+    );
+    reliabilityScoreEl.textContent = `${report.score.toFixed(0)}/100`;
+    reliabilityRatingEl.textContent = `${report.rating} · ${report.suite}`;
+    reliabilityPassedEl.textContent = `${report.passed}/${report.total}`;
+    reliabilityConfidenceEl.textContent = `${Math.round(report.averageConfidence * 100)}%`;
+    reliabilityWeakestEl.textContent = report.weakestCategory
+      ? `${report.weakestCategory.category} ${report.weakestCategory.score.toFixed(0)}%`
+      : "--";
+    reliabilityStatusEl.className = `scan-result ${report.score >= 75 ? "good" : "bad"}`;
+    reliabilityStatusEl.textContent =
+      `${report.rating} · weighted pass ${report.passPercent.toFixed(0)}% · ` +
+      `${report.passed}/${report.total} CRC-verified scenarios decoded.`;
+    setPill(reliabilityPill, report.score >= 75 ? "good" : "bad", `${report.score.toFixed(0)}/100`);
+    renderReliabilityReport(report);
+  } catch (error) {
+    setPill(reliabilityPill, "bad", "Failed");
+    reliabilityStatusEl.className = "scan-result bad";
+    reliabilityStatusEl.textContent = error.message;
+    reliabilityResultsBody.innerHTML = `<tr><td colspan="6" class="muted-cell">${error.message}</td></tr>`;
   } finally {
-    runStressSuiteBtn.disabled = false;
+    runReliabilityBtn.disabled = false;
+  }
+}
+
+function updatePerspectiveLabels() {
+  perspectivePitchValueEl.textContent = `${perspectivePitchEl.value}°`;
+  perspectiveYawValueEl.textContent = `${perspectiveYawEl.value}°`;
+  perspectiveRollValueEl.textContent = `${perspectiveRollEl.value}°`;
+}
+
+function currentPerspectiveOptions() {
+  return {
+    pitchDegrees: Number(perspectivePitchEl.value),
+    yawDegrees: Number(perspectiveYawEl.value),
+    rollDegrees: Number(perspectiveRollEl.value),
+    fill: 0.84,
+    cameraDistance: 3
+  };
+}
+
+async function testPerspectiveUi() {
+  if (!currentCode) {
+    perspectiveResultEl.className = "scan-result bad";
+    perspectiveResultEl.textContent = "Generate a QuadQR first.";
+    return;
+  }
+  testPerspectiveBtn.disabled = true;
+  const transform = currentPerspectiveOptions();
+  const distorted = applyStressDistortion(
+    currentCanvasImageData(),
+    "perspective-3d",
+    0.5,
+    transform
+  );
+  drawImageDataToStressCanvas(distorted);
+  perspectiveResultEl.className = "scan-result";
+  perspectiveResultEl.textContent = "Scanning transformed image…";
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  try {
+    const decoded = scanImageData(distorted, {
+      minVersion: currentCode.version,
+      maxVersion: currentCode.version
+    });
+    const matches = decoded.crc32 === currentCode.crc32;
+    perspectiveResultEl.className = `scan-result ${matches ? "good" : "bad"}`;
+    const gridScore = decoded.geometry?.alignment?.gridScore;
+    perspectiveResultEl.textContent = matches
+      ? `Decoded · X ${transform.pitchDegrees}° · Y ${transform.yawDegrees}° · Z ${transform.rollDegrees}° · ` +
+        `confidence ${Math.round((decoded.confidence ?? 0) * 100)}% · ` +
+        `${decoded.correctedSymbols ?? 0} RS corrected` +
+        (Number.isFinite(gridScore) ? ` · geometry ${(gridScore * 100).toFixed(0)}%` : "")
+      : "A symbol decoded, but the payload CRC did not match.";
+  } catch (error) {
+    perspectiveResultEl.className = "scan-result bad";
+    perspectiveResultEl.textContent = `Failed at X ${transform.pitchDegrees}° · Y ${transform.yawDegrees}° · Z ${transform.rollDegrees}° · ${error.message}`;
+  } finally {
+    testPerspectiveBtn.disabled = false;
+  }
+}
+
+async function runPerspectiveSweepUi() {
+  if (!currentCode) {
+    perspectiveResultEl.className = "scan-result bad";
+    perspectiveResultEl.textContent = "Generate a QuadQR first.";
+    return;
+  }
+  runPerspectiveSweepBtn.disabled = true;
+  perspectiveSweepResultsEl.innerHTML = "";
+  perspectiveResultEl.className = "scan-result";
+  perspectiveResultEl.textContent = "Sweeping camera angles…";
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  try {
+    const axis = perspectiveSweepAxisEl.value;
+    const base = currentPerspectiveOptions();
+    const angles = axis === "roll" ? [0, 20, 35, 50, 65, 75] : [0, 15, 25, 35, 45, 55];
+    const report = runPerspectiveSweep(
+      currentCanvasImageData(),
+      { version: currentCode.version, crc32: currentCode.crc32 },
+      { axis, angles, ...base }
+    );
+    const axisLabel = axis === "roll" ? "Z rotation" : axis === "pitch" ? "X pitch" : "Y yaw";
+    perspectiveResultEl.className = `scan-result ${report.passed >= Math.ceil(report.total * 0.65) ? "good" : "bad"}`;
+    perspectiveResultEl.textContent =
+      `${axisLabel} sweep · ${report.passed}/${report.total} passed · ` +
+      `maximum passing test angle ${report.maxPassedAngle == null ? "none" : `${report.maxPassedAngle}°`}.`;
+    for (const item of report.results) {
+      const chip = document.createElement("div");
+      chip.className = `stress-result-chip ${item.passed ? "good" : "bad"}`;
+      chip.textContent = `${item.passed ? "✓" : "✕"} ${item.angle}°${item.passed ? ` · ${Math.round((item.confidence ?? 0) * 100)}%` : ""}`;
+      perspectiveSweepResultsEl.appendChild(chip);
+    }
+  } catch (error) {
+    perspectiveResultEl.className = "scan-result bad";
+    perspectiveResultEl.textContent = error.message;
+  } finally {
+    runPerspectiveSweepBtn.disabled = false;
   }
 }
 
@@ -801,6 +947,7 @@ function friendlyScanMethod(method) {
     "module-grid-auto-tone-contrast-color": "Module auto enhance",
     "rectified-auto-tone-contrast-color": "Rectified auto enhance",
     "multi-frame-vote": "Multi-frame ECC",
+    "multi-frame-confidence-fusion": "Multi-frame fusion",
     "refined-center": "Geometry refine",
     "cross": "Fast scan",
     "median": "Robust sample"
@@ -1413,9 +1560,12 @@ stopCameraBtn.addEventListener("click", stopCamera);
 benchmarkEccEl.addEventListener("change", renderCapacityBenchmark);
 runBenchmarkBtn.addEventListener("click", runBenchmark);
 calculateCapacityBtn.addEventListener("click", calculateCapacityUi);
-stressSeverityEl.addEventListener("input", () => { stressSeverityValueEl.textContent = `${stressSeverityEl.value}%`; });
-testStressBtn.addEventListener("click", applyAndScanStress);
-runStressSuiteBtn.addEventListener("click", runStressSuiteUi);
+runReliabilityBtn.addEventListener("click", runReliabilityUi);
+perspectivePitchEl.addEventListener("input", updatePerspectiveLabels);
+perspectiveYawEl.addEventListener("input", updatePerspectiveLabels);
+perspectiveRollEl.addEventListener("input", updatePerspectiveLabels);
+testPerspectiveBtn.addEventListener("click", testPerspectiveUi);
+runPerspectiveSweepBtn.addEventListener("click", runPerspectiveSweepUi);
 window.addEventListener("pagehide", () => cameraController?.stop());
 
 resetCameraDiagnosticsUi();
@@ -1426,4 +1576,5 @@ updateRenderModeUi();
 rebuildVersions();
 renderCapacityBenchmark();
 calculateCapacityUi();
+updatePerspectiveLabels();
 generate();

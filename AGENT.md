@@ -22,7 +22,7 @@ The current format uses the stable/default RGBW profile plus an experimental Hig
 - Header flag bit 6 declares Triangle16. Do not repurpose it.
 - ECC is GF(256) Reed-Solomon over byte symbols with errors+erasures support.
 - New encoding uses zero-overhead spectral-spatial cell interleaving; do not replace it with contiguous placement without explicit compatibility work.
-- Image scanning must retain per-cell classification confidence so uncertain byte symbols can be promoted to RS erasures.
+- Image scanning must retain per-cell classification confidence and a bounded second hypothesis. Spectrum ECC 2.0 may use confidence for RS erasures and the second hypothesis for bounded soft-decision retries.
 - Structural black remains separate from the four data-state values.
 - Structural white and data white may share the same visible/internal value because position determines semantics.
 - Secure Payload is optional and must remain layered above the matrix/ECC codec. Never make encryption mandatory for normal QuadQR symbols.
@@ -40,7 +40,7 @@ Triangle16 rules:
 - payload/body cell values are packed `0..15` as `(first << 2) | second`;
 - structural black stays `-1` and structural modules never use Triangle16 packing;
 - protected header uses solid same-color pairs and flag bit 6 identifies the body profile;
-- scanner samples both regions away from the diagonal and uses the weaker region confidence for RS confidence/erasure decisions;
+- scanner uses multiple protected interior samples per triangle, penalizes unstable/bleeding regions, and retains the most plausible alternate state for Spectrum ECC 2.0;
 - image and camera scanning auto-detect both RGBW and Triangle16;
 - if normal perspective geometry is insufficient for split cells, keep the bounded precise-alignment recovery path rather than weakening structure checks globally;
 - treat real-world reliable bytes at fixed physical size/distance as the important density metric, not raw bits/cell alone.
@@ -154,10 +154,11 @@ Triangle16's protected header remains RGBW-equivalent at 2 bits/cell. Do not cla
 2. Real phone-camera dataset.
 3. Print tests under multiple printers/papers.
 4. Color-state confusion matrix and confidence-threshold tuning from real captures.
-5. Better local/adaptive color calibration for uneven lighting.
-6. Spatial damage/interleaving benchmarks and burst-damage comparison against legacy placement.
-7. Standard QR comparison at matched physical dimensions and recovery targets.
-8. Local/non-projective distortion correction using the distributed alignment grid.
+5. Tune affine/local color calibration from real camera and print datasets.
+6. Tune Spectrum ECC 2.0 soft-search thresholds and Triangle16 alternate-state ranking from measured confusion data.
+7. Spatial damage/interleaving benchmarks and burst-damage comparison against legacy placement.
+8. Standard QR comparison at matched physical dimensions and recovery targets.
+9. Local/non-projective distortion correction using the distributed alignment grid.
 
 
 ## Version 1 compact small-symbol profile

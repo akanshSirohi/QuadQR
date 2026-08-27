@@ -162,9 +162,9 @@ console.log(result.text);</code></pre></div>
         <div class="cards three">
           <article><strong>RGBA pixels</strong><code>scanImageData()</code><p>Runtime-neutral scanning when your app already has decoded pixels.</p></article>
           <article><strong>Browser files</strong><code>scanFile()</code><p>Scan uploaded images directly from a browser <code>File</code> or <code>Blob</code>.</p></article>
-          <article><strong>Live camera</strong><code>startCameraScanner()</code><p>Uses RGB-value finder detection on the fast pass. Dense misses with two or more finders can retry the visible ROI at up to 1600 px, followed by perspective-tolerant finder recovery, distributed-alignment geometry refinement, and same-frame Photoshop-style Auto Color recovery inside guide-centered crops when needed. The normal path stays fast; these recovery paths and multi-frame voting run only after a miss.</p></article>
+          <article><strong>Live camera</strong><code>startCameraScanner()</code><p>Uses RGB-value finder detection on the fast pass. Dense misses with two or more finders can retry the visible ROI at up to 1600 px, followed by perspective-tolerant finder recovery, distributed-alignment geometry refinement, and same-frame Photoshop-style Auto Color recovery inside guide-centered crops when needed. The normal path stays fast; these recovery paths and multi-frame confidence fusion run only after a miss. Frame evidence keeps per-cell confidence and alternate states for Spectrum ECC 2.0.</p></article>
         </div>
-        <p>Image and camera scanning automatically detect normal RGBW symbols and experimental High Density Mode symbols. High Density Mode uses Triangle16 dual-region sampling. Triangle samples are taken well inside each half of the cell, away from the diagonal boundary. Image and camera scanning use the same secure-aware decoding behavior. An encrypted symbol is detected normally, but plaintext is not exposed until the correct credential is supplied.</p>
+        <p>Image and camera scanning automatically detect normal RGBW symbols and experimental High Density Mode symbols. High Density Mode uses Triangle16 multi-point region sampling. Three protected anchors per triangle are robustly combined away from the diagonal boundary, and unstable regions lower confidence instead of becoming hard errors. Advanced calibration can also fit an affine cross-channel correction from the known black/white/R/G/B references. Image and camera scanning use the same secure-aware decoding behavior. An encrypted symbol is detected normally, but plaintext is not exposed until the correct credential is supplied.</p>
       </section>
 
       <section id="security">
@@ -256,15 +256,25 @@ console.log(result.diagnostics.stages);</code></pre></div>
       </section>
 
       <section id="testing">
-        <span class="eyebrow">SCANABILITY LAB</span>
-        <h2>Deterministic torture tests for generated codes</h2>
+        <span class="eyebrow">RELIABILITY LAB</span>
+        <h2>Deterministic camera and 3D perspective testing</h2>
         <div class="code"><button data-copy>Copy</button><pre><code>const report = QuadQR.assessScanability(code, {
   imageSize: 480,
   logo: { source: logoImageData, size: "auto" }
 });
 
-console.log(report.score, report.rating);</code></pre></div>
-        <p>The standard suite covers blur, low/high exposure, shadow, contrast loss, perspective, JPEG-like artifacts, and downscaling. The live demo also provides an interactive stress-test lab. Synthetic scores are regression aids, not a replacement for real camera and printer testing.</p>
+console.log(report.score, report.rating);
+
+const lab = QuadQR.runReliabilityLab(imageData, {
+  version: code.version,
+  crc32: code.crc32
+}, { suite: "full" });
+
+const sweep = QuadQR.runPerspectiveSweep(imageData, {
+  version: code.version,
+  crc32: code.crc32
+}, { axis: "yaw", angles: [0, 15, 25, 35, 45, 55] });</code></pre></div>
+        <p>The Reliability Lab adds motion blur, glare, sensor noise, color casts, 3D X/Y tilt, Z rotation, combined projective angles, category scores and angle sweeps. The demo has a dedicated Reliability Lab tab with a live perspective playground. Synthetic scores are regression aids, not a replacement for real camera and printer testing.</p>
       </section>
 
       <section id="api">
@@ -280,7 +290,9 @@ console.log(report.score, report.rating);</code></pre></div>
           <article><code>decodeMatrix()</code><p>Decode a sampled matrix.</p></article>
           <article><code>scanImageData()</code><p>Scan RGBA pixels with confidence diagnostics.</p></article>
           <article><code>debugScanImageData()</code><p>Non-throwing detailed scan diagnostics.</p></article>
-          <article><code>assessScanability()</code><p>Run the standard torture suite.</p></article>
+          <article><code>assessScanability()</code><p>Run the compact scanability suite.</p></article>
+          <article><code>runReliabilityLab()</code><p>Run Quick/Full/Extreme reliability scenarios.</p></article>
+          <article><code>runPerspectiveSweep()</code><p>Sweep pitch, yaw, or Z rotation angles.</p></article>
           <article><code>scanFile()</code><p>Scan browser files.</p></article>
           <article><code>startCameraScanner()</code><p>Live browser camera scanner.</p></article>
           <article><code>decryptDecoded()</code><p>Unlock secure scan results.</p></article>

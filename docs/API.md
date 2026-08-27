@@ -189,7 +189,7 @@ const result = scanImageData({
 });
 ```
 
-Useful scanner options include `sampleRadius`, `robustSampleRadius`, `adaptiveSampling`, `spatialColorNormalization`, `autoEnhanceRecovery`, `rectifiedAutoEnhanceRecovery`, `rectifiedRecoveryModuleSize`, `autoEnhanceBlackClip`, `autoEnhanceWhiteClip`, `autoEnhanceSaturation`, `geometryRefinement`, `alignmentRefinement`, `alignmentRefinePatternThreshold`, `refinementOffset`, `structureTolerance`, and `maxErasureConfidence`. Auto enhancement and geometry refinement are enabled by default, but bounded recovery work only runs when the normal scan path or initial geometry needs it.
+Useful scanner options include `sampleRadius`, `robustSampleRadius`, `adaptiveSampling`, `spatialColorNormalization`, `autoEnhanceRecovery`, `rectifiedAutoEnhanceRecovery`, `rectifiedRecoveryModuleSize`, `geometryRefinement`, `alignmentRefinement`, `structureTolerance`, `maxErasureConfidence`, `softDecoding`, `softDecodeConfidence`, `softDecodeMaxCells`, and `softDecodePairCells`. Spectrum ECC 2.0 soft decoding is bounded and only runs after ordinary hard/error-erasure decoding fails.
 
 ### Browser `scanFile(file, options?)`
 
@@ -209,13 +209,15 @@ const result = scanVideoFrame(video);
 
 ### `startCameraScanner(video, options?)`
 
-Starts live camera scanning. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. It scans the CSS-visible preview region by default. Finder detection uses a QuadQR-specific RGB value channel (`max(R,G,B)`) on the fast pass so saturated blue/red/green data cells are not mistaken for structural black. If a miss still contains at least two strong finder patterns, the scanner can retry the visible ROI at up to 1600 px before heavier recovery, which preserves more pixels per module for dense versions. If that does not decode, the **same captured frame** is retried through code-centric Auto Color recovery. The default recovery sequence crops 8%, 16%, and 22% from the camera-frame edges, then falls back to the full frame. This prevents dark room pixels, browser UI, or monitor bezels outside the guide from controlling Auto Color and Otsu thresholds. Each crop uses the Photoshop-style per-channel shadow/highlight correction with a neutral mid-high highlight target (190 by default). Finder-only recovery also tries multiple center-weighted Auto Color histogram windows before raw threshold bracketing. The normal fast path is untouched; these extra passes run only after a miss. If geometry is found but color decoding fails, the captured ROI is retried with the stronger color/geometry recovery, and consecutive failed frames can still be combined with confidence-weighted module voting.
+Starts live camera scanning. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. It scans the CSS-visible preview region by default. Finder detection uses a QuadQR-specific RGB value channel (`max(R,G,B)`) on the fast pass so saturated blue/red/green data cells are not mistaken for structural black. If a miss still contains at least two strong finder patterns, the scanner can retry the visible ROI at up to 1600 px before heavier recovery, which preserves more pixels per module for dense versions. If that does not decode, the **same captured frame** is retried through code-centric Auto Color recovery. The default recovery sequence crops 8%, 16%, and 22% from the camera-frame edges, then falls back to the full frame. This prevents dark room pixels, browser UI, or monitor bezels outside the guide from controlling Auto Color and Otsu thresholds. Each crop uses the Photoshop-style per-channel shadow/highlight correction with a neutral mid-high highlight target (190 by default). Finder-only recovery also tries multiple center-weighted Auto Color histogram windows before raw threshold bracketing. The normal fast path is untouched; these extra passes run only after a miss. If geometry is found but color decoding fails, the captured ROI is retried with stronger color/geometry recovery, including affine cross-channel calibration. Consecutive failed frames can then be combined with tracked-symbol **confidence fusion**: cell evidence is weighted by source confidence, frame quality, and recency, and second hypotheses are carried forward into Spectrum ECC 2.0.
 
 ```js
 const scanner = await startCameraScanner(video, {
   scanInterval: 120,
   multiFrame: true,
   multiFrameWindow: 4,
+  multiFrameMinFrames: 2,
+  softDecoding: true,
   cameraAutoColorEvery: 1,
   cameraAutoColorCropInsets: [0.08, 0.16, 0.22, 0],
   cameraAutoColorHighlightPercentile: 0.95,
@@ -536,9 +538,9 @@ Use `scanImageData(image, { debug: true })` for detailed geometry/sampling infor
 
 ## Scanability and stress testing
 
-### `applyStressDistortion(imageData, type, severity?)`
+### `applyStressDistortion(imageData, type, severity?, options?)`
 
-Deterministically applies a selected synthetic distortion.
+Deterministically applies a selected synthetic distortion. In addition to the original blur/exposure/shadow/resampling profiles, `perspective-3d` accepts `pitchDegrees`, `yawDegrees`, and `rollDegrees` for camera-angle testing.
 
 ### `runImageStressTest(imageData, expected?, options?)`
 
@@ -548,4 +550,12 @@ Runs the standard torture profiles and returns a 0–100 score plus per-scenario
 
 Renders a code and runs the standard test suite. It returns `Excellent`, `Good`, `Risky`, or `Likely unscannable` together with recommendations.
 
-Synthetic scores are regression aids and do not replace physical camera/print testing.
+### `runReliabilityLab(imageData, expected?, options?)`
+
+Runs the broader Reliability Lab suite. `options.suite` can be `quick`, `full`, or `extreme`. Results include overall score, per-scenario CRC verification, category scores, confidence, RS corrections, and timing.
+
+### `runPerspectiveSweep(imageData, expected?, options?)`
+
+Sweeps `yaw`, `pitch`, or `roll`/Z rotation across a list of angles and reports the largest tested angle that decoded successfully.
+
+Synthetic scores are regression aids and do not replace physical camera/print testing. See [`RELIABILITY_LAB.md`](./RELIABILITY_LAB.md).

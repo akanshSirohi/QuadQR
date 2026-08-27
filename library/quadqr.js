@@ -1980,10 +1980,68 @@ function decodeCanonical(matrix, rotation, tolerance = 0, confidenceMatrix = nul
   throw new Error(`QuadQR decode failed. ${errors.join(" | ")}`);
 }
 
+function trySoftMatrixDecode(matrix, alternatives, confidenceMatrix, degrees, tolerance, options = {}) {
+  if (!alternatives || !confidenceMatrix || options.softDecoding === false) return null;
+  const version = versionFromSize(matrix.length);
+  if (!version) return null;
+  const layout = createLayout(version);
+  const threshold = clampNumber(options.softDecodeConfidence ?? 0.72, 0.05, 0.95);
+  const maxCells = Math.max(2, Math.min(16, Math.round(options.softDecodeMaxCells ?? 10)));
+  const pairCells = Math.max(2, Math.min(maxCells, Math.round(options.softDecodePairCells ?? 6)));
+  const ranked = [];
+
+  for (const [row, col] of layout.dataPositions) {
+    const alternative = alternatives[row]?.[col];
+    const confidence = confidenceMatrix[row]?.[col] ?? 1;
+    if (!Number.isInteger(alternative) || alternative === matrix[row][col] || confidence > threshold) continue;
+    ranked.push({ row, col, alternative, confidence });
+  }
+  ranked.sort((a, b) => (a.confidence - b.confidence) || (a.row - b.row) || (a.col - b.col));
+  const candidates = ranked.slice(0, maxCells);
+  let attempts = 0;
+
+  const attempt = (changes) => {
+    const trial = cloneMatrix(matrix);
+    for (const change of changes) trial[change.row][change.col] = change.alternative;
+    attempts++;
+    try {
+      const decoded = decodeCanonical(trial, degrees, tolerance, confidenceMatrix, {
+        ...options,
+        softDecoding: false
+      });
+      return {
+        ...decoded,
+        spectrumEccVersion: 2,
+        softDecoded: true,
+        softSubstitutions: changes.length,
+        softDecodeAttempts: attempts,
+        softDecodeCellsConsidered: candidates.length
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  for (const candidate of candidates) {
+    const decoded = attempt([candidate]);
+    if (decoded) return decoded;
+  }
+
+  const pairCandidates = candidates.slice(0, pairCells);
+  for (let i = 0; i < pairCandidates.length; i++) {
+    for (let j = i + 1; j < pairCandidates.length; j++) {
+      const decoded = attempt([pairCandidates[i], pairCandidates[j]]);
+      if (decoded) return decoded;
+    }
+  }
+  return null;
+}
+
 export function decodeMatrix(inputMatrix, options = {}) {
   assert(Array.isArray(inputMatrix) && inputMatrix.length > 0, "Matrix is required.");
   let matrix = cloneMatrix(inputMatrix);
   let confidenceMatrix = options.cellConfidence ? cloneMatrix(options.cellConfidence) : null;
+  let alternativeMatrix = options.cellAlternatives ? cloneMatrix(options.cellAlternatives) : null;
   const errors = [];
   const tolerance = options.structureTolerance ?? 0;
 
@@ -1993,16 +2051,38 @@ export function decodeMatrix(inputMatrix, options = {}) {
       "cellConfidence must be a square matrix matching the QuadQR matrix."
     );
   }
+  if (alternativeMatrix) {
+    assert(
+      alternativeMatrix.length === matrix.length && alternativeMatrix.every((row) => row.length === matrix.length),
+      "cellAlternatives must be a square matrix matching the QuadQR matrix."
+    );
+  }
 
   for (let rotationIndex = 0; rotationIndex < 4; rotationIndex++) {
     const degrees = rotationIndex * 90;
     try {
-      return decodeCanonical(matrix, degrees, tolerance, confidenceMatrix, options);
+      const decoded = decodeCanonical(matrix, degrees, tolerance, confidenceMatrix, options);
+      return {
+        spectrumEccVersion: 2,
+        softDecoded: false,
+        softSubstitutions: 0,
+        ...decoded
+      };
     } catch (error) {
       errors.push(`${degrees}°: ${error.message}`);
+      const softDecoded = trySoftMatrixDecode(
+        matrix,
+        alternativeMatrix,
+        confidenceMatrix,
+        degrees,
+        tolerance,
+        options
+      );
+      if (softDecoded) return softDecoded;
     }
     matrix = rotate90(matrix);
     if (confidenceMatrix) confidenceMatrix = rotate90(confidenceMatrix);
+    if (alternativeMatrix) alternativeMatrix = rotate90(alternativeMatrix);
   }
 
   throw new Error(`Unable to decode matrix. ${errors.join(" || ")}`);
@@ -2944,11 +3024,96 @@ function makeWhiteBalanceTransform(observed) {
   });
 }
 
+function solveLinearSystem(matrix, vector) {
+  const n = vector.length;
+  const a = matrix.map((row, index) => row.slice().concat(vector[index]));
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    for (let row = col + 1; row < n; row++) {
+      if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) pivot = row;
+    }
+    if (Math.abs(a[pivot][col]) < 1e-9) return null;
+    [a[col], a[pivot]] = [a[pivot], a[col]];
+    const divisor = a[col][col];
+    for (let j = col; j <= n; j++) a[col][j] /= divisor;
+    for (let row = 0; row < n; row++) {
+      if (row === col) continue;
+      const factor = a[row][col];
+      if (Math.abs(factor) < 1e-12) continue;
+      for (let j = col; j <= n; j++) a[row][j] -= factor * a[col][j];
+    }
+  }
+  return a.map((row) => row[n]);
+}
+
+function makeAffineCalibrationTransform(observed) {
+  const ideal = {
+    black: { r: 0, g: 0, b: 0 },
+    white: { r: 255, g: 255, b: 255 },
+    red: { r: 255, g: 0, b: 0 },
+    green: { r: 0, g: 255, b: 0 },
+    blue: { r: 0, g: 0, b: 255 }
+  };
+  const keys = ["black", "white", "red", "green", "blue"];
+  const rows = keys.map((key) => {
+    const rgb = observed[key];
+    return [rgb.r, rgb.g, rgb.b, 1];
+  });
+  const normal = Array.from({ length: 4 }, () => Array(4).fill(0));
+  for (const row of rows) {
+    for (let i = 0; i < 4; i++) {
+      for (let j = 0; j < 4; j++) normal[i][j] += row[i] * row[j];
+    }
+  }
+  // A tiny ridge term keeps the transform stable if the photographed palette
+  // becomes nearly singular under severe clipping or monochromatic lighting.
+  const ridge = 1e-4;
+  for (let i = 0; i < 4; i++) normal[i][i] += ridge;
+
+  const coefficients = {};
+  for (const channel of ["r", "g", "b"]) {
+    const rhs = Array(4).fill(0);
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      const x = rows[rowIndex];
+      const y = ideal[keys[rowIndex]][channel];
+      for (let i = 0; i < 4; i++) rhs[i] += x[i] * y;
+    }
+    coefficients[channel] = solveLinearSystem(normal, rhs);
+    if (!coefficients[channel]) return null;
+  }
+
+  const transform = (rgb) => {
+    const x = [rgb.r, rgb.g, rgb.b, 1];
+    const mapChannel = (channel) => coefficients[channel].reduce((sum, value, index) => sum + value * x[index], 0);
+    return {
+      r: clampNumber(mapChannel("r"), -96, 384),
+      g: clampNumber(mapChannel("g"), -96, 384),
+      b: clampNumber(mapChannel("b"), -96, 384)
+    };
+  };
+
+  let errorSq = 0;
+  for (const key of keys) {
+    const mapped = transform(observed[key]);
+    const target = ideal[key];
+    errorSq += colorDistanceSq(mapped, target);
+  }
+  return { transform, ideal, rmsError: Math.sqrt(errorSq / (keys.length * 3)) };
+}
+
 function classifierFromPaletteRgb(observed, mode = "raw") {
-  const transform = mode === "balanced" || mode === "hue"
+  const affine = mode === "affine" ? makeAffineCalibrationTransform(observed) : null;
+  const transform = affine?.transform ?? (mode === "balanced" || mode === "hue"
     ? makeWhiteBalanceTransform(observed)
-    : identityColorTransform;
-  const entries = [
+    : identityColorTransform);
+  const idealEntries = affine ? [
+    { cell: CELL.BLACK, rgb: affine.ideal.black },
+    { cell: CELL.WHITE, rgb: affine.ideal.white },
+    { cell: CELL.RED, rgb: affine.ideal.red },
+    { cell: CELL.GREEN, rgb: affine.ideal.green },
+    { cell: CELL.BLUE, rgb: affine.ideal.blue }
+  ] : null;
+  const entries = idealEntries ?? [
     { cell: CELL.BLACK, rgb: transform(observed.black) },
     { cell: CELL.WHITE, rgb: transform(observed.white) },
     { cell: CELL.RED, rgb: transform(observed.red) },
@@ -2962,6 +3127,8 @@ function classifierFromPaletteRgb(observed, mode = "raw") {
     entries,
     transform,
     mode,
+    calibrationModel: affine ? "affine-3x4" : (mode === "balanced" || mode === "hue" ? "black-white-balance" : "observed-palette"),
+    calibrationError: affine?.rmsError ?? null,
     dataMode: mode === "hue" ? "hue" : "distance",
     whiteChroma: chroma(entries.find(({ cell }) => cell === CELL.WHITE).rgb),
     minimumColorChroma
@@ -2975,27 +3142,30 @@ function colorDistanceSq(a, b) {
   return dr * dr + dg * dg + db * db;
 }
 
-function classifyRgb(rgb, classifier) {
+function rankRgbCandidates(rgb, classifier) {
   const transformed = classifier.transform(rgb);
-  let best = null;
-  let bestDistanceSq = Infinity;
-  let secondDistanceSq = Infinity;
+  return classifier.entries
+    .map((candidate) => ({
+      cell: candidate.cell,
+      rgb: candidate.rgb,
+      distance: Math.sqrt(colorDistanceSq(transformed, candidate.rgb))
+    }))
+    .sort((a, b) => (a.distance - b.distance) || (a.cell - b.cell));
+}
 
-  for (const candidate of classifier.entries) {
-    const distanceSq = colorDistanceSq(transformed, candidate.rgb);
-    if (distanceSq < bestDistanceSq) {
-      secondDistanceSq = bestDistanceSq;
-      bestDistanceSq = distanceSq;
-      best = candidate;
-    } else if (distanceSq < secondDistanceSq) {
-      secondDistanceSq = distanceSq;
-    }
-  }
-
-  const distance = Math.sqrt(bestDistanceSq);
-  const secondDistance = Number.isFinite(secondDistanceSq) ? Math.sqrt(secondDistanceSq) : distance + 1;
-  const confidence = Math.max(0, Math.min(1, (secondDistance - distance) / Math.max(secondDistance, 1e-6)));
-  return { cell: best.cell, distance, confidence };
+function classifyRgb(rgb, classifier) {
+  const ranked = rankRgbCandidates(rgb, classifier);
+  const best = ranked[0];
+  const second = ranked[1] ?? { cell: best.cell, distance: best.distance + 1 };
+  const confidence = Math.max(0, Math.min(1, (second.distance - best.distance) / Math.max(second.distance, 1e-6)));
+  return {
+    cell: best.cell,
+    distance: best.distance,
+    confidence,
+    alternativeCell: second.cell,
+    alternativeDistance: second.distance,
+    ambiguity: 1 - confidence
+  };
 }
 
 
@@ -3031,6 +3201,7 @@ function classifySampledRgbGrid(rgbGrid, classifier, layout = null) {
   const size = rgbGrid.length;
   const matrix = make2D(size, CELL.WHITE);
   const confidence = make2D(size, 1);
+  const alternatives = make2D(size, null);
   const dataClassifier = {
     ...classifier,
     entries: classifier.entries.filter(({ cell }) => cell !== CELL.BLACK)
@@ -3050,8 +3221,11 @@ function classifySampledRgbGrid(rgbGrid, classifier, layout = null) {
       const classified = isDataCell && classifier.dataMode === "hue"
         ? classifyDataHue(rgbGrid[r][c], classifier)
         : classifyRgb(rgbGrid[r][c], candidates);
+      const ranked = rankRgbCandidates(rgbGrid[r][c], candidates);
+      const alternate = ranked.find((candidate) => candidate.cell !== classified.cell);
       matrix[r][c] = classified.cell;
       confidence[r][c] = classified.confidence;
+      alternatives[r][c] = alternate?.cell ?? null;
       distanceSum += classified.distance;
       confidenceSum += classified.confidence;
       minimumConfidence = Math.min(minimumConfidence, classified.confidence);
@@ -3061,6 +3235,7 @@ function classifySampledRgbGrid(rgbGrid, classifier, layout = null) {
   return {
     matrix,
     confidence,
+    alternatives,
     averageColorDistance: distanceSum / (size * size),
     averageCellConfidence: confidenceSum / (size * size),
     minimumCellConfidence: minimumConfidence,
@@ -3072,6 +3247,7 @@ function classifyTriangleSampledRgbGrid(rgbGrid, triangleGrid, classifier, layou
   const size = rgbGrid.length;
   const matrix = make2D(size, CELL.WHITE);
   const confidence = make2D(size, 1);
+  const alternatives = make2D(size, null);
   const dataClassifier = {
     ...classifier,
     entries: classifier.entries.filter(({ cell }) => cell !== CELL.BLACK)
@@ -3088,6 +3264,7 @@ function classifyTriangleSampledRgbGrid(rgbGrid, triangleGrid, classifier, layou
         const classified = classifyRgb(rgbGrid[r][c], classifier);
         matrix[r][c] = classified.cell;
         confidence[r][c] = classified.confidence;
+        alternatives[r][c] = classified.alternativeCell ?? null;
         distanceSum += classified.distance;
         confidenceSum += classified.confidence;
         minimumConfidence = Math.min(minimumConfidence, classified.confidence);
@@ -3102,19 +3279,35 @@ function classifyTriangleSampledRgbGrid(rgbGrid, triangleGrid, classifier, layou
         : classifyRgb(rgb, dataClassifier);
       const first = classifyData(samples.first);
       const second = classifyData(samples.second);
-      const cellConfidence = Math.min(first.confidence, second.confidence);
+      const firstRanked = rankRgbCandidates(samples.first, dataClassifier);
+      const secondRanked = rankRgbCandidates(samples.second, dataClassifier);
+      const firstAlt = firstRanked.find((candidate) => candidate.cell !== first.cell)?.cell ?? first.cell;
+      const secondAlt = secondRanked.find((candidate) => candidate.cell !== second.cell)?.cell ?? second.cell;
+      const firstSpread = Number(samples.firstSpread ?? 0);
+      const secondSpread = Number(samples.secondSpread ?? 0);
+      const stability = clampNumber(1 - Math.max(firstSpread, secondSpread) / 110, 0.35, 1);
+      const cellConfidence = Math.min(first.confidence, second.confidence) * (0.68 + stability * 0.32);
       matrix[r][c] = packTriangleCell(first.cell, second.cell);
-      confidence[r][c] = cellConfidence;
+      // Prefer changing the region with the weaker classification. If both are
+      // similarly uncertain, changing the more spatially unstable region first
+      // gives Spectrum ECC 2.0 a better second hypothesis.
+      const firstRisk = (1 - first.confidence) + firstSpread / 255;
+      const secondRisk = (1 - second.confidence) + secondSpread / 255;
+      alternatives[r][c] = firstRisk >= secondRisk
+        ? packTriangleCell(firstAlt, second.cell)
+        : packTriangleCell(first.cell, secondAlt);
+      confidence[r][c] = clampNumber(cellConfidence, 0, 1);
       distanceSum += (first.distance + second.distance) / 2;
-      confidenceSum += cellConfidence;
-      minimumConfidence = Math.min(minimumConfidence, cellConfidence);
-      if (cellConfidence < 0.4) lowConfidenceCells++;
+      confidenceSum += confidence[r][c];
+      minimumConfidence = Math.min(minimumConfidence, confidence[r][c]);
+      if (confidence[r][c] < 0.4) lowConfidenceCells++;
     }
   }
 
   return {
     matrix,
     confidence,
+    alternatives,
     averageColorDistance: distanceSum / (size * size),
     averageCellConfidence: confidenceSum / (size * size),
     minimumCellConfidence: minimumConfidence,
@@ -3144,6 +3337,7 @@ function paletteClassifierAttempts(observedPalette) {
   return [
     { classifier: classifierFromPaletteRgb(observedPalette, "raw"), colorNormalization: "observed-rgb" },
     { classifier: classifierFromPaletteRgb(observedPalette, "balanced"), colorNormalization: "white-balanced" },
+    { classifier: classifierFromPaletteRgb(observedPalette, "affine"), colorNormalization: "affine-calibrated" },
     { classifier: classifierFromPaletteRgb(observedPalette, "hue"), colorNormalization: "white-balanced-hue" }
   ];
 }
@@ -3216,6 +3410,7 @@ function tryPerspectiveScan(imageData, options) {
           version: geometry.version,
           matrix: classified.matrix,
           confidence: classified.confidence,
+          alternatives: classified.alternatives,
           geometry,
           observedPalette: activeObservedPalette,
           samplingMode: activeSamplingMode,
@@ -3229,6 +3424,7 @@ function tryPerspectiveScan(imageData, options) {
           const decoded = decodeMatrix(classified.matrix, {
             structureTolerance: options.structureTolerance ?? 0.18,
             cellConfidence: classified.confidence,
+            cellAlternatives: classified.alternatives,
             maxErasureConfidence: options.maxErasureConfidence
           });
           if (decoded.version !== geometry.version) return false;
@@ -3273,6 +3469,7 @@ function tryPerspectiveScan(imageData, options) {
           version: geometry.version,
           matrix: classified.matrix,
           confidence: classified.confidence,
+          alternatives: classified.alternatives,
           geometry,
           observedPalette: activeObservedPalette,
           samplingMode: activeSamplingMode,
@@ -3287,6 +3484,7 @@ function tryPerspectiveScan(imageData, options) {
           const decoded = decodeMatrix(classified.matrix, {
             structureTolerance: options.structureTolerance ?? 0.18,
             cellConfidence: classified.confidence,
+            cellAlternatives: classified.alternatives,
             cellEncodingHint: CELL_ENCODINGS.TRIANGLE16,
             maxErasureConfidence: options.maxErasureConfidence
           });
@@ -3485,6 +3683,7 @@ function tryPerspectiveScan(imageData, options) {
             version: geometry.version,
             matrix: classified.matrix,
             confidence: classified.confidence,
+            alternatives: classified.alternatives,
             geometry,
             observedPalette,
             samplingMode: "refined-center",
@@ -3523,6 +3722,7 @@ function tryPerspectiveScan(imageData, options) {
               version: geometry.version,
               matrix: triangleClassified.matrix,
               confidence: triangleClassified.confidence,
+              alternatives: triangleClassified.alternatives,
               geometry,
               observedPalette,
               samplingMode: "refined-triangle16",
@@ -3570,6 +3770,7 @@ function tryPerspectiveScan(imageData, options) {
           const decoded = decodeMatrix(candidate.classified.matrix, {
             structureTolerance: options.structureTolerance ?? 0.18,
             cellConfidence: candidate.classified.confidence,
+            cellAlternatives: candidate.classified.alternatives,
             cellEncodingHint: candidate.cellEncoding,
             maxErasureConfidence: options.maxErasureConfidence
           });
@@ -3707,6 +3908,7 @@ function tryAxisAlignedScan(imageData, options) {
                 version,
                 matrix: classified.matrix,
                 confidence: classified.confidence,
+                alternatives: classified.alternatives,
                 bounds,
                 samplingMode: classifiedAttempt.samplingMode,
                 colorNormalization: attempt.colorNormalization,
@@ -3718,6 +3920,7 @@ function tryAxisAlignedScan(imageData, options) {
               const decoded = decodeMatrix(classified.matrix, {
                 structureTolerance: options.structureTolerance ?? 0.12,
                 cellConfidence: classified.confidence,
+                cellAlternatives: classified.alternatives,
                 cellEncodingHint: classifiedAttempt.cellEncoding,
                 maxErasureConfidence: options.maxErasureConfidence
               });
@@ -3768,6 +3971,31 @@ export const STRESS_PROFILES = Object.freeze([
   Object.freeze({ id: "perspective", label: "Perspective", type: "perspective", severity: 0.42, weight: 1.3 }),
   Object.freeze({ id: "jpeg", label: "JPEG-like compression", type: "jpeg", severity: 0.50, weight: 0.8 }),
   Object.freeze({ id: "downscale", label: "Downscale", type: "downscale", severity: 0.52, weight: 0.9 })
+]);
+
+
+export const RELIABILITY_PROFILES = Object.freeze([
+  Object.freeze({ id: "clean", label: "Clean reference", category: "Baseline", type: "clean", severity: 0, weight: 2, suite: "quick" }),
+  Object.freeze({ id: "blur", label: "Lens blur", category: "Optics", type: "blur", severity: 0.40, weight: 1, suite: "quick" }),
+  Object.freeze({ id: "motion", label: "Motion blur", category: "Optics", type: "motion-blur", severity: 0.42, weight: 1, suite: "full" }),
+  Object.freeze({ id: "dark", label: "Low light", category: "Exposure", type: "brightness-low", severity: 0.50, weight: 1, suite: "quick" }),
+  Object.freeze({ id: "bright", label: "High exposure", category: "Exposure", type: "brightness-high", severity: 0.38, weight: 1, suite: "full" }),
+  Object.freeze({ id: "shadow", label: "Gradient shadow", category: "Lighting", type: "shadow", severity: 0.58, weight: 1.2, suite: "quick" }),
+  Object.freeze({ id: "glare", label: "Specular glare", category: "Lighting", type: "glare", severity: 0.34, weight: 1.1, suite: "full" }),
+  Object.freeze({ id: "warm", label: "Warm color cast", category: "Color", type: "warm", severity: 0.62, weight: 1, suite: "quick" }),
+  Object.freeze({ id: "cool", label: "Cool color cast", category: "Color", type: "cool", severity: 0.60, weight: 1, suite: "full" }),
+  Object.freeze({ id: "contrast", label: "Contrast loss", category: "Color", type: "contrast-loss", severity: 0.46, weight: 1, suite: "full" }),
+  Object.freeze({ id: "noise", label: "Sensor noise", category: "Sensor", type: "noise", severity: 0.42, weight: 0.9, suite: "full" }),
+  Object.freeze({ id: "jpeg", label: "JPEG-like damage", category: "Resampling", type: "jpeg", severity: 0.52, weight: 0.8, suite: "full" }),
+  Object.freeze({ id: "downscale", label: "Aggressive downscale", category: "Resampling", type: "downscale", severity: 0.55, weight: 1, suite: "quick" }),
+  Object.freeze({ id: "perspective-2d", label: "Projective skew", category: "Perspective", type: "perspective", severity: 0.52, weight: 1.3, suite: "quick" }),
+  Object.freeze({ id: "yaw-35", label: "3D yaw 35°", category: "Perspective", type: "perspective-3d", severity: 0.55, yawDegrees: 35, pitchDegrees: 0, rollDegrees: 0, weight: 1.4, suite: "quick" }),
+  Object.freeze({ id: "pitch-30", label: "3D pitch 30°", category: "Perspective", type: "perspective-3d", severity: 0.50, yawDegrees: 0, pitchDegrees: 30, rollDegrees: 0, weight: 1.3, suite: "full" }),
+  Object.freeze({ id: "z-rotation-55", label: "Z rotation 55°", category: "Perspective", type: "perspective-3d", severity: 0.45, yawDegrees: 0, pitchDegrees: 0, rollDegrees: 55, weight: 1.1, suite: "quick" }),
+  Object.freeze({ id: "combined-3d", label: "Combined 3D tilt", category: "Perspective", type: "perspective-3d", severity: 0.62, yawDegrees: 30, pitchDegrees: 15, rollDegrees: 18, weight: 1.5, suite: "full" }),
+  Object.freeze({ id: "yaw-55", label: "Extreme yaw 55°", category: "Extreme perspective", type: "perspective-3d", severity: 0.82, yawDegrees: 55, pitchDegrees: 0, rollDegrees: 0, weight: 1.5, suite: "extreme" }),
+  Object.freeze({ id: "pitch-40", label: "Extreme pitch 40°", category: "Extreme perspective", type: "perspective-3d", severity: 0.78, yawDegrees: 0, pitchDegrees: 40, rollDegrees: 0, weight: 1.4, suite: "extreme" }),
+  Object.freeze({ id: "z-rotation-75", label: "Z rotation 75°", category: "Extreme perspective", type: "perspective-3d", severity: 0.72, yawDegrees: 0, pitchDegrees: 0, rollDegrees: 75, weight: 1.1, suite: "extreme" })
 ]);
 
 function cloneImageDataLike(imageData) {
@@ -3869,13 +4097,151 @@ function perspectiveStress(imageData, severity) {
   return { width, height, data: out };
 }
 
+
+function fillWhiteRgba(data) {
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 255;
+    data[i + 1] = 255;
+    data[i + 2] = 255;
+    data[i + 3] = 255;
+  }
+}
+
+function projectPlaneQuad(width, height, options = {}) {
+  const pitch = Number(options.pitchDegrees ?? options.pitch ?? 0) * Math.PI / 180;
+  const yaw = Number(options.yawDegrees ?? options.yaw ?? 0) * Math.PI / 180;
+  const roll = Number(options.rollDegrees ?? options.roll ?? 0) * Math.PI / 180;
+  const cameraDistance = Math.max(1.8, Number(options.cameraDistance ?? 3.0));
+  const fill = clampNumber(Number(options.fill ?? 0.84), 0.45, 0.94);
+  const aspect = width / Math.max(1, height);
+  // Point order intentionally follows TL, TR, BL, BR to match the
+  // destination->source homography convention used throughout the scanner.
+  const corners = [
+    { x: -aspect, y: -1, z: 0 },
+    { x: aspect, y: -1, z: 0 },
+    { x: -aspect, y: 1, z: 0 },
+    { x: aspect, y: 1, z: 0 }
+  ];
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const cy = Math.cos(yaw), sy = Math.sin(yaw);
+  const cr = Math.cos(roll), sr = Math.sin(roll);
+  const projected = corners.map((point) => {
+    // Yaw around Y.
+    const x1 = point.x * cy + point.z * sy;
+    const z1 = -point.x * sy + point.z * cy;
+    const y1 = point.y;
+    // Pitch around X.
+    const y2 = y1 * cp - z1 * sp;
+    const z2 = y1 * sp + z1 * cp;
+    const x2 = x1;
+    // Roll around Z, i.e. in-plane camera/code rotation.
+    const x3 = x2 * cr - y2 * sr;
+    const y3 = x2 * sr + y2 * cr;
+    const depth = Math.max(0.35, cameraDistance + z2);
+    const perspective = cameraDistance / depth;
+    return { x: x3 * perspective, y: y3 * perspective };
+  });
+  const minX = Math.min(...projected.map((point) => point.x));
+  const maxX = Math.max(...projected.map((point) => point.x));
+  const minY = Math.min(...projected.map((point) => point.y));
+  const maxY = Math.max(...projected.map((point) => point.y));
+  const projectedWidth = Math.max(0.001, maxX - minX);
+  const projectedHeight = Math.max(0.001, maxY - minY);
+  const scale = Math.min(width * fill / projectedWidth, height * fill / projectedHeight);
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  return projected.map((point) => ({
+    x: width / 2 + (point.x - centerX) * scale,
+    y: height / 2 + (point.y - centerY) * scale
+  }));
+}
+
+function warpToQuad(imageData, destination) {
+  const { width, height } = imageData;
+  const source = [
+    { x: 0, y: 0 },
+    { x: width - 1, y: 0 },
+    { x: 0, y: height - 1 },
+    { x: width - 1, y: height - 1 }
+  ];
+  const inverse = computeHomography(source, destination);
+  const out = new Uint8ClampedArray(width * height * 4);
+  fillWhiteRgba(out);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const src = projectPoint(inverse, x, y);
+      if (src.x < 0 || src.y < 0 || src.x >= width || src.y >= height) continue;
+      const rgba = sampleRgbaBilinear(imageData, src.x, src.y);
+      const p = (y * width + x) * 4;
+      out[p] = rgba[0];
+      out[p + 1] = rgba[1];
+      out[p + 2] = rgba[2];
+      out[p + 3] = 255;
+    }
+  }
+  return { width, height, data: out };
+}
+
+function perspective3dStress(imageData, severity, options = {}) {
+  const s = clampNumber(Number(severity), 0, 1);
+  const destination = projectPlaneQuad(imageData.width, imageData.height, {
+    pitchDegrees: options.pitchDegrees ?? (8 + s * 28),
+    yawDegrees: options.yawDegrees ?? (12 + s * 43),
+    rollDegrees: options.rollDegrees ?? (s * 18),
+    cameraDistance: options.cameraDistance ?? 3,
+    fill: options.fill ?? (0.88 - s * 0.06)
+  });
+  return warpToQuad(imageData, destination);
+}
+
+function motionBlurImage(imageData, severity, options = {}) {
+  const radius = Math.max(1, Math.round(Number(options.radius ?? (2 + severity * 5))));
+  const slope = Number(options.slope ?? 0.35);
+  const { width, height } = imageData;
+  const out = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const p = (y * width + x) * 4;
+      for (let ch = 0; ch < 3; ch++) {
+        let sum = 0;
+        let count = 0;
+        for (let k = -radius; k <= radius; k++) {
+          const sx = x + k;
+          const sy = y + Math.round(k * slope);
+          if (sx < 0 || sy < 0 || sx >= width || sy >= height) continue;
+          sum += imageData.data[(sy * width + sx) * 4 + ch];
+          count++;
+        }
+        out[p + ch] = count ? sum / count : imageData.data[p + ch];
+      }
+      out[p + 3] = 255;
+    }
+  }
+  return { width, height, data: out };
+}
+
+function deterministicNoise(x, y, channel) {
+  let value = Math.imul((x + 1) ^ (channel * 374761393), 668265263) ^ Math.imul(y + 11, 2246822519);
+  value = Math.imul(value ^ (value >>> 13), 1274126177);
+  return ((value ^ (value >>> 16)) >>> 0) / 0xffffffff * 2 - 1;
+}
+
 /** Apply one deterministic camera/print-style distortion to ImageData. */
 export function applyStressDistortion(imageData, type, severity = 0.5, options = {}) {
   assert(imageData?.data && imageData.width && imageData.height, "applyStressDistortion requires ImageData-like input.");
   const s = clampNumber(Number(severity), 0, 1);
   if (type === "clean") return cloneImageDataLike(imageData);
   if (type === "blur") return boxBlurImage(imageData, 1 + s * 2.2);
+  if (type === "motion-blur") return motionBlurImage(imageData, s, options);
   if (type === "perspective") return perspectiveStress(imageData, s);
+  if (type === "perspective-3d" || type === "rotate-z") {
+    return perspective3dStress(imageData, s, {
+      ...options,
+      pitchDegrees: type === "rotate-z" ? 0 : options.pitchDegrees,
+      yawDegrees: type === "rotate-z" ? 0 : options.yawDegrees,
+      rollDegrees: type === "rotate-z" ? (options.rollDegrees ?? 20 + s * 70) : options.rollDegrees
+    });
+  }
   if (type === "downscale") {
     const scale = Math.max(0.20, 1 - s * 0.72);
     const small = resizeImageDataLike(imageData, imageData.width * scale, imageData.height * scale);
@@ -3904,7 +4270,22 @@ export function applyStressDistortion(imageData, type, severity = 0.5, options =
           value += block * s * 3;
         } else if (type === "warm") {
           if (ch === 0) value *= 1 + s * 0.12;
+          if (ch === 1) value *= 1 + s * 0.03;
           if (ch === 2) value *= 1 - s * 0.22;
+        } else if (type === "cool") {
+          if (ch === 0) value *= 1 - s * 0.20;
+          if (ch === 1) value *= 1 + s * 0.02;
+          if (ch === 2) value *= 1 + s * 0.14;
+        } else if (type === "noise") {
+          value += deterministicNoise(x, y, ch) * (5 + s * 34);
+        } else if (type === "glare") {
+          const nx = (x / Math.max(1, width - 1) - 0.68) / 0.28;
+          const ny = (y / Math.max(1, height - 1) - 0.30) / 0.20;
+          const falloff = Math.exp(-(nx * nx + ny * ny) * 2.2);
+          value += (255 - value) * falloff * s * 0.82;
+        } else if (type === "gamma") {
+          const gamma = 1 + (s - 0.5) * 1.2;
+          value = 255 * Math.pow(value / 255, gamma);
         }
         data[p + ch] = clampNumber(Math.round(value), 0, 255);
       }
@@ -3970,6 +4351,112 @@ export function runImageStressTest(imageData, expected = {}, options = {}) {
     passed: results.filter((r) => r.passed).length,
     total: results.length,
     averageConfidence,
+    results
+  };
+}
+
+
+function reliabilityProfilesForSuite(suite = "full") {
+  const rank = { quick: 0, full: 1, extreme: 2 };
+  const requested = rank[suite] ?? rank.full;
+  return RELIABILITY_PROFILES.filter((profile) => (rank[profile.suite] ?? 1) <= requested);
+}
+
+/** Run the broader Reliability Lab suite and return category-level scores. */
+export function runReliabilityLab(imageData, expected = {}, options = {}) {
+  const suite = options.suite ?? "full";
+  const profiles = options.profiles ?? reliabilityProfilesForSuite(suite);
+  const report = runImageStressTest(imageData, expected, { ...options, profiles });
+  const categoryMap = new Map();
+  for (const result of report.results) {
+    const profile = profiles.find((item) => item.id === result.id) ?? {};
+    const category = profile.category ?? "Other";
+    const weight = Number(profile.weight ?? 1);
+    if (!categoryMap.has(category)) categoryMap.set(category, { category, passedWeight: 0, totalWeight: 0, passed: 0, total: 0 });
+    const entry = categoryMap.get(category);
+    entry.totalWeight += weight;
+    entry.total++;
+    if (result.passed) {
+      entry.passedWeight += weight;
+      entry.passed++;
+    }
+    result.category = category;
+    result.pitchDegrees = profile.pitchDegrees ?? null;
+    result.yawDegrees = profile.yawDegrees ?? null;
+    result.rollDegrees = profile.rollDegrees ?? null;
+  }
+  const categories = [...categoryMap.values()].map((entry) => ({
+    category: entry.category,
+    passed: entry.passed,
+    total: entry.total,
+    score: entry.totalWeight ? entry.passedWeight / entry.totalWeight * 100 : 0
+  })).sort((a, b) => a.score - b.score || a.category.localeCompare(b.category));
+  return {
+    ...report,
+    suite,
+    categories,
+    weakestCategory: categories[0] ?? null
+  };
+}
+
+/** Sweep one 3D perspective axis to measure the largest passing angle. */
+export function runPerspectiveSweep(imageData, expected = {}, options = {}) {
+  const axis = options.axis ?? "yaw";
+  const defaultAngles = axis === "roll"
+    ? [0, 25, 45, 60, 75]
+    : [0, 15, 25, 35, 45, 55];
+  const angles = (options.angles ?? defaultAngles).map(Number).filter(Number.isFinite);
+  const results = [];
+  let maxPassedAngle = null;
+  for (const angle of angles) {
+    const transform = {
+      pitchDegrees: Number(options.pitchDegrees ?? 0),
+      yawDegrees: Number(options.yawDegrees ?? 0),
+      rollDegrees: Number(options.rollDegrees ?? 0),
+      fill: options.fill ?? 0.84,
+      cameraDistance: options.cameraDistance ?? 3
+    };
+    if (axis === "pitch") transform.pitchDegrees = angle;
+    else if (axis === "roll" || axis === "z") transform.rollDegrees = angle;
+    else transform.yawDegrees = angle;
+    const distorted = applyStressDistortion(imageData, "perspective-3d", 0.5, transform);
+    const started = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+    try {
+      const decoded = scanImageData(distorted, {
+        minVersion: expected.version ?? options.minVersion ?? MIN_VERSION,
+        maxVersion: expected.version ?? options.maxVersion ?? MAX_VERSION,
+        debug: false
+      });
+      const passed = expected.crc32 == null || decoded.crc32 === expected.crc32;
+      if (passed) maxPassedAngle = Math.max(maxPassedAngle ?? angle, angle);
+      results.push({
+        angle,
+        axis,
+        passed,
+        confidence: decoded.confidence ?? decoded.diagnostics?.confidence ?? null,
+        correctedSymbols: decoded.correctedSymbols ?? 0,
+        elapsedMs: (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now()) - started,
+        image: options.includeImages ? distorted : undefined,
+        error: passed ? null : "Decoded payload did not match expected CRC."
+      });
+    } catch (error) {
+      results.push({
+        angle,
+        axis,
+        passed: false,
+        confidence: 0,
+        correctedSymbols: null,
+        elapsedMs: (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now()) - started,
+        image: options.includeImages ? distorted : undefined,
+        error: error.message
+      });
+    }
+  }
+  return {
+    axis,
+    maxPassedAngle,
+    passed: results.filter((item) => item.passed).length,
+    total: results.length,
     results
   };
 }
@@ -4483,47 +4970,111 @@ function selectBestFrameObservation(observations) {
     )[0] ?? null;
 }
 
+function observationDataAgreement(a, b) {
+  if (!a?.matrix || !b?.matrix || a.version !== b.version || a.matrix.length !== b.matrix.length) return 0;
+  if ((a.cellEncoding ?? null) !== (b.cellEncoding ?? null)) return 0;
+  const layout = createLayout(a.version);
+  let agreed = 0;
+  let compared = 0;
+  for (const [row, col] of layout.dataPositions) {
+    const ca = a.confidence?.[row]?.[col] ?? 0;
+    const cb = b.confidence?.[row]?.[col] ?? 0;
+    if (Math.min(ca, cb) < 0.48) continue;
+    compared++;
+    if (a.matrix[row][col] === b.matrix[row][col]) agreed++;
+  }
+  return compared ? agreed / compared : 0;
+}
+
 function combineFrameObservations(observations) {
   if (!observations?.length) return null;
   const version = observations[0].version;
+  const cellEncoding = observations[0].cellEncoding ?? null;
   const size = observations[0].matrix.length;
-  if (!observations.every((item) => item.version === version && item.matrix.length === size)) return null;
+  if (!observations.every((item) =>
+    item.version === version &&
+    (item.cellEncoding ?? null) === cellEncoding &&
+    item.matrix.length === size
+  )) return null;
 
   const matrix = make2D(size, CELL.WHITE);
   const confidence = make2D(size, 0);
+  const alternatives = make2D(size, null);
+  const frameCount = observations.length;
+  const latest = observations[frameCount - 1];
+  let agreementSum = 0;
+  let agreementCount = 0;
+  for (let i = 0; i < frameCount - 1; i++) {
+    const agreement = observationDataAgreement(observations[i], latest);
+    if (agreement > 0) {
+      agreementSum += agreement;
+      agreementCount++;
+    }
+  }
+
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
       const votes = new Map();
       const confidenceByCell = new Map();
-      for (const observation of observations) {
+      for (let index = 0; index < observations.length; index++) {
+        const observation = observations[index];
         const cell = observation.matrix[r][c];
         const sourceConfidence = clampNumber(observation.confidence?.[r]?.[c] ?? 0.5, 0, 1);
-        const weight = 0.35 + sourceConfidence * 0.65;
+        const age = observations.length - 1 - index;
+        const recency = Math.pow(0.88, age);
+        const frameQuality = clampNumber(
+          0.45 +
+          (observation.structureScore ?? 0.82) * 0.30 +
+          (observation.averageCellConfidence ?? 0.5) * 0.25,
+          0.45,
+          1
+        );
+        const weight = (0.25 + sourceConfidence * 0.75) * recency * frameQuality;
         votes.set(cell, (votes.get(cell) ?? 0) + weight);
         const stats = confidenceByCell.get(cell) ?? { weighted: 0, weight: 0 };
         stats.weighted += sourceConfidence * weight;
         stats.weight += weight;
         confidenceByCell.set(cell, stats);
+
+        // The per-frame second hypothesis also contributes weak evidence. It
+        // never outranks a strong primary vote by itself, but it preserves a
+        // plausible alternative for Spectrum ECC 2.0 when several frames are
+        // individually ambiguous in the same region.
+        const alternative = observation.alternatives?.[r]?.[c];
+        if (Number.isInteger(alternative) && alternative !== cell) {
+          const altWeight = weight * (1 - sourceConfidence) * 0.42;
+          votes.set(alternative, (votes.get(alternative) ?? 0) + altWeight);
+        }
       }
 
       const ranked = Array.from(votes.entries()).sort((a, b) => b[1] - a[1]);
       const [bestCell, bestWeight] = ranked[0];
-      const secondWeight = ranked[1]?.[1] ?? 0;
+      const [secondCell, secondWeight] = ranked[1] ?? [null, 0];
       const totalWeight = ranked.reduce((sum, item) => sum + item[1], 0);
       const sourceStats = confidenceByCell.get(bestCell);
       const sourceConfidence = sourceStats?.weight ? sourceStats.weighted / sourceStats.weight : 0.5;
       const support = totalWeight ? bestWeight / totalWeight : 0;
       const margin = totalWeight ? (bestWeight - secondWeight) / totalWeight : 0;
-      const agreement = 0.5 * support + 0.5 * margin;
+      const temporalBoost = clampNumber((frameCount - 1) / 5, 0, 0.18);
+      const fusedConfidence = clampNumber(
+        sourceConfidence * 0.50 + support * 0.30 + margin * 0.20 + temporalBoost,
+        0,
+        1
+      );
 
       matrix[r][c] = bestCell;
-      // Do not become overconfident just because several blurry frames agree.
-      // Retaining source uncertainty lets Reed-Solomon treat repeated ambiguous
-      // cells as erasures instead of hard, supposedly-certain errors.
-      confidence[r][c] = clampNumber(sourceConfidence * 0.58 + agreement * 0.42, 0, 1);
+      confidence[r][c] = fusedConfidence;
+      alternatives[r][c] = Number.isInteger(secondCell) && secondCell !== bestCell ? secondCell : null;
     }
   }
-  return { version, matrix, confidence };
+  return {
+    version,
+    cellEncoding,
+    matrix,
+    confidence,
+    alternatives,
+    frameAgreement: agreementCount ? agreementSum / agreementCount : 1
+  };
 }
 
 async function improveCameraTrack(stream) {
@@ -4662,10 +5213,25 @@ export async function startCameraScanner(video, options = {}) {
     if (!multiFrameEnabled) return null;
     const best = selectBestFrameObservation(observations);
     if (!best) return null;
-    const history = observationHistory.get(best.version) ?? [];
+    const trackKey = `${best.version}:${best.cellEncoding ?? "auto"}`;
+    let history = observationHistory.get(trackKey) ?? [];
+
+    // Only fuse observations that appear to describe the same payload. Finder
+    // structure alone is not enough because two different QuadQR symbols of the
+    // same version would otherwise contaminate each other's history. High-
+    // confidence data-cell agreement gives us a cheap identity check without
+    // needing the header to decode first.
+    if (history.length) {
+      const agreement = observationDataAgreement(history[history.length - 1], best);
+      const minimumAgreement = best.cellEncoding === CELL_ENCODINGS.TRIANGLE16
+        ? (options.multiFrameMinAgreementHighDensity ?? 0.58)
+        : (options.multiFrameMinAgreement ?? 0.62);
+      if (agreement > 0 && agreement < minimumAgreement) history = [];
+    }
+
     history.push(best);
     while (history.length > multiFrameWindow) history.shift();
-    observationHistory.set(best.version, history);
+    observationHistory.set(trackKey, history);
     if (history.length < multiFrameMinFrames) return null;
 
     const combined = combineFrameObservations(history);
@@ -4674,16 +5240,21 @@ export async function startCameraScanner(video, options = {}) {
       const decoded = decodeMatrix(combined.matrix, {
         structureTolerance: options.structureTolerance ?? 0.20,
         cellConfidence: combined.confidence,
-        maxErasureConfidence: options.maxErasureConfidence
+        cellAlternatives: combined.alternatives,
+        cellEncodingHint: best.cellEncoding ?? undefined,
+        maxErasureConfidence: options.maxErasureConfidence,
+        softDecoding: options.softDecoding
       });
       if (decoded.version !== best.version) return null;
       return {
         ...decoded,
         perspectiveCorrected: Boolean(best.geometry),
         colorCalibrated: true,
-        colorNormalization: "multi-frame-vote",
-        samplingMode: "multi-frame-vote",
+        colorNormalization: "multi-frame-confidence-fusion",
+        samplingMode: "multi-frame-confidence-fusion",
         multiFrameCombined: history.length,
+        multiFrameAgreement: combined.frameAgreement,
+        multiFrameMode: "confidence-fusion",
         geometry: best.geometry,
         observedPalette: best.observedPalette,
         averageCellConfidence: best.averageCellConfidence,
@@ -5065,8 +5636,8 @@ export async function startCameraScanner(video, options = {}) {
           emitDiagnostic({
             type: "success",
             state: "decoded",
-            method: "multi-frame-vote",
-            message: `Multi-frame recovery decoded v${combined.version} from ${combined.multiFrameCombined} frames`,
+            method: "multi-frame-confidence-fusion",
+            message: `Multi-frame confidence fusion decoded v${combined.version} from ${combined.multiFrameCombined} frames`,
             ...frameDiagnostics
           });
           missStreak = 0;
@@ -5129,6 +5700,9 @@ export const internals = Object.freeze({
   restoreLogicalOrder,
   cellsToSymbolConfidences,
   decodeRsAdaptive,
+  classifierFromPaletteRgb,
+  classifyRgb,
+  observationDataAgreement,
   encodeProtectedHeader,
   decodeProtectedHeader,
   selectBestFrameObservation,

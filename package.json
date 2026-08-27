@@ -1,7 +1,7 @@
 {
   "name": "quadqr-js",
   "version": "1.2.0",
-  "description": "QuadQR: experimental RGBW matrix code with optional experimental High Density Mode, Spectrum ECC, browser/Node scanning, compression, signing, diagnostics, stress testing, and AES-256-GCM security.",
+  "description": "QuadQR: experimental RGBW matrix code with optional experimental High Density Mode, Spectrum ECC 2.0, multi-frame camera scanning, advanced calibration, Reliability Lab, and 3D perspective recovery.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -90,7 +90,10 @@
     "compression",
     "ed25519",
     "scan-diagnostics",
-    "print-qr"
+    "print-qr",
+    "reliability-lab",
+    "perspective-correction",
+    "soft-decoding"
   ],
   "sideEffects": false
 }

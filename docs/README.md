@@ -14,6 +14,7 @@ QuadQR is an experimental RGBW matrix symbology. Default RGBW cells carry two bi
 - [Getting Started](./GETTING_STARTED.md)
 - [API Reference](./API.md)
 - [High Density Mode (Experimental)](./HIGH_DENSITY_MODE.md)
+- [Reliability Lab](./RELIABILITY_LAB.md)
 - [Browser and CDN](./BROWSER_CDN.md)
 - [Node.js](./NODE.md)
 - [CLI](./CLI.md)
@@ -55,6 +56,6 @@ The current library also includes:
 - ECC-aware automatic logo sizing;
 - normalized scanner confidence and detailed debug mode;
 - deterministic scanability/torture testing;
-- an interactive browser stress-test lab and capacity calculator.
+- a dedicated browser Reliability Lab with 3D perspective sweeps, plus the capacity calculator.
 
 See [`../SPECIFICATION.md`](../SPECIFICATION.md) for the layering and interoperability rules and [`API.md`](./API.md) for the public APIs.

@@ -329,9 +329,15 @@ function cross(a, b) {
   return a.x * b.y - a.y * b.x;
 }
 
-function chooseFinderTriples(candidates, maxTriples = 16) {
-  const top = candidates.slice(0, Math.min(candidates.length, 14));
+function chooseFinderTriples(candidates, maxTriples = 16, options = {}) {
+  const perspectiveRecovery = options.perspectiveRecovery === true;
+  const topLimit = perspectiveRecovery ? 18 : 14;
+  const top = candidates.slice(0, Math.min(candidates.length, topLimit));
   const triples = [];
+  const maxCornerCos = options.maxCornerCos ?? (perspectiveRecovery ? 0.84 : 0.55);
+  const maxModuleSpread = options.maxFinderModuleSpread ?? (perspectiveRecovery ? 0.78 : 0.5);
+  const maxLegRatio = options.maxFinderLegRatio ?? (perspectiveRecovery ? 3.6 : 2.1);
+  const minLegModules = options.minFinderLegModules ?? (perspectiveRecovery ? 7.5 : 10);
 
   for (let a = 0; a < top.length - 2; a++) {
     for (let b = a + 1; b < top.length - 1; b++) {
@@ -346,9 +352,9 @@ function chooseFinderTriples(candidates, maxTriples = 16) {
           let v = sub(bl, tl);
           let d1 = Math.hypot(u.x, u.y);
           let d2 = Math.hypot(v.x, v.y);
-          if (d1 < tl.moduleSize * 10 || d2 < tl.moduleSize * 10) continue;
+          if (d1 < tl.moduleSize * minLegModules || d2 < tl.moduleSize * minLegModules) continue;
           const cos = Math.abs(dot(u, v) / (d1 * d2));
-          if (cos > 0.55) continue;
+          if (cos > maxCornerCos) continue;
           if (cross(u, v) < 0) {
             [tr, bl] = [bl, tr];
             u = sub(tr, tl);
@@ -362,13 +368,26 @@ function chooseFinderTriples(candidates, maxTriples = 16) {
             Math.abs(tr.moduleSize - moduleMean),
             Math.abs(bl.moduleSize - moduleMean)
           ) / moduleMean;
-          if (moduleSpread > 0.5) continue;
+          if (moduleSpread > maxModuleSpread) continue;
           const legRatio = Math.max(d1, d2) / Math.min(d1, d2);
-          if (legRatio > 2.1) continue;
+          if (legRatio > maxLegRatio) continue;
           const area = Math.abs(cross(u, v));
           const confirmScore = tl.confirmations + tr.confirmations + bl.confirmations;
-          const score = area / (1 + cos * 8 + moduleSpread * 5 + Math.max(0, legRatio - 1) * 2) + confirmScore * 100;
-          triples.push({ tl, tr, bl, moduleMean, score, orthogonality: 1 - cos });
+          const recoveryPenalty = perspectiveRecovery
+            ? 1 + Math.max(0, cos - 0.55) * 7 + Math.max(0, moduleSpread - 0.5) * 5 + Math.max(0, legRatio - 2.1) * 2
+            : 1;
+          const score = area / ((1 + cos * 8 + moduleSpread * 5 + Math.max(0, legRatio - 1) * 2) * recoveryPenalty) + confirmScore * 100;
+          triples.push({
+            tl,
+            tr,
+            bl,
+            moduleMean,
+            moduleSpread,
+            legRatio,
+            score,
+            orthogonality: 1 - cos,
+            perspectiveRecovery
+          });
         }
       }
     }
@@ -467,28 +486,158 @@ function searchAlignment(binary, width, height, triple, version, options = {}) {
     y: triple.tl.y + basisU.y * (targetX - 3.5) + basisV.y * (targetY - 3.5)
   };
 
-  let best = { score: 0, center: predicted, scale: 1 };
   const precise = options.preciseAlignment === true;
-  const offsets = precise
+  const localScoreFn = precise ? preciseAlignmentScore : alignmentScore;
+  const localOffsets = precise
     ? [-2.5, -1.5, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1.5, 2.5]
     : [-2.5, -1.5, -0.75, 0, 0.75, 1.5, 2.5];
-  const scales = [0.72, 0.85, 1, 1.15, 1.3];
-  const scoreAlignment = precise ? preciseAlignmentScore : alignmentScore;
+  const finderSizes = [triple.tl.moduleSize, triple.tr.moduleSize, triple.bl.moduleSize];
+  const finderMin = Math.max(0.01, Math.min(...finderSizes));
+  const finderMax = Math.max(...finderSizes);
+  const finderScaleRatio = finderMax / finderMin;
+  const inferredTargetScale = clamp(
+    Math.sqrt(
+      Math.max(0.2, triple.tr.moduleSize / Math.max(0.01, triple.tl.moduleSize)) *
+      Math.max(0.2, triple.bl.moduleSize / Math.max(0.01, triple.tl.moduleSize))
+    ),
+    0.58,
+    1.75
+  );
+  const localScales = [...new Set([
+    0.72, 0.85, 1, 1.15, 1.3,
+    Number(inferredTargetScale.toFixed(3)),
+    Number((inferredTargetScale * 0.88).toFixed(3)),
+    Number((inferredTargetScale * 1.12).toFixed(3))
+  ])].filter((scale) => scale >= 0.52 && scale <= 1.9);
 
-  for (const ou of offsets) {
-    for (const ov of offsets) {
-      const center = {
-        x: predicted.x + basisU.x * ou + basisV.x * ov,
-        y: predicted.y + basisU.y * ou + basisV.y * ov
-      };
-      for (const scale of scales) {
-        const score = scoreAlignment(binary, width, height, center, basisU, basisV, scale, target);
-        if (score > best.score) best = { score, center, scale };
+  const centerAt = (offsetU, offsetV) => ({
+    x: predicted.x + basisU.x * offsetU + basisV.x * offsetV,
+    y: predicted.y + basisU.y * offsetU + basisV.y * offsetV
+  });
+  let best = { score: 0, center: predicted, scale: 1, offsetU: 0, offsetV: 0, broadSearch: false };
+
+  const evaluateIntoBest = (offsetU, offsetV, scales, scoreFn, broadSearch = false) => {
+    const center = centerAt(offsetU, offsetV);
+    for (const scale of scales) {
+      const score = scoreFn(binary, width, height, center, basisU, basisV, scale, target);
+      if (score > best.score) best = { score, center, scale, offsetU, offsetV, broadSearch };
+    }
+  };
+
+  for (const ou of localOffsets) {
+    for (const ov of localOffsets) evaluateIntoBest(ou, ov, localScales, localScoreFn, false);
+  }
+
+  // A three-finder affine extrapolation becomes increasingly wrong as the
+  // symbol tilts away from the camera. Under strong yaw/pitch the primary
+  // bottom-right alignment marker can move 8-15 modules away from the affine
+  // prediction even though all three finder patterns remain strong. Use a
+  // bounded coarse-to-fine search only when the locator geometry signals that
+  // projective foreshortening is present.
+  const cornerSkew = Math.max(0, 1 - (triple.orthogonality ?? 1));
+  const projectiveSignal = Math.max(
+    Math.max(0, finderScaleRatio - 1),
+    Math.max(0, (triple.moduleSpread ?? 0) * 1.25),
+    cornerSkew * 0.75
+  );
+  const broadEnabled = options.perspectiveAlignmentRecovery !== false && (
+    options.perspectiveRecovery === true ||
+    projectiveSignal >= (options.perspectiveAlignmentSignalThreshold ?? 0.32)
+  );
+
+  if (broadEnabled && best.score < (options.perspectiveAlignmentEarlyAccept ?? 0.78)) {
+    const radius = clamp(
+      Number(options.perspectiveAlignmentRadius ?? (3.5 + projectiveSignal * 17)),
+      4,
+      options.perspectiveAlignmentMaxRadius ?? 17
+    );
+    const coarseStep = radius > 12 ? 3 : radius > 8 ? 2.5 : 2;
+    const coarseScales = [...new Set([
+      Number((inferredTargetScale * 0.78).toFixed(3)),
+      Number((inferredTargetScale * 0.92).toFixed(3)),
+      Number(inferredTargetScale.toFixed(3)),
+      Number((inferredTargetScale * 1.10).toFixed(3)),
+      Number((inferredTargetScale * 1.28).toFixed(3)),
+      0.68, 0.82, 1, 1.18, 1.38, 1.58
+    ])].filter((scale) => scale >= 0.48 && scale <= 2.05);
+    const coarseOffsets = [0];
+    for (let offset = coarseStep; offset <= radius + 0.001; offset += coarseStep) {
+      coarseOffsets.push(offset, -offset);
+    }
+    if (!coarseOffsets.some((value) => Math.abs(Math.abs(value) - radius) < 0.35)) {
+      coarseOffsets.push(radius, -radius);
+    }
+
+    const seeds = [];
+    for (const ou of coarseOffsets) {
+      for (const ov of coarseOffsets) {
+        if (Math.abs(ou) <= 2.75 && Math.abs(ov) <= 2.75) continue;
+        const center = centerAt(ou, ov);
+        let seedScore = 0;
+        let seedScale = 1;
+        // Keep the coarse pass cheap. Fine refinement below uses the denser
+        // sub-cell alignment score to reject data-cell lookalikes.
+        for (const scale of coarseScales) {
+          const score = alignmentScore(binary, width, height, center, basisU, basisV, scale, target);
+          if (score > seedScore) {
+            seedScore = score;
+            seedScale = scale;
+          }
+        }
+        seeds.push({ score: seedScore, scale: seedScale, offsetU: ou, offsetV: ov });
       }
+    }
+    seeds.sort((a, b) => b.score - a.score);
+
+    let broadBest = null;
+    const fineSeeds = seeds.slice(0, options.perspectiveAlignmentFineSeeds ?? 6);
+    const fineOffsets = [-1.25, -0.75, -0.4, 0, 0.4, 0.75, 1.25];
+    for (const seed of fineSeeds) {
+      const fineScales = [...new Set([
+        Number((seed.scale * 0.86).toFixed(3)),
+        Number((seed.scale * 0.94).toFixed(3)),
+        Number(seed.scale.toFixed(3)),
+        Number((seed.scale * 1.06).toFixed(3)),
+        Number((seed.scale * 1.16).toFixed(3)),
+        Number(inferredTargetScale.toFixed(3)),
+        1.0, 1.15, 1.3
+      ])].filter((scale) => scale >= 0.46 && scale <= 2.1);
+      for (const du of fineOffsets) {
+        for (const dv of fineOffsets) {
+          const offsetU = seed.offsetU + du;
+          const offsetV = seed.offsetV + dv;
+          const center = centerAt(offsetU, offsetV);
+          for (const scale of fineScales) {
+            const score = preciseAlignmentScore(binary, width, height, center, basisU, basisV, scale, target);
+            if (!broadBest || score > broadBest.score) {
+              broadBest = { score, center, scale, offsetU, offsetV, broadSearch: true };
+            }
+          }
+        }
+      }
+    }
+
+    // The precise score probes each alignment module at several sub-cell
+    // positions, making it substantially harder for random payload cells to
+    // impersonate the primary reference. Prefer a strong projective candidate
+    // even if the cheap centre-only local score happened to be slightly higher.
+    if (broadBest && (
+      broadBest.score >= (options.perspectiveAlignmentPreciseThreshold ?? 0.80) ||
+      broadBest.score > best.score + 0.08
+    )) {
+      best = broadBest;
     }
   }
 
-  return { ...best, basisU, basisV, predicted, target };
+  return {
+    ...best,
+    basisU,
+    basisV,
+    predicted,
+    target,
+    finderScaleRatio,
+    projectiveSignal
+  };
 }
 
 function projectedAlignmentScore(binary, width, height, homography, pattern) {
@@ -793,7 +942,7 @@ function geometryCandidatesFromBinary(binary, width, height, finders, threshold,
   const minVersion = options.minVersion ?? 1;
   const maxVersion = options.maxVersion ?? 40;
   const maxCandidates = options.maxCandidates ?? 8;
-  const triples = chooseFinderTriples(finders, 20);
+  const triples = chooseFinderTriples(finders, options.perspectiveRecovery ? 30 : 20, options);
   const geometries = [];
 
   for (const triple of triples) {
@@ -954,6 +1103,7 @@ export function detectCodeGeometry(imageData, options = {}) {
     const geometryOptions = {
       ...options,
       finderMethod: pass.finderMethod,
+      perspectiveRecovery: recovery || options.perspectiveRecovery === true,
       alignmentThreshold: recovery ? 0.68 : 0.72,
       alignmentGridThreshold: recovery ? 0.64 : 0.68
     };
@@ -1463,35 +1613,54 @@ export function samplePerspectiveMatrix(imageData, homography, size, options = {
  * module borders. This makes the decoder much less sensitive to antialiasing,
  * blur, resampling and small homography errors than center sampling.
  */
+function rgbSampleSpread(values, center) {
+  if (!values.length) return 0;
+  return values.reduce((sum, rgb) => sum + Math.hypot(
+    rgb.r - center.r,
+    rgb.g - center.g,
+    rgb.b - center.b
+  ), 0) / values.length;
+}
+
 export function samplePerspectiveTriangleMatrix(imageData, homography, size, options = {}) {
   const triangleGrid = Array.from({ length: size }, () => new Array(size));
   const mode = options.sampleMode ?? "cross";
   const radius = options.highDensitySampleRadius ?? options.triangleSampleRadius ??
-    (mode === "median" ? 0.075 : 0.085);
-  const inset = Math.max(0.18, Math.min(0.36, Number(options.highDensitySampleInset ?? options.triangleSampleInset ?? 0.28)));
-  const firstOffset = inset;
-  const secondOffset = 1 - inset;
+    (mode === "median" ? 0.055 : 0.065);
+  const inset = Math.max(0.18, Math.min(0.34, Number(options.highDensitySampleInset ?? options.triangleSampleInset ?? 0.27)));
   const offsetX = Number.isFinite(options.sampleOffsetX) ? options.sampleOffsetX : 0;
   const offsetY = Number.isFinite(options.sampleOffsetY) ? options.sampleOffsetY : 0;
   const sampler = mode === "median" ? robustProjectedSample : averageProjectedSample;
+  const side = Math.max(0.18, inset - 0.06);
+  const middle = Math.min(0.52, 0.50 - inset * 0.04);
+  const firstAnchors = [
+    [inset, inset],
+    [side, middle],
+    [middle, side]
+  ];
+  const secondAnchors = firstAnchors.map(([x, y]) => [1 - x, 1 - y]);
+
+  const sampleRegion = (c, r, anchors) => {
+    const values = anchors.map(([x, y]) => sampler(
+      imageData,
+      homography,
+      c + x + offsetX,
+      r + y + offsetY,
+      radius
+    ));
+    const rgb = robustRgb(values);
+    return { rgb, spread: rgbSampleSpread(values, rgb) };
+  };
 
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
+      const first = sampleRegion(c, r, firstAnchors);
+      const second = sampleRegion(c, r, secondAnchors);
       triangleGrid[r][c] = {
-        first: sampler(
-          imageData,
-          homography,
-          c + firstOffset + offsetX,
-          r + firstOffset + offsetY,
-          radius
-        ),
-        second: sampler(
-          imageData,
-          homography,
-          c + secondOffset + offsetX,
-          r + secondOffset + offsetY,
-          radius
-        )
+        first: first.rgb,
+        second: second.rgb,
+        firstSpread: first.spread,
+        secondSpread: second.spread
       };
     }
   }
@@ -1694,28 +1863,37 @@ export function sampleAxisAlignedGrid(imageData, bounds, size, radiusRatio = 0.1
   return { rgbGrid, moduleWidth: moduleW, moduleHeight: moduleH };
 }
 
-export function sampleAxisAlignedTriangleGrid(imageData, bounds, size, radiusRatio = 0.085, insetRatio = 0.28) {
+export function sampleAxisAlignedTriangleGrid(imageData, bounds, size, radiusRatio = 0.065, insetRatio = 0.27) {
   const moduleW = bounds.width / size;
   const moduleH = bounds.height / size;
-  const inset = Math.max(0.18, Math.min(0.36, insetRatio));
+  const inset = Math.max(0.18, Math.min(0.34, insetRatio));
   const radius = Math.max(0, Math.min(moduleW, moduleH) * radiusRatio);
   const triangleGrid = Array.from({ length: size }, () => new Array(size));
+  const side = Math.max(0.18, inset - 0.06);
+  const middle = Math.min(0.52, 0.50 - inset * 0.04);
+  const firstAnchors = [[inset, inset], [side, middle], [middle, side]];
+  const secondAnchors = firstAnchors.map(([x, y]) => [1 - x, 1 - y]);
+
+  const sampleRegion = (r, c, anchors) => {
+    const values = anchors.map(([x, y]) => sampleAverageAxis(
+      imageData,
+      bounds.x + (c + x) * moduleW,
+      bounds.y + (r + y) * moduleH,
+      radius
+    ));
+    const rgb = robustRgb(values);
+    return { rgb, spread: rgbSampleSpread(values, rgb) };
+  };
 
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
+      const first = sampleRegion(r, c, firstAnchors);
+      const second = sampleRegion(r, c, secondAnchors);
       triangleGrid[r][c] = {
-        first: sampleAverageAxis(
-          imageData,
-          bounds.x + (c + inset) * moduleW,
-          bounds.y + (r + inset) * moduleH,
-          radius
-        ),
-        second: sampleAverageAxis(
-          imageData,
-          bounds.x + (c + 1 - inset) * moduleW,
-          bounds.y + (r + 1 - inset) * moduleH,
-          radius
-        )
+        first: first.rgb,
+        second: second.rgb,
+        firstSpread: first.spread,
+        secondSpread: second.spread
       };
     }
   }

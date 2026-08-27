@@ -361,13 +361,13 @@ The decoder also tries legacy physical order as a fallback for older QuadQR matr
 
 Unused data positions are filled with deterministic pseudo-random values in the range 0..3. Padding is not semantically decoded.
 
-## Confidence-aware error/erasure decoding
+## Spectrum ECC 2.0 confidence-aware and soft decoding
 
-For image/camera scans, classification retains more than the winning RGBW state. Each sampled module also receives a confidence score derived from the separation between its nearest and second-nearest calibrated palette states.
+For image/camera scans, classification retains more than the winning RGBW/Triangle16 state. Each sampled data cell receives a confidence score and a bounded second hypothesis derived from the calibrated palette classification. Triangle16 also incorporates the measured disagreement between its three interior samples per triangle so edge bleed or sub-module geometry instability lowers confidence instead of becoming false certainty.
 
-One GF(256) symbol corresponds to four 2-bit data cells. The symbol confidence is the minimum confidence of those four constituent cells because an error in any one cell changes the reconstructed byte.
+In normal RGBW mode, one GF(256) byte symbol corresponds to four 2-bit cells. In High Density Mode, a body byte corresponds to two 4-bit Triangle16 cells, while the protected header remains four solid RGBW-equivalent cells per byte. Symbol confidence is the minimum confidence of its constituent cells because an error in any constituent cell changes the reconstructed byte.
 
-Decoding first attempts normal hard-decision Reed-Solomon correction. If that fails, low-confidence byte positions are progressively promoted to known erasures and the decoder retries error/erasure RS correction. Valid correction requires syndrome verification and the complete QuadQR payload still must pass CRC-32.
+Decoding first attempts normal hard-decision Reed-Solomon correction. If that fails, low-confidence byte positions are progressively promoted to known erasures and the decoder retries error/erasure RS correction. If that still fails and scanner second hypotheses are available, Spectrum ECC 2.0 performs a bounded Chase-style search over the least-confident cells, trying single alternate substitutions and then a small pair set. Every candidate is passed through the unchanged RS and CRC validation path.
 
 The RS budget follows the usual error/erasure relationship:
 
@@ -391,11 +391,13 @@ RGB frame
   -> distributed alignment-grid validation
   -> projective module sampling
   -> observed black/white/R/G/B calibration
-  -> nearest calibrated RGBW classification + confidence
+  -> observed-palette / white-balance / affine calibration attempts
+  -> RGBW or Triangle16 classification + confidence + second hypothesis
   -> four-state XOR unmasking
   -> reverse spectral-spatial permutation
   -> protected header GF(256) hard RS decode
   -> confidence-guided error/erasure retry when needed
+  -> bounded second-hypothesis soft retry when needed
   -> body block deinterleaving
   -> body GF(256) error/erasure correction
   -> CRC-32 verification

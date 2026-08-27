@@ -1,6 +1,6 @@
-# Triangle16 experimental data-cell profile
+# Triangle16 internals for High Density Mode
 
-Triangle16 is an experimental QuadQR data-cell encoding for the high-density branch. It keeps the existing QuadQR geometry, finder patterns, timing pattern, alignment patterns, calibration, Spectrum ECC, CRC, security envelope, compression, and signing behavior, but changes how payload data cells are represented.
+Triangle16 is the experimental physical cell layout used internally by QuadQR **High Density Mode**. It keeps the existing QuadQR geometry, finder patterns, timing pattern, alignment patterns, calibration, Spectrum ECC, CRC, security envelope, compression, and signing behavior, but changes how payload data cells are represented.
 
 ## Physical cell
 
@@ -46,9 +46,7 @@ This uses four cells per protected header byte, exactly like RGBW, but makes it 
 
 ## Scanner sampling
 
-The scanner does not sample the diagonal or the exact module center. For each data cell it samples two small regions well inside the triangles, approximately around `(0.28, 0.28)` and `(0.72, 0.72)` in normalized module coordinates.
-
-Each triangle is classified independently against the calibrated RGBW palette. The cell confidence is the weaker of the two triangle confidences. That confidence feeds the existing confidence-aware Spectrum ECC path, allowing an ambiguous triangle pair to become a useful erasure candidate instead of an arbitrary hard error.
+The scanner does not sample the diagonal or the exact module center. Each triangle uses three protected interior sample anchors, robust aggregation, and a spatial-stability score. The weaker/less stable region lowers the cell confidence and supplies the first alternate state for Spectrum ECC 2.0 soft recovery.
 
 The normal image and camera scanner automatically attempts Triangle16 sampling. No separate scan mode is required. If ordinary finder/alignment geometry is good enough to locate the symbol but not precise enough to decode the half-cell regions, the scanner performs one bounded **precise-alignment recovery** pass. That pass uses denser alignment-pattern probes and a finer sub-module search, then retries the same dual-triangle classifier.
 
@@ -61,23 +59,15 @@ PNG/ImageData, Canvas, SVG, browser, and Node rendering all support Triangle16.
 ## API
 
 ```js
-import { encodeText, CELL_ENCODINGS } from "quadqr-js";
+import { encodeText } from "quadqr-js";
 
 const code = encodeText("High-density QuadQR", {
   ecc: "M",
-  cellEncoding: CELL_ENCODINGS.TRIANGLE16
+  highDensity: true
 });
 ```
 
-The string form is also accepted:
-
-```js
-const code = encodeText("High-density QuadQR", {
-  cellEncoding: "triangle16"
-});
-```
-
-`rgbw` remains the library default so existing callers are not silently moved to an experimental physical format.
+High Density Mode is disabled by default. `Triangle16` is an internal/technical name for the current experimental physical layout, not a separate public mode selector.
 
 ## Capacity
 
@@ -90,7 +80,7 @@ Triangle16 16 states  4 bits/body cell
 
 The protected header remains RGBW-equivalent, and ECC/CRC overhead is unchanged at the byte level, so usable payload capacity is close to but not exactly 2x for a fixed matrix version.
 
-Use `getVersionInfo(version, { ecc, cellEncoding: "triangle16" })` or the demo capacity calculator for the exact value.
+Use `getVersionInfo(version, { ecc, highDensity: true })` or the demo capacity calculator for the exact value.
 
 ## Reliability caveat
 

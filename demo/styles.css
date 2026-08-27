@@ -1819,3 +1819,173 @@ button.compact {
     width: 100%;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Reliability Lab
+   -------------------------------------------------------------------------- */
+
+.reliability-page {
+  display: grid;
+  place-items: start center;
+  min-width: 0;
+}
+
+.reliability-panel {
+  width: min(1060px, 100%);
+  min-width: 0;
+}
+
+.reliability-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.reliability-metric {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #0b0e12;
+}
+
+.reliability-metric span,
+.reliability-metric small,
+.reliability-metric strong {
+  display: block;
+}
+
+.reliability-metric span {
+  color: #7f8a99;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.reliability-metric strong {
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+  color: #f2f5f8;
+  font-size: 19px;
+}
+
+.reliability-metric small {
+  margin-top: 5px;
+  color: #747f8f;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.reliability-table-wrap {
+  margin-top: 18px;
+}
+
+.reliability-pass {
+  color: #a7efbf !important;
+  font-weight: 750;
+}
+
+.reliability-fail {
+  color: #ff9b9b !important;
+  font-weight: 750;
+}
+
+.reliability-perspective-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+  gap: 18px;
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+
+.reliability-perspective-controls {
+  min-width: 0;
+}
+
+.reliability-perspective-controls h3 {
+  margin: 0;
+  color: #e8edf3;
+  font-size: 18px;
+}
+
+.compact-intro {
+  margin: 8px 0 14px;
+  font-size: 12.5px;
+}
+
+.reliability-perspective-controls .range-field {
+  margin-top: 12px;
+}
+
+.reliability-perspective-actions {
+  flex-wrap: wrap;
+}
+
+.sweep-controls {
+  width: min(100%, 260px);
+}
+
+.reliability-preview-stage {
+  align-self: start;
+  min-height: 380px;
+  margin: 0;
+}
+
+.reliability-preview-stage canvas {
+  width: min(100%, 520px);
+}
+
+@media (max-width: 860px) {
+  .tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .reliability-page {
+    display: block;
+  }
+
+  .reliability-panel {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .reliability-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reliability-perspective-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tab {
+    width: 100%;
+  }
+
+  .reliability-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .reliability-perspective-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .reliability-perspective-actions button {
+    width: 100%;
+  }
+
+  .reliability-preview-stage {
+    min-height: 280px;
+    padding: 10px;
+  }
+}

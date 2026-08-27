@@ -46,9 +46,9 @@ This uses four cells per protected header byte, exactly like RGBW, but makes it 
 
 ## Scanner sampling
 
-The scanner does not sample the diagonal or the exact module center. For each data cell it samples two small regions well inside the triangles, approximately around `(0.28, 0.28)` and `(0.72, 0.72)` in normalized module coordinates.
+The scanner does not sample the diagonal or the exact module center. Each triangle now uses a small **three-anchor sampling cluster** positioned safely inside its region. The cluster is robustly aggregated, and the variation between the three anchors is retained as a spatial-stability signal. This is less sensitive to blur, resampling, small homography offsets, and diagonal color bleed than relying on one point per triangle.
 
-Each triangle is classified independently against the calibrated RGBW palette. The cell confidence is the weaker of the two triangle confidences. That confidence feeds the existing confidence-aware Spectrum ECC path, allowing an ambiguous triangle pair to become a useful erasure candidate instead of an arbitrary hard error.
+Each triangle is classified independently against the calibrated RGBW palette. The cell confidence combines the weaker color-classification confidence with the measured within-triangle sample stability. The scanner also retains the most plausible alternate Triangle16 state by changing the less reliable of the two regions first. Those confidence and alternate-state signals feed Spectrum ECC 2.0 for erasure and bounded soft-decision recovery.
 
 The normal image and camera scanner automatically detects High Density Mode and attempts Triangle16 dual-region sampling when needed. No separate scan mode is required. If ordinary finder/alignment geometry is good enough to locate the symbol but not precise enough to decode the half-cell regions, the scanner performs one bounded **precise-alignment recovery** pass. That pass uses denser alignment-pattern probes and a finer sub-module search, then retries the same dual-triangle classifier.
 
