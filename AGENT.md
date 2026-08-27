@@ -2,6 +2,10 @@
 
 ## Goal
 
+## Language
+
+- QuadQR is JavaScript-only. Keep runtime, tests, CLI, demo, docs-site, scripts, package entry points, and source declarations in JavaScript unless a different language is explicitly requested.
+
 Develop and experimentally validate the QuadQR custom 2D code.
 
 The current format uses the stable/default RGBW profile plus an experimental High Density Mode. Do not add legacy RGB/ternary compatibility unless explicitly requested.

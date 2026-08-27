@@ -34,8 +34,6 @@ temp/
 .rollup.cache/
 .vite/
 
-# TypeScript cache, if tooling generates it
-*.tsbuildinfo
 
 # IDEs / editors
 .vscode/

@@ -914,7 +914,6 @@ docs/
   CLI.md
   WASM.md
 
-types/               TypeScript declarations for JavaScript consumers
 bin/                 `quadqr` CLI (`npx quadqr-js`)
 scripts/             Build, benchmark, and local server scripts
 tests/               Codec and package distribution tests
