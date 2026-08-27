@@ -1,7 +1,7 @@
 {
   "name": "quadqr-js",
   "version": "1.2.0",
-  "description": "QuadQR: experimental four-state RGBW matrix code with Spectrum ECC, compression, Ed25519 signing, browser/Node scanning, diagnostics, stress testing, and optional AES-256-GCM security.",
+  "description": "QuadQR: experimental RGBW matrix code with optional experimental High Density Mode, Spectrum ECC, browser/Node scanning, compression, signing, diagnostics, stress testing, and AES-256-GCM security.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -82,6 +82,8 @@
     "qr",
     "rgb",
     "rgbw",
+    "high-density",
+    "triangle16",
     "matrix-code",
     "barcode",
     "reed-solomon",

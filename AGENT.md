@@ -4,17 +4,19 @@
 
 Develop and experimentally validate the QuadQR custom 2D code.
 
-The current format is intentionally RGBW-only. Do not add legacy RGB/ternary compatibility unless explicitly requested.
+The current format uses the stable/default RGBW profile plus an experimental High Density Mode. Do not add legacy RGB/ternary compatibility unless explicitly requested.
 
 ## Non-negotiable format decisions
 
 - Overall symbol remains square.
 - Individual modules remain square.
-- Data alphabet is exactly four states: red, green, blue, white.
+- The base color alphabet is exactly four states: red, green, blue, white.
 - Mapping is red=`00`, green=`01`, blue=`10`, white=`11`.
-- Each data cell therefore stores exactly 2 raw bits.
+- Default `rgbw` data cells use one color and store exactly 2 raw bits; one byte maps to four RGBW cells.
+- Experimental `triangle16` body cells use one fixed `/` diagonal with two independently colored RGBW regions and therefore 16 states / 4 raw bits; one body byte maps to two Triangle16 cells.
+- Triangle16 protected-header cells remain same-color pairs (`R/R`, `G/G`, `B/B`, `W/W`) and retain four cells per header byte so bootstrap recovery stays robust.
+- Header flag bit 6 declares Triangle16. Do not repurpose it.
 - ECC is GF(256) Reed-Solomon over byte symbols with errors+erasures support.
-- One encoded byte maps to exactly four RGBW cells.
 - New encoding uses zero-overhead spectral-spatial cell interleaving; do not replace it with contiguous placement without explicit compatibility work.
 - Image scanning must retain per-cell classification confidence so uncertain byte symbols can be promoted to RS erasures.
 - Structural black remains separate from the four data-state values.
@@ -22,6 +24,24 @@ The current format is intentionally RGBW-only. Do not add legacy RGB/ternary com
 - Secure Payload is optional and must remain layered above the matrix/ECC codec. Never make encryption mandatory for normal QuadQR symbols.
 - Secure Payload v1 uses AES-256-GCM. Password mode currently uses PBKDF2-HMAC-SHA-256; raw-key mode requires exactly 32 bytes.
 - Header bit 3 marks a secure envelope. Preserve backward decoding for existing unencrypted Format v5 symbols.
+
+## High Density Mode (experimental)
+
+`highDensity: false` is the public library and demo default. `highDensity: true` enables the experimental Triangle16 implementation. Do not make High Density Mode the default unless explicitly requested.
+
+Triangle16 rules:
+
+- fixed `/` diagonal only; do not encode diagonal orientation as another state;
+- upper-left region is the high two bits and lower-right region is the low two bits;
+- payload/body cell values are packed `0..15` as `(first << 2) | second`;
+- structural black stays `-1` and structural modules never use Triangle16 packing;
+- protected header uses solid same-color pairs and flag bit 6 identifies the body profile;
+- scanner samples both regions away from the diagonal and uses the weaker region confidence for RS confidence/erasure decisions;
+- image and camera scanning auto-detect both RGBW and Triangle16;
+- if normal perspective geometry is insufficient for split cells, keep the bounded precise-alignment recovery path rather than weakening structure checks globally;
+- treat real-world reliable bytes at fixed physical size/distance as the important density metric, not raw bits/cell alone.
+
+See `docs/HIGH_DENSITY_MODE.md` for the current physical mapping and reliability notes.
 
 ## Geometry
 
@@ -51,7 +71,7 @@ ECC profiles:
 - Q: 36 parity bytes, correct up to 18 byte symbols per block
 - H: 48 parity bytes, correct up to 24 byte symbols per block
 
-Do not replace GF(256) with a ternary field. The whole point of RGBW is direct 2-bit/byte alignment. Confidence-aware recovery must reuse the existing parity budget rather than silently increasing ECC overhead and reducing capacity.
+Do not replace GF(256) with a ternary field. RGBW keeps direct 2-bit grouping and Triangle16 packs two 2-bit RGBW regions into each 4-bit body cell. Confidence-aware recovery must reuse the existing parity budget rather than silently increasing ECC overhead and reducing capacity.
 
 ## Required tests after codec changes
 
@@ -63,7 +83,7 @@ npm test
 
 Tests should cover:
 
-1. exact byte-to-four-cell mapping;
+1. exact RGBW byte-to-four-cell mapping and Triangle16 byte-to-two-body-cell mapping;
 2. GF(256) RS syndrome and correction;
 3. UTF-8 and binary round trips;
 4. all ECC profiles;
@@ -75,8 +95,8 @@ Tests should cover:
 10. error + erasure RS recovery;
 11. spectral-spatial permutation uniqueness;
 12. confidence-assisted recovery beyond the hard-decision error limit;
-13. clean rendered image scanning;
-14. perspective distortion plus camera-style color cast;
+13. clean rendered image scanning for RGBW and Triangle16;
+14. perspective distortion plus camera-style color cast, including a dense/high-utilization Triangle16 regression;
 15. password-mode secure encode/decode/decrypt;
 16. wrong-password authentication failure;
 17. raw 256-bit key mode, automatic key ID, and wrong-key failure;
@@ -118,10 +138,11 @@ Do not put the live camera panel back into the main generator grid unless explic
 It is valid to state:
 
 ```text
-4 states = log2(4) = 2 raw bits per data cell
+RGBW:       4 states  = log2(4)  = 2 raw bits per data cell
+Triangle16: 16 states = log2(16) = 4 raw bits per body data cell
 ```
 
-Do not claim the completed format always stores exactly 2x the user payload of standard QR at the same size. Structural overhead, ECC, headers, calibration, and standard QR's specialized encoding modes affect the final comparison.
+Triangle16's protected header remains RGBW-equivalent at 2 bits/cell. Do not claim the completed format always stores exactly 2x or 4x the user payload of standard QR at the same physical size. Structural overhead, ECC, headers, calibration, camera pixel coverage, perspective accuracy, and standard QR's specialized encoding modes affect the final comparison.
 
 ## Priorities for future work
 
@@ -150,7 +171,7 @@ Any change to this profile must keep exact-capacity encode/decode, ECC corruptio
 
 ## Rendering styles
 
-Rendering styles are presentation-only. Keep wire-format matrix values unchanged. `classic`, `depth`, `soft`, and `inset` are implemented in `library/quadqr.js`. Styled data cells may vary visually, but finder, timing, alignment, and calibration cells must remain solid and scanner-safe. For `inset`, keep the center sample region at the exact encoded color and never let effects spill into adjacent modules. Add a scan round-trip test for any new renderer style.
+Rendering styles are presentation-only. Keep wire-format matrix values unchanged. `classic`, `depth`, `soft`, and `inset` are implemented in `library/quadqr.js`. Styled RGBW data cells may vary visually, but finder, timing, alignment, and calibration cells must remain solid and scanner-safe. For `inset`, keep the center sample region at the exact encoded color and never let effects spill into adjacent modules. Triangle16 payload cells intentionally bypass decorative styles and render as exact hard-edged triangles because effects reduce the safe sampling area around the diagonal. Add a scan round-trip test for any new renderer style.
 
 ## Library distribution
 

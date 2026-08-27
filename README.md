@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Four visible states. Two bits per data cell. A modern experiment in high-density matrix codes.</strong>
+  <strong>Normal RGBW mode by default, with an optional experimental High Density Mode using Triangle16 split cells.</strong>
 </p>
 
 <p align="center">
@@ -26,9 +26,9 @@
   <a href="SPECIFICATION.md">Technical Specification</a>
 </p>
 
-**QuadQR** is an experimental open-source 2D matrix code that uses four visible data states instead of the two states used by a traditional black-and-white QR module.
+**QuadQR** is an experimental open-source 2D matrix code that uses RGBW color states instead of the two states used by a traditional black-and-white QR module. Normal mode stores **2 bits per RGBW data cell**. This experimental branch also includes an optional **High Density Mode**, implemented with Triangle16 split cells, that stores **4 raw bits per body cell**. High Density Mode is disabled by default.
 
-Each QuadQR data cell represents exactly **2 bits**:
+Default RGBW mapping:
 
 | Color | Bits |
 |---|---|
@@ -38,6 +38,28 @@ Each QuadQR data cell represents exactly **2 bits**:
 | White | `11` |
 
 That gives QuadQR a four-symbol alphabet and a raw density of **2 bits per data cell**.
+
+### Experimental High Density Mode
+
+When `highDensity: true` is enabled, Triangle16 splits each payload cell along one fixed `/` diagonal. The upper-left and lower-right triangles independently use Red, Green, Blue, or White:
+
+```text
+4 colors × 4 colors = 16 states
+log2(16) = 4 bits per data cell
+```
+
+The protected bootstrap/header deliberately remains solid-color even in High Density Mode, while the ECC-protected body uses the full 16-state alphabet. This sacrifices a small amount of theoretical capacity to make mode detection and damaged-camera recovery more reliable. Finder, timing, alignment, calibration, ECC, CRC, and matrix dimensions remain unchanged.
+
+```js
+const code = encodeText("High-density QuadQR", {
+  ecc: "M",
+  highDensity: true
+});
+```
+
+Image and camera scanning automatically detect High Density Mode, so a separate scanner mode is not required. High Density Mode is experimental and should be stress-tested at the intended physical size and camera distance.
+
+See [`docs/HIGH_DENSITY_MODE.md`](docs/HIGH_DENSITY_MODE.md) for the physical cell mapping, protected-header strategy, scanner sampling rules, and reliability caveats.
 
 QuadQR keeps the parts that make QR-like codes practical, such as a square matrix, finder patterns, timing structures, error correction, masking, perspective recovery, and camera scanning, while experimenting with a higher-density color-based data layer.
 
@@ -131,7 +153,8 @@ So at the raw data-cell level:
 | Format | States per data cell | Raw information |
 |---|---:|---:|
 | Binary QR | 2 | 1 bit |
-| QuadQR | 4 | 2 bits |
+| QuadQR RGBW | 4 | 2 bits |
+| QuadQR High Density Mode (Triangle16) | 16 | 4 bits |
 
 This is a **2× raw symbol-density advantage**.
 
@@ -280,7 +303,7 @@ Therefore:
 
 > The capacity benchmark is a same-dimension and same-label comparison, not yet an equal-damage-tolerance comparison.
 
-The raw QuadQR data alphabet is exactly **2 bits per data cell**. Ratios approaching ~3× in the current usable-payload benchmark are caused by differences in total structural and ECC overhead between the two formats, not because a QuadQR cell contains 3 bits.
+The published baseline benchmark uses **normal RGBW mode at exactly 2 bits per data cell**. Ratios approaching ~3× in that RGBW usable-payload benchmark are caused by differences in total structural and ECC overhead between the two formats, not because an RGBW QuadQR cell contains 3 bits. The experimental **Triangle16** profile is a separate 4-bit/body-cell mode and should be benchmarked independently because its real-world advantage depends on camera resolution, perspective, blur, resizing, and print quality.
 
 A future goal is to add **equal-reliability benchmarking**, where QuadQR and standard QR are compared after calibrating both to similar real-world damage recovery.
 
@@ -442,7 +465,7 @@ White → (255, 255, 255)
 
 Real camera input is not expected to match those exact values.
 
-QuadQR includes calibration and nearest-color classification so the scanner can work with observed colors after lighting, camera processing, perspective changes, and other image transformations. The clean-frame path stays fast: QuadQR tries the normal detected geometry and observed palette first. Only after that fails does it progressively try stronger recovery, including white balancing, spatial normalization, Auto Tone / Auto Contrast / Auto Color-style enhancement, and bounded sub-module geometry refinement. For live video, QuadQR scans the CSS-visible `object-fit: cover` camera region instead of the hidden full sensor frame, so the code keeps the same apparent size/resolution the user sees in the guide. If finder geometry is already strong but color decoding fails, a QR-only rectified pixel enhancement retry is performed immediately; whole-frame enhancement remains reserved for harder locator failures.
+QuadQR includes calibration and nearest-color classification so the scanner can work with observed colors after lighting, camera processing, perspective changes, and other image transformations. The clean-frame path stays fast: QuadQR tries the normal detected geometry and observed palette first. Dense versions can refine an imperfect four-point homography with reliable secondary alignment markers already present in the matrix, without reserving any new cells. If a steep angle leaves exactly two strong finder patterns, a bounded looser third-finder pass runs before heavier color recovery. Only after geometry/color decoding still fails does QuadQR progressively try stronger recovery, including white balancing, spatial normalization, Auto Tone / Auto Contrast / Auto Color-style enhancement, and bounded sub-module geometry refinement. For live video, QuadQR scans the CSS-visible `object-fit: cover` camera region instead of the hidden full sensor frame, so the code keeps the same apparent size/resolution the user sees in the guide. When a dense frame already exposes at least two finders, the camera scanner can also retry the visible ROI at up to 1600 px before expensive color recovery. If finder geometry is already strong but color decoding fails, a QR-only rectified pixel enhancement retry is performed immediately; whole-frame enhancement remains reserved for harder locator failures.
 
 ---
 
@@ -504,9 +527,11 @@ version hypothesis
   ↓
 primary alignment search
   ↓
-homography / perspective correction
+initial homography / perspective correction
   ↓
 distributed alignment-grid validation
+  ↓ (when geometry is plausible but imperfect)
+secondary alignment multi-point homography refinement
   ↓
 module-grid reconstruction
   ↓
@@ -1034,7 +1059,7 @@ Returns a standalone SVG string using the same exact `imageSize`, render styles,
 
 ### `scanImageData(imageData, options?)`
 
-Runs the complete perspective-aware and color-aware image scanner. The scanner first tries the normal detected geometry with the observed RGB palette, preserving the fast path for clean images. Only after that fails does it progressively fall back to per-channel white balancing, spatial black/white normalization, tighter centre sampling, a cheap module-grid Auto Tone / Auto Contrast / Auto Color-style recovery, a rectified QR-region pixel enhancement pass, and finally bounded sub-module geometry micro-refinement. If locator detection itself is weakened by a flat/yellow frame, a full-image enhancement retry is also available. RGBW confidence values are carried into Reed-Solomon so ambiguous cells can be treated as erasures when ordinary hard-decision ECC is insufficient.
+Runs the complete perspective-aware and color-aware image scanner. The scanner first tries the normal detected geometry with the observed RGB palette, preserving the fast path for clean images. Dense versions use distributed alignment markers to refine a plausible but imperfect projective solution, and a two-finder recovery pass can rescue a third locator that has been stretched by perspective. Only after that fails does it progressively fall back to per-channel white balancing, spatial black/white normalization, tighter centre sampling, a cheap module-grid Auto Tone / Auto Contrast / Auto Color-style recovery, a rectified QR-region pixel enhancement pass, and finally bounded sub-module geometry micro-refinement. If locator detection itself is weakened by a flat/yellow frame, a full-image enhancement retry is also available. RGBW confidence values are carried into Reed-Solomon so ambiguous cells can be treated as erasures when ordinary hard-decision ECC is insufficient.
 
 ### `scanFile(file, options?)`
 
@@ -1046,7 +1071,7 @@ Scans one frame from an HTML video element. By default, if the video is displaye
 
 ### `startCameraScanner(video, options?)`
 
-Starts a reusable live-camera scanning loop. On supported browsers it requests continuous focus/exposure/white-balance camera modes and scans the CSS-visible preview crop. A normal frame always gets the fast RGB-value finder pass first. If that fails, the **same captured frame** enters a QR-guide recovery path: QuadQR progressively crops away 8%, 16%, and 22% of the surrounding camera frame (then tries the full frame as a final fallback), applies the Photoshop-style Auto Color correction inside that code-centric region, and runs finder detection again. This matters because a live preview can contain dark room pixels, browser chrome, a monitor bezel, or other content that completely changes global Auto Color/Otsu statistics even though a manually cropped screenshot scans instantly. Normal scanning stays unchanged and fast because these recovery crops run only after a miss. Finder-only recovery also tries multiple center-weighted Auto Color histograms before threshold bracketing. `cameraAutoColorEvery` defaults to 1 so the same-frame Auto Color recovery is attempted immediately after each fast miss. Multi-frame voting remains enabled by default with a four-frame history. The optional `onDiagnostic(event)` callback exposes finder candidates, active locator method, crop/geometry/version hypothesis, recovery method, timing, and scan dimensions. `onResult(result, frame)` receives the exact raw decoded camera frame and, when Auto Color was used, the enhanced recovery pixels and their crop rectangle, so UIs can keep the frozen frame and finder overlay aligned.
+Starts a reusable live-camera scanning loop. On supported browsers it requests continuous focus/exposure/white-balance camera modes and scans the CSS-visible preview crop. A normal frame always gets the fast RGB-value finder pass first. If a miss still exposes at least two strong finder patterns, QuadQR retries the visible camera ROI at up to 1600 px by default so dense symbols retain more pixels per module. This high-resolution retry is bounded and does not run on empty frames. If it still fails, the **same captured frame** enters a QR-guide recovery path: QuadQR progressively crops away 8%, 16%, and 22% of the surrounding camera frame (then tries the full frame as a final fallback), applies the Photoshop-style Auto Color correction inside that code-centric region, and runs finder detection again. This matters because a live preview can contain dark room pixels, browser chrome, a monitor bezel, or other content that completely changes global Auto Color/Otsu statistics even though a manually cropped screenshot scans instantly. Normal scanning stays unchanged and fast because these recovery paths run only after a miss. Finder-only recovery also tries multiple center-weighted Auto Color histograms before threshold bracketing. `cameraHighResolutionMaxDimension` defaults to 1600, `cameraHighResolutionEvery` defaults to 2, and `cameraAutoColorEvery` defaults to 1. Multi-frame voting remains enabled by default with a four-frame history. The optional `onDiagnostic(event)` callback exposes finder candidates, active locator method, crop/geometry/version hypothesis, recovery method, timing, and scan dimensions. `onResult(result, frame)` receives the exact raw decoded camera frame and, when Auto Color was used, the enhanced recovery pixels and their crop rectangle, so UIs can keep the frozen frame and finder overlay aligned.
 
 ### `getVersionInfo(version, options?)`
 

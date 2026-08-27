@@ -15,7 +15,7 @@ import {
 import { savePNG, saveSVG, scanFile } from "../dist/node.js";
 
 function help() {
-  console.log(`QuadQR CLI\n\nUsage:\n  quadqr encode <text> [-o file.png|file.svg] [--ecc M] [--version auto|1..40]\n  quadqr encode <text> [--compression auto]\n  quadqr encode <text> --sign-key signing-key.json [--key-id issuer-main]\n  quadqr encode <text> --password <password> [-o file.png|file.svg]\n  quadqr decode <file.png> [--password <password> | --key <64-hex-key>] [--verify-key signing-key.json] [--debug]\n  quadqr keygen\n  quadqr signkeygen [-o signing-key.json]\n\nOptions:\n  -o, --output <file>       Output PNG/SVG path, or signing-key JSON for signkeygen\n  --ecc <L|M|Q|H>          ECC profile (default: M)\n  --version <auto|1..40>    Symbol version (default: auto)\n  --compression <mode>      none|auto|lz (default: auto)\n  --sign-key <file>         Sign using a signkeygen JSON bundle\n  --key-id <id>             Override the signing key ID stored in the QuadQR\n  --embed-public-key        Also embed the public key for untrusted/self-contained checks\n  --verify-key <file>       Verify a signed QuadQR with a trusted key bundle\n  --password <text>         Encrypt/decrypt with password mode\n  --key <hex>               Encrypt/decrypt with raw 256-bit key mode\n  --print                   Use the print-safe render profile\n  --image-size <px>         Exact square output size (default: 720)\n  --module-size <px>        Legacy pixels-per-module sizing\n  --quiet-zone <modules>    Quiet zone in modules (default: 4)\n  --debug                   Emit scanner diagnostics to stderr on decode\n  -h, --help                Show help\n`);
+  console.log(`QuadQR CLI\n\nUsage:\n  quadqr encode <text> [-o file.png|file.svg] [--ecc M] [--version auto|1..40] [--high-density]\n  quadqr encode <text> [--compression auto]\n  quadqr encode <text> --sign-key signing-key.json [--key-id issuer-main]\n  quadqr encode <text> --password <password> [-o file.png|file.svg]\n  quadqr decode <file.png> [--password <password> | --key <64-hex-key>] [--verify-key signing-key.json] [--debug]\n  quadqr keygen\n  quadqr signkeygen [-o signing-key.json]\n\nOptions:\n  -o, --output <file>       Output PNG/SVG path, or signing-key JSON for signkeygen\n  --ecc <L|M|Q|H>          ECC profile (default: M)\n  --version <auto|1..40>    Symbol version (default: auto)\n  --compression <mode>      none|auto|lz (default: auto)\n  --high-density            Enable experimental Triangle16 High Density Mode\n  --sign-key <file>         Sign using a signkeygen JSON bundle\n  --key-id <id>             Override the signing key ID stored in the QuadQR\n  --embed-public-key        Also embed the public key for untrusted/self-contained checks\n  --verify-key <file>       Verify a signed QuadQR with a trusted key bundle\n  --password <text>         Encrypt/decrypt with password mode\n  --key <hex>               Encrypt/decrypt with raw 256-bit key mode\n  --print                   Use the print-safe render profile\n  --image-size <px>         Exact square output size (default: 720)\n  --module-size <px>        Legacy pixels-per-module sizing\n  --quiet-zone <modules>    Quiet zone in modules (default: 4)\n  --debug                   Emit scanner diagnostics to stderr on decode\n  -h, --help                Show help\n`);
 }
 
 function parse(argv) {
@@ -27,6 +27,7 @@ function parse(argv) {
     else if (token === "-o" || token === "--output") flags.output = argv[++i];
     else if (token === "--ecc") flags.ecc = argv[++i];
     else if (token === "--version") flags.version = argv[++i];
+    else if (token === "--high-density") flags.highDensity = true;
     else if (token === "--password") flags.password = argv[++i];
     else if (token === "--key") flags.key = argv[++i];
     else if (token === "--compression") flags.compression = argv[++i];
@@ -101,6 +102,7 @@ async function main() {
 
     const options = {
       ecc: flags.ecc || "M",
+      highDensity: Boolean(flags.highDensity),
       compression: flags.compression || "auto",
       ...(flags.version && flags.version !== "auto" ? { version: Number(flags.version) } : {})
     };
@@ -138,7 +140,7 @@ async function main() {
     const saved = output.toLowerCase().endsWith(".svg")
       ? await saveSVG(code, output, renderOptions)
       : await savePNG(code, output, renderOptions);
-    console.log(`Saved ${output} (${saved.bytes} bytes, v${code.version}, ${code.size}x${code.size}, ECC ${code.eccLevel}).`);
+    console.log(`Saved ${output} (${saved.bytes} bytes, v${code.version}, ${code.size}x${code.size}, ${code.highDensity ? "High Density experimental" : "Normal RGBW"}, ECC ${code.eccLevel}).`);
     return;
   }
 

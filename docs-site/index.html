@@ -48,9 +48,9 @@
     <main class="content">
       <section class="hero" id="overview">
         <div>
-          <span class="eyebrow">QUADQR 1.1.0</span>
+          <span class="eyebrow">QUADQR EXPERIMENTAL</span>
           <h1>Build with QuadQR in the browser or Node.js.</h1>
-          <p>Generate, render, scan, compress, sign, encrypt, diagnose, and stress-test QuadQR payloads with one shared JavaScript codec. Use the npm package, a browser bundler, Node.js, the CLI, or a plain script tag from a CDN.</p>
+          <p>Generate, render, scan, compress, sign, encrypt, diagnose, and stress-test QuadQR payloads with one shared JavaScript codec, including the optional experimental High Density Mode implemented with Triangle16 split cells. Use the npm package, a browser bundler, Node.js, the CLI, or a plain script tag from a CDN.</p>
           <div class="hero-actions">
             <a class="primary" href="#quick-start">Quick start</a>
             <a class="secondary" href="../demo/">Open live demo</a>
@@ -78,11 +78,14 @@
         <h2>Encode text and decode the matrix</h2>
         <div class="code"><button data-copy>Copy</button><pre><code>import { encodeText, decodeMatrix } from "quadqr-js";
 
-const code = encodeText("Hello QuadQR", { ecc: "M" });
+const code = encodeText("Hello QuadQR", {
+  ecc: "M",
+  highDensity: true // optional; disabled by default
+});
 const result = decodeMatrix(code.matrix);
 
 console.log(result.text); // Hello QuadQR</code></pre></div>
-        <p>When no version is supplied, QuadQR chooses the smallest version that can hold the payload.</p>
+        <p>When no version is supplied, QuadQR chooses the smallest version that can hold the payload. High Density Mode is disabled by default. When enabled, its Triangle16 layout splits each payload module on a fixed / diagonal, giving 16 RGBW pair states and 4 raw bits per body cell. The protected header remains solid-color for reliability.</p>
       </section>
 
       <section id="browser">
@@ -115,6 +118,7 @@ console.log(imageResult.text);
 let scanner;
 scanner = await startCameraScanner(document.querySelector("#video"), {
   cameraFinderRecoveryEvery: 2,
+  cameraHighResolutionMaxDimension: 1600,
   onResult(result) {
     console.log(result);
     scanner.stop();
@@ -124,7 +128,7 @@ scanner = await startCameraScanner(document.querySelector("#video"), {
     console.log(event.method, event.finderMethod, event.finderCount, event.geometry?.version);
   }
 });</code></pre></div>
-        <p class="note">Camera access requires HTTPS or localhost. The fast locator pass uses max(R,G,B) so colored data cells are less likely to look like structural black. Recovery frames can bracket finder thresholds before stronger color correction. The optional diagnostics callback exposes those existing locator passes without adding another detection loop. Secure scans return a locked result first and can be decrypted with <code>decryptDecoded()</code>.</p>
+        <p class="note">Camera access requires HTTPS or localhost. The fast locator pass uses max(R,G,B) so colored data cells are less likely to look like structural black. Dense misses with at least two finders can retry the visible camera ROI at higher resolution before stronger recovery. Perspective-tolerant finder recovery and distributed alignment markers then help refine geometry without changing the QuadQR format or reducing capacity. The optional diagnostics callback exposes those existing locator passes without adding another detection loop. Secure scans return a locked result first and can be decrypted with <code>decryptDecoded()</code>.</p>
       </section>
 
       <section id="node">
@@ -158,9 +162,9 @@ console.log(result.text);</code></pre></div>
         <div class="cards three">
           <article><strong>RGBA pixels</strong><code>scanImageData()</code><p>Runtime-neutral scanning when your app already has decoded pixels.</p></article>
           <article><strong>Browser files</strong><code>scanFile()</code><p>Scan uploaded images directly from a browser <code>File</code> or <code>Blob</code>.</p></article>
-          <article><strong>Live camera</strong><code>startCameraScanner()</code><p>Uses RGB-value finder detection on the fast pass, then same-frame Photoshop-style Auto Color recovery inside progressively tighter guide-centered crops. This keeps dark room/browser/monitor pixels outside the QR from poisoning global levels and finder thresholds. The normal path stays fast; crop recovery, adaptive color/geometry recovery, and multi-frame voting run only after a miss.</p></article>
+          <article><strong>Live camera</strong><code>startCameraScanner()</code><p>Uses RGB-value finder detection on the fast pass. Dense misses with two or more finders can retry the visible ROI at up to 1600 px, followed by perspective-tolerant finder recovery, distributed-alignment geometry refinement, and same-frame Photoshop-style Auto Color recovery inside guide-centered crops when needed. The normal path stays fast; these recovery paths and multi-frame voting run only after a miss.</p></article>
         </div>
-        <p>Image and camera scanning use the same secure-aware decoding behavior. An encrypted symbol is detected normally, but plaintext is not exposed until the correct credential is supplied.</p>
+        <p>Image and camera scanning automatically detect normal RGBW symbols and experimental High Density Mode symbols. High Density Mode uses Triangle16 dual-region sampling. Triangle samples are taken well inside each half of the cell, away from the diagonal boundary. Image and camera scanning use the same secure-aware decoding behavior. An encrypted symbol is detected normally, but plaintext is not exposed until the correct credential is supplied.</p>
       </section>
 
       <section id="security">
@@ -337,7 +341,7 @@ await initWasm();</code></pre></div>
 
       <footer>
         <strong>QuadQR</strong>
-        <span>Experimental RGBW matrix symbology. AGPL-3.0 licensed.</span>
+        <span>Experimental RGBW matrix symbology with optional High Density Mode. AGPL-3.0 licensed.</span>
       </footer>
     </main>
   </div>

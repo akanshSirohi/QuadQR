@@ -2,7 +2,7 @@
 
 ## Status
 
-QuadQR is an experimental four-state RGBW matrix symbology. It is not ISO/IEC QR Code and is not intended to be decoded by standard QR readers.
+QuadQR is an experimental RGBW matrix symbology. Normal mode uses 4-state RGBW cells, while the optional **High Density Mode** is experimental and uses the 16-state Triangle16 physical layout. It is not ISO/IEC QR Code and is not intended to be decoded by standard QR readers.
 
 The physical matrix format remains **QuadQR Format v5**. Normal application data is always treated simply as UTF-8 text or arbitrary bytes. Compression, signatures, encryption, rendering, and diagnostics are optional features layered around that stable matrix codec.
 
@@ -22,7 +22,7 @@ Application bytes / UTF-8 text
              ├─ CRC-32
              ├─ GF(256) Reed-Solomon Spectrum ECC
              ├─ spectral-spatial interleaving
-             └─ RGBW matrix
+             └─ normal RGBW or High Density Triangle16 matrix
 ```
 
 There is deliberately **no public payload-type registry**. Applications do not select URL, JSON, contact, Wi-Fi, or other semantic types. They encode text or bytes and interpret that data themselves.
@@ -39,6 +39,10 @@ Data modules use exactly four states:
 | White | `11` | 3 |
 
 Structural black is separate from the data alphabet. One encoded byte maps to exactly four RGBW data cells.
+
+### High Density Mode
+
+When `highDensity: true` is selected, each payload module has a fixed `/` diagonal and two independently classified RGBW regions. This creates 16 states and 4 raw bits per body cell. The protected header stays solid-color at 2 bits per cell for robust bootstrap recovery, then header flag bit 6 tells the decoder that the ECC/body stream uses Triangle16 packing. Scanner sampling uses two points well inside the triangles and excludes the diagonal boundary.
 
 ## 3. Matrix sizing
 
@@ -59,7 +63,8 @@ bits 1..2  ECC profile id
 bit 3      Secure Payload v1 envelope
 bit 4      internal payload-extension metadata present
 bit 5      signed-payload hint
-bits 6..7  reserved
+bit 6      High Density Mode flag
+bit 7      reserved
 ```
 
 Bit 4 is an implementation/interoperability hint used only when compression or signing requires metadata. It is not a user-selectable payload mode.

@@ -1,6 +1,6 @@
 # QuadQR Documentation
 
-QuadQR is an experimental four-state RGBW matrix symbology. Each data cell carries exactly two bits using red, green, blue, or white. The JavaScript library supports encoding, canvas/RGBA/SVG rendering, adjustable quiet zones, optional centered logos with transparent or cleared backgrounds, matrix decoding, image and camera scanning, Spectrum ECC, optional authenticated encryption, Node.js PNG/SVG workflows, CDN usage, a CLI, TypeScript declarations, and optional prebuilt WebAssembly acceleration.
+QuadQR is an experimental RGBW matrix symbology. Default RGBW cells carry two bits using red, green, blue, or white. The experimental High Density Mode splits payload cells into two RGBW triangles and carries four raw bits per body data cell. The JavaScript library supports encoding, canvas/RGBA/SVG rendering, adjustable quiet zones, optional centered logos with transparent or cleared backgrounds, matrix decoding, image and camera scanning, Spectrum ECC, optional authenticated encryption, Node.js PNG/SVG workflows, CDN usage, a CLI, TypeScript declarations, and optional prebuilt WebAssembly acceleration.
 
 ## Live links
 
@@ -13,6 +13,7 @@ QuadQR is an experimental four-state RGBW matrix symbology. Each data cell carri
 
 - [Getting Started](./GETTING_STARTED.md)
 - [API Reference](./API.md)
+- [High Density Mode (Experimental)](./HIGH_DENSITY_MODE.md)
 - [Browser and CDN](./BROWSER_CDN.md)
 - [Node.js](./NODE.md)
 - [CLI](./CLI.md)

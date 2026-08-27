@@ -1,11 +1,11 @@
 /**
  * QuadQR
  *
- * Experimental four-state RGBW matrix code written in pure JavaScript.
+ * Experimental RGBW / Triangle16 matrix code written in pure JavaScript.
  *
  * Core format:
- * - Red / Green / Blue / White data cells
- * - exactly 2 bits per data cell
+ * - RGBW profile: Red / Green / Blue / White, exactly 2 bits per data cell
+ * - Triangle16 profile: two fixed RGBW triangle regions, 16 states / 4 bits per body data cell
  * - GF(256) Reed-Solomon ECC over byte symbols
  * - interleaved body ECC blocks
  * - zero-overhead spectral-spatial cell placement
@@ -32,6 +32,7 @@ import {
   computeHomography,
   projectPoint,
   samplePerspectiveMatrix,
+  samplePerspectiveTriangleMatrix,
   rectifyImageData,
   sampleObservedPalette,
   spatiallyNormalizeRgbGrid,
@@ -39,7 +40,8 @@ import {
   autoToneContrastColorImageData,
   autoColorImageData,
   findActiveBounds,
-  sampleAxisAlignedGrid
+  sampleAxisAlignedGrid,
+  sampleAxisAlignedTriangleGrid
 } from "./vision.js";
 import {
   decryptSecurePayload,
@@ -63,6 +65,12 @@ export const RENDER_MODES = Object.freeze({
   SCREEN: "screen",
   PRINT: "print"
 });
+
+export const CELL_ENCODINGS = Object.freeze({
+  RGBW: "rgbw",
+  TRIANGLE16: "triangle16"
+});
+
 
 // Print-safe defaults deliberately use darker, more ink-tolerant primaries and
 // a true white background. Applications can still override individual colors.
@@ -121,8 +129,10 @@ const MAGIC = new Uint8Array([0x51, 0x51, 0x52, 0x57]); // QQRW (QuadQR RGBW)
 const HEADER_BYTES = 10;
 const HEADER_RS_PARITY = 8;
 const HEADER_CODEWORD_BYTES = HEADER_BYTES + HEADER_RS_PARITY;
-const CELLS_PER_BYTE = 4;
-const HEADER_CODEWORD_CELLS = HEADER_CODEWORD_BYTES * CELLS_PER_BYTE;
+const RGBW_CELLS_PER_BYTE = 4;
+const TRIANGLE16_CELLS_PER_BYTE = 2;
+const CELLS_PER_BYTE = RGBW_CELLS_PER_BYTE; // legacy internal alias
+const HEADER_CODEWORD_CELLS = HEADER_CODEWORD_BYTES * RGBW_CELLS_PER_BYTE;
 
 // Version 1 is a deliberately compact small-symbol profile. A 21x21 matrix
 // cannot afford the normal 18-byte protected header plus a 24-byte M body
@@ -134,7 +144,7 @@ const COMPACT_HEADER_MAGIC = 0xc3;
 const COMPACT_HEADER_BYTES = 4;
 const COMPACT_HEADER_RS_PARITY = 4;
 const COMPACT_HEADER_CODEWORD_BYTES = COMPACT_HEADER_BYTES + COMPACT_HEADER_RS_PARITY;
-const COMPACT_HEADER_CODEWORD_CELLS = COMPACT_HEADER_CODEWORD_BYTES * CELLS_PER_BYTE;
+const COMPACT_HEADER_CODEWORD_CELLS = COMPACT_HEADER_CODEWORD_BYTES * RGBW_CELLS_PER_BYTE;
 const COMPACT_ECC_LEVELS = Object.freeze({
   L: Object.freeze({ paritySymbols: 4, correctableSymbolsPerBlock: 2 }),
   M: Object.freeze({ paritySymbols: 8, correctableSymbolsPerBlock: 4 }),
@@ -147,6 +157,7 @@ const TEXT_FLAG = 1;
 const SECURE_FLAG = 1 << 3;
 const EXTENDED_PAYLOAD_FLAG = 1 << 4;
 const SIGNED_FLAG = 1 << 5;
+const TRIANGLE16_FLAG = 1 << 6;
 
 // Internal payload extension envelope. This is deliberately not a public
 // payload mode or content-type system. It exists only when compression or
@@ -207,6 +218,45 @@ function normalizeEccLevel(level = DEFAULT_ECC_LEVEL) {
   const value = String(level).toUpperCase();
   assert(ECC_LEVELS[value], `ECC level must be one of ${Object.keys(ECC_LEVELS).join(", ")}.`);
   return value;
+}
+
+function normalizeCellEncoding(value = CELL_ENCODINGS.RGBW) {
+  const key = String(value).toLowerCase();
+  assert(
+    key === CELL_ENCODINGS.RGBW || key === CELL_ENCODINGS.TRIANGLE16,
+    `Internal cell encoding must be ${CELL_ENCODINGS.RGBW} or ${CELL_ENCODINGS.TRIANGLE16}.`
+  );
+  return key;
+}
+
+// Public API presents Triangle16 as one experimental High Density Mode toggle.
+// cellEncoding remains an internal/backward-compatible detail so existing
+// experimental branch symbols and renderer metadata continue to work.
+function cellEncodingFromOptions(options = {}) {
+  if (typeof options.highDensity === "boolean") {
+    return options.highDensity ? CELL_ENCODINGS.TRIANGLE16 : CELL_ENCODINGS.RGBW;
+  }
+  return normalizeCellEncoding(options.cellEncoding ?? CELL_ENCODINGS.RGBW);
+}
+
+function cellsPerByteForEncoding(cellEncoding = CELL_ENCODINGS.RGBW) {
+  return normalizeCellEncoding(cellEncoding) === CELL_ENCODINGS.TRIANGLE16
+    ? TRIANGLE16_CELLS_PER_BYTE
+    : RGBW_CELLS_PER_BYTE;
+}
+
+function packTriangleCell(first, second) {
+  assert(first >= 0 && first <= 3 && second >= 0 && second <= 3, "Invalid Triangle16 color.");
+  return ((first & 3) << 2) | (second & 3);
+}
+
+function unpackTriangleCell(value) {
+  assert(Number.isInteger(value) && value >= 0 && value <= 15, "Invalid Triangle16 data cell.");
+  return { first: (value >>> 2) & 3, second: value & 3 };
+}
+
+function solidTriangleCell(color) {
+  return packTriangleCell(color, color);
 }
 
 function concatBytes(...arrays) {
@@ -636,8 +686,19 @@ export function crc32(bytes) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function bytesToCells(bytes) {
-  const out = new Array(bytes.length * CELLS_PER_BYTE);
+function bytesToCells(bytes, cellEncoding = CELL_ENCODINGS.RGBW) {
+  const encoding = normalizeCellEncoding(cellEncoding);
+  if (encoding === CELL_ENCODINGS.TRIANGLE16) {
+    const out = new Array(bytes.length * TRIANGLE16_CELLS_PER_BYTE);
+    let cursor = 0;
+    for (const byte of bytes) {
+      out[cursor++] = (byte >>> 4) & 0x0f;
+      out[cursor++] = byte & 0x0f;
+    }
+    return out;
+  }
+
+  const out = new Array(bytes.length * RGBW_CELLS_PER_BYTE);
   let cursor = 0;
   for (const byte of bytes) {
     out[cursor++] = (byte >>> 6) & 0b11;
@@ -648,11 +709,36 @@ function bytesToCells(bytes) {
   return out;
 }
 
-function cellsToBytes(cells, byteCount = Math.floor(cells.length / CELLS_PER_BYTE)) {
-  assert(cells.length >= byteCount * CELLS_PER_BYTE, "Not enough RGBW cells to rebuild bytes.");
-  const out = new Uint8Array(byteCount);
-  for (let i = 0; i < byteCount; i++) {
-    const offset = i * CELLS_PER_BYTE;
+function bytesToProtectedHeaderCells(bytes, cellEncoding = CELL_ENCODINGS.RGBW) {
+  const base = bytesToCells(bytes, CELL_ENCODINGS.RGBW);
+  if (normalizeCellEncoding(cellEncoding) !== CELL_ENCODINGS.TRIANGLE16) return base;
+  // Triangle16 deliberately keeps the protected bootstrap/header as solid-color
+  // modules. This costs a few cells but makes mode detection and damaged-camera
+  // recovery substantially more reliable.
+  return base.map(solidTriangleCell);
+}
+
+function cellsToBytes(cells, byteCount, cellEncoding = CELL_ENCODINGS.RGBW) {
+  const encoding = normalizeCellEncoding(cellEncoding);
+  const cellsPerByte = cellsPerByteForEncoding(encoding);
+  const count = byteCount ?? Math.floor(cells.length / cellsPerByte);
+  assert(cells.length >= count * cellsPerByte, "Not enough data cells to rebuild bytes.");
+  const out = new Uint8Array(count);
+
+  if (encoding === CELL_ENCODINGS.TRIANGLE16) {
+    for (let i = 0; i < count; i++) {
+      const offset = i * TRIANGLE16_CELLS_PER_BYTE;
+      const a = cells[offset];
+      const b = cells[offset + 1];
+      assert(Number.isInteger(a) && a >= 0 && a <= 15, "Invalid Triangle16 data cell.");
+      assert(Number.isInteger(b) && b >= 0 && b <= 15, "Invalid Triangle16 data cell.");
+      out[i] = (a << 4) | b;
+    }
+    return out;
+  }
+
+  for (let i = 0; i < count; i++) {
+    const offset = i * RGBW_CELLS_PER_BYTE;
     const a = cells[offset];
     const b = cells[offset + 1];
     const c = cells[offset + 2];
@@ -665,12 +751,29 @@ function cellsToBytes(cells, byteCount = Math.floor(cells.length / CELLS_PER_BYT
   return out;
 }
 
-function flagsFor(text, eccLevel, secure = false, extended = false, signed = false) {
+function protectedHeaderCellsToBytes(cells, byteCount, cellEncoding = CELL_ENCODINGS.RGBW) {
+  if (normalizeCellEncoding(cellEncoding) !== CELL_ENCODINGS.TRIANGLE16) {
+    return cellsToBytes(cells, byteCount, CELL_ENCODINGS.RGBW);
+  }
+  const colors = cells.map((value) => {
+    const pair = unpackTriangleCell(value);
+    if (pair.first !== pair.second) throw new Error("Triangle16 protected header lost solid-color integrity.");
+    return pair.first;
+  });
+  return cellsToBytes(colors, byteCount, CELL_ENCODINGS.RGBW);
+}
+
+function flagsFor(text, eccLevel, secure = false, extended = false, signed = false, cellEncoding = CELL_ENCODINGS.RGBW) {
   return (text ? TEXT_FLAG : 0) |
     (secure ? SECURE_FLAG : 0) |
     (extended ? EXTENDED_PAYLOAD_FLAG : 0) |
     (signed ? SIGNED_FLAG : 0) |
+    (normalizeCellEncoding(cellEncoding) === CELL_ENCODINGS.TRIANGLE16 ? TRIANGLE16_FLAG : 0) |
     ((ECC_LEVELS[eccLevel].id << ECC_SHIFT) & ECC_MASK);
+}
+
+function cellEncodingFromFlags(flags) {
+  return (flags & TRIANGLE16_FLAG) !== 0 ? CELL_ENCODINGS.TRIANGLE16 : CELL_ENCODINGS.RGBW;
 }
 
 function eccFromFlags(flags) {
@@ -922,7 +1025,8 @@ function maskValue(row, col, maskId) {
   }
 }
 
-function makePaddingCells(count, seed) {
+function makePaddingCells(count, seed, cellEncoding = CELL_ENCODINGS.RGBW) {
+  const encoding = normalizeCellEncoding(cellEncoding);
   let state = (seed >>> 0) || 0x6d2b79f5;
   const out = new Array(count);
   for (let i = 0; i < count; i++) {
@@ -930,9 +1034,25 @@ function makePaddingCells(count, seed) {
     state ^= state >>> 17;
     state ^= state << 5;
     state >>>= 0;
-    out[i] = state & 3;
+    out[i] = encoding === CELL_ENCODINGS.TRIANGLE16 ? (state & 0x0f) : (state & 3);
   }
   return out;
+}
+
+function triangleMaskValue(row, col, maskId) {
+  const first = maskValue(row, col, maskId);
+  const second = maskValue(row + 1, col + 2, (maskId + 1) & 3);
+  return packTriangleCell(first, second);
+}
+
+function applyCellMask(value, row, col, maskId, cellEncoding, protectedHeader = false) {
+  if (cellEncoding !== CELL_ENCODINGS.TRIANGLE16) return value ^ maskValue(row, col, maskId);
+  if (protectedHeader) {
+    const pair = unpackTriangleCell(value);
+    if (pair.first !== pair.second) throw new Error("Triangle16 protected header must use solid-color cells.");
+    return solidTriangleCell(pair.first ^ maskValue(row, col, maskId));
+  }
+  return value ^ triangleMaskValue(row, col, maskId);
 }
 
 const SPECTRAL_PERMUTATION_CACHE = new Map();
@@ -963,7 +1083,15 @@ function spectralPermutation(length, version) {
   return permutation;
 }
 
-function applyData(layout, rawCells, maskId, spectralInterleaving = true) {
+function applyData(
+  layout,
+  rawCells,
+  maskId,
+  spectralInterleaving = true,
+  cellEncoding = CELL_ENCODINGS.RGBW,
+  protectedHeaderCells = getHeaderPlan(layout.version).codewordCells
+) {
+  const encoding = normalizeCellEncoding(cellEncoding);
   const matrix = cloneMatrix(layout.matrix);
   const permutation = spectralInterleaving
     ? spectralPermutation(layout.dataPositions.length, layout.version)
@@ -972,16 +1100,37 @@ function applyData(layout, rawCells, maskId, spectralInterleaving = true) {
   for (let logicalIndex = 0; logicalIndex < layout.dataPositions.length; logicalIndex++) {
     const physicalIndex = permutation ? permutation[logicalIndex] : logicalIndex;
     const [row, col] = layout.dataPositions[physicalIndex];
-    matrix[row][col] = rawCells[logicalIndex] ^ maskValue(row, col, maskId);
+    matrix[row][col] = applyCellMask(
+      rawCells[logicalIndex],
+      row,
+      col,
+      maskId,
+      encoding,
+      encoding === CELL_ENCODINGS.TRIANGLE16 && logicalIndex < protectedHeaderCells
+    );
   }
   return matrix;
 }
 
-function quaternaryPenalty(matrix, reserved) {
+function dataCellPenalty(matrix, reserved, cellEncoding = CELL_ENCODINGS.RGBW) {
+  const encoding = normalizeCellEncoding(cellEncoding);
   const size = matrix.length;
   let penalty = 0;
-  const counts = [0, 0, 0, 0];
-  let dataCount = 0;
+  const colorCounts = [0, 0, 0, 0];
+  let colorCount = 0;
+
+  const symbolAt = (r, c) => matrix[r][c];
+  const addColors = (value) => {
+    if (encoding === CELL_ENCODINGS.TRIANGLE16) {
+      const pair = unpackTriangleCell(value);
+      colorCounts[pair.first]++;
+      colorCounts[pair.second]++;
+      colorCount += 2;
+    } else {
+      colorCounts[value]++;
+      colorCount++;
+    }
+  };
 
   for (let r = 0; r < size; r++) {
     let previous = null;
@@ -992,9 +1141,8 @@ function quaternaryPenalty(matrix, reserved) {
         run = 0;
         continue;
       }
-      const value = matrix[r][c];
-      counts[value]++;
-      dataCount++;
+      const value = symbolAt(r, c);
+      addColors(value);
       if (value === previous) {
         run++;
         if (run >= 4) penalty += 2;
@@ -1014,7 +1162,7 @@ function quaternaryPenalty(matrix, reserved) {
         run = 0;
         continue;
       }
-      const value = matrix[r][c];
+      const value = symbolAt(r, c);
       if (value === previous) {
         run++;
         if (run >= 4) penalty += 2;
@@ -1025,9 +1173,9 @@ function quaternaryPenalty(matrix, reserved) {
     }
   }
 
-  if (dataCount > 0) {
-    const ideal = dataCount / 4;
-    penalty += counts.reduce((sum, count) => sum + Math.abs(count - ideal), 0) / 2;
+  if (colorCount > 0) {
+    const ideal = colorCount / 4;
+    penalty += colorCounts.reduce((sum, count) => sum + Math.abs(count - ideal), 0) / 2;
   }
   return penalty;
 }
@@ -1056,7 +1204,7 @@ function deinterleaveBlocks(stream, blockLengths) {
   return blocks;
 }
 
-function getBodyRsPlan(payloadLength, eccLevel, version = 2) {
+function getBodyRsPlan(payloadLength, eccLevel, version = 2, cellEncoding = CELL_ENCODINGS.RGBW) {
   const ecc = getEffectiveEcc(version, eccLevel);
   const bodyByteCount = payloadLength + CRC_BYTES;
   const dataSymbols = bodyByteCount;
@@ -1078,25 +1226,27 @@ function getBodyRsPlan(payloadLength, eccLevel, version = 2) {
     dataBlockLengths,
     codewordBlockLengths,
     encodedSymbols,
-    encodedCells: encodedSymbols * CELLS_PER_BYTE
+    encodedCells: encodedSymbols * cellsPerByteForEncoding(cellEncoding)
   };
 }
 
-function streamCellCount(payloadLength, eccLevel, version) {
-  return getHeaderPlan(version).codewordCells + getBodyRsPlan(payloadLength, eccLevel, version).encodedCells;
+function streamCellCount(payloadLength, eccLevel, version, cellEncoding = CELL_ENCODINGS.RGBW) {
+  return getHeaderPlan(version).codewordCells +
+    getBodyRsPlan(payloadLength, eccLevel, version, cellEncoding).encodedCells;
 }
 
-function streamFitsLayout(layout, eccLevel, payloadLength, version) {
-  return streamCellCount(payloadLength, eccLevel, version) <= layout.dataPositions.length;
+function streamFitsLayout(layout, eccLevel, payloadLength, version, cellEncoding = CELL_ENCODINGS.RGBW) {
+  return streamCellCount(payloadLength, eccLevel, version, cellEncoding) <= layout.dataPositions.length;
 }
 
-function getCapacityForLayout(layout, eccLevel, version) {
-  if (!streamFitsLayout(layout, eccLevel, 0, version)) return 0;
+function getCapacityForLayout(layout, eccLevel, version, cellEncoding = CELL_ENCODINGS.RGBW) {
+  const encoding = normalizeCellEncoding(cellEncoding);
+  if (!streamFitsLayout(layout, eccLevel, 0, version, encoding)) return 0;
   let low = 0;
-  let high = Math.floor(layout.dataPositions.length / CELLS_PER_BYTE);
+  let high = Math.floor(layout.dataPositions.length / cellsPerByteForEncoding(encoding));
   while (low < high) {
     const mid = Math.ceil((low + high) / 2);
-    if (streamFitsLayout(layout, eccLevel, mid, version)) low = mid;
+    if (streamFitsLayout(layout, eccLevel, mid, version, encoding)) low = mid;
     else high = mid - 1;
   }
   return low;
@@ -1105,6 +1255,7 @@ function getCapacityForLayout(layout, eccLevel, version) {
 export function getVersionInfo(version, options = {}) {
   validateVersion(version);
   const eccLevel = normalizeEccLevel(options.ecc ?? DEFAULT_ECC_LEVEL);
+  const cellEncoding = cellEncodingFromOptions(options);
   const layout = createLayout(version);
   const headerPlan = getHeaderPlan(version);
   const effectiveEcc = getEffectiveEcc(version, eccLevel);
@@ -1114,8 +1265,8 @@ export function getVersionInfo(version, options = {}) {
     eccLevel,
     size: layout.size,
     dataCells: layout.dataPositions.length,
-    theoreticalBits: layout.dataPositions.length * 2,
-    capacityBytes: getCapacityForLayout(layout, eccLevel, version),
+    theoreticalBits: layout.dataPositions.length * (cellEncoding === CELL_ENCODINGS.TRIANGLE16 ? 4 : 2),
+    capacityBytes: getCapacityForLayout(layout, eccLevel, version, cellEncoding),
     headerCells: headerPlan.codewordCells,
     headerBytes: headerPlan.headerBytes,
     headerParitySymbols: headerPlan.paritySymbols,
@@ -1127,8 +1278,11 @@ export function getVersionInfo(version, options = {}) {
     hasAlignmentMarker: true,
     alignmentPatterns: layout.alignments.length,
     alignmentCenters: layout.alignments.map(({ row, col }) => [row, col]),
-    bitsPerDataCell: 2,
+    bitsPerDataCell: cellEncoding === CELL_ENCODINGS.TRIANGLE16 ? 4 : 2,
+    highDensity: cellEncoding === CELL_ENCODINGS.TRIANGLE16,
+    cellEncoding,
     colors: 4,
+    statesPerDataCell: cellEncoding === CELL_ENCODINGS.TRIANGLE16 ? 16 : 4,
     spectralInterleaving: true,
     confidenceAwareEcc: true
   };
@@ -1139,6 +1293,7 @@ function chooseVersion(payloadLength, options = {}) {
   const minVersion = options.minVersion ?? MIN_VERSION;
   const maxVersion = options.maxVersion ?? MAX_VERSION;
   const ecc = normalizeEccLevel(options.ecc ?? DEFAULT_ECC_LEVEL);
+  const cellEncoding = cellEncodingFromOptions(options);
 
   validateVersion(minVersion);
   validateVersion(maxVersion);
@@ -1147,10 +1302,10 @@ function chooseVersion(payloadLength, options = {}) {
   if (requested !== "auto") {
     validateVersion(requested);
     assert(requested >= minVersion && requested <= maxVersion, "Requested version is outside selected bounds.");
-    const info = getVersionInfo(requested, { ecc });
+    const info = getVersionInfo(requested, { ecc, cellEncoding });
     const layout = createLayout(requested);
     assert(
-      payloadLength <= info.capacityBytes && streamFitsLayout(layout, ecc, payloadLength, requested),
+      payloadLength <= info.capacityBytes && streamFitsLayout(layout, ecc, payloadLength, requested, cellEncoding),
       `Payload does not fit version ${requested} with ${ecc} ECC. Maximum is ${info.capacityBytes} bytes.`
     );
     return requested;
@@ -1158,20 +1313,20 @@ function chooseVersion(payloadLength, options = {}) {
 
   for (let version = minVersion; version <= maxVersion; version++) {
     const layout = createLayout(version);
-    if (streamFitsLayout(layout, ecc, payloadLength, version)) return version;
+    if (streamFitsLayout(layout, ecc, payloadLength, version, cellEncoding)) return version;
   }
   throw new Error(`Payload is too large for versions ${minVersion}..${maxVersion}.`);
 }
 
-function encodeProtectedHeader(header, version) {
+function encodeProtectedHeader(header, version, cellEncoding = CELL_ENCODINGS.RGBW) {
   const plan = getHeaderPlan(version);
   const codeword = rsEncode(Array.from(header), plan.paritySymbols);
   assert(codeword.length === plan.codewordBytes, "Header RS symbol calculation mismatch.");
-  return bytesToCells(codeword);
+  return bytesToProtectedHeaderCells(codeword, cellEncoding);
 }
 
-function encodeProtectedBody(bodyBytes, eccLevel, version) {
-  const plan = getBodyRsPlan(bodyBytes.length - CRC_BYTES, eccLevel, version);
+function encodeProtectedBody(bodyBytes, eccLevel, version, cellEncoding = CELL_ENCODINGS.RGBW) {
+  const plan = getBodyRsPlan(bodyBytes.length - CRC_BYTES, eccLevel, version, cellEncoding);
   assert(bodyBytes.length === plan.dataSymbols, "Body RS symbol calculation mismatch.");
 
   const blocks = [];
@@ -1180,7 +1335,7 @@ function encodeProtectedBody(bodyBytes, eccLevel, version) {
     blocks.push(rsEncode(Array.from(bodyBytes.slice(offset, offset + length)), plan.paritySymbols));
     offset += length;
   }
-  return { cells: bytesToCells(interleaveBlocks(blocks)), plan };
+  return { cells: bytesToCells(interleaveBlocks(blocks), cellEncoding), plan };
 }
 
 function finalizeMatrix(layout, rawCells, meta) {
@@ -1188,9 +1343,10 @@ function finalizeMatrix(layout, rawCells, meta) {
   let bestMatrix = null;
   let bestPenalty = Infinity;
 
+  const cellEncoding = normalizeCellEncoding(meta.cellEncoding ?? CELL_ENCODINGS.RGBW);
   for (let maskId = 0; maskId < 4; maskId++) {
-    const candidate = applyData(layout, rawCells, maskId, true);
-    const penalty = quaternaryPenalty(candidate, layout.reserved);
+    const candidate = applyData(layout, rawCells, maskId, true, cellEncoding);
+    const penalty = dataCellPenalty(candidate, layout.reserved, cellEncoding);
     if (penalty < bestPenalty) {
       bestPenalty = penalty;
       bestMaskId = maskId;
@@ -1198,7 +1354,7 @@ function finalizeMatrix(layout, rawCells, meta) {
     }
   }
 
-  const info = getVersionInfo(meta.version, { ecc: meta.eccLevel });
+  const info = getVersionInfo(meta.version, { ecc: meta.eccLevel, cellEncoding });
   return {
     format: "QuadQR",
     formatVersion: FORMAT_VERSION,
@@ -1221,7 +1377,10 @@ function finalizeMatrix(layout, rawCells, meta) {
     capacityBytes: info.capacityBytes,
     alignmentPatterns: layout.alignments.length,
     utilization: meta.meaningfulCells / layout.dataPositions.length,
-    bitsPerDataCell: 2,
+    bitsPerDataCell: cellEncoding === CELL_ENCODINGS.TRIANGLE16 ? 4 : 2,
+    highDensity: cellEncoding === CELL_ENCODINGS.TRIANGLE16,
+    cellEncoding,
+    statesPerDataCell: cellEncoding === CELL_ENCODINGS.TRIANGLE16 ? 16 : 4,
     eccLevel: meta.eccLevel,
     eccParitySymbols: meta.eccParitySymbols,
     eccBlocks: meta.eccBlocks,
@@ -1242,23 +1401,26 @@ function encodePreparedBytes(input, options = {}) {
   const secure = Boolean(options.secure);
   const extended = Boolean(options.extended);
   const signed = Boolean(options.signed);
-  const flags = flagsFor(Boolean(options.text), eccLevel, secure, extended, signed);
-  const version = chooseVersion(payload.length, { ...options, ecc: eccLevel });
+  const cellEncoding = cellEncodingFromOptions(options);
+  const flags = flagsFor(Boolean(options.text), eccLevel, secure, extended, signed, cellEncoding);
+  const version = chooseVersion(payload.length, { ...options, ecc: eccLevel, cellEncoding });
   const layout = createLayout(version);
   const header = makeHeader(payload.length, flags, version);
   const crc = crc32(concatBytes(header, payload));
-  const headerCells = encodeProtectedHeader(header, version);
-  const bodyEncoded = encodeProtectedBody(concatBytes(payload, u32be(crc)), eccLevel, version);
+  const headerCells = encodeProtectedHeader(header, version, cellEncoding);
+  const bodyEncoded = encodeProtectedBody(concatBytes(payload, u32be(crc)), eccLevel, version, cellEncoding);
   const meaningfulCells = headerCells.concat(bodyEncoded.cells);
   assert(meaningfulCells.length <= layout.dataPositions.length, "Internal QuadQR capacity calculation error.");
 
   const padding = makePaddingCells(
     layout.dataPositions.length - meaningfulCells.length,
-    crc ^ payload.length ^ (version << 24) ^ (ECC_LEVELS[eccLevel].id << 16)
+    crc ^ payload.length ^ (version << 24) ^ (ECC_LEVELS[eccLevel].id << 16),
+    cellEncoding
   );
 
   return finalizeMatrix(layout, meaningfulCells.concat(padding), {
     version,
+    cellEncoding,
     payloadBytes: payload.length,
     sourcePayloadBytes: options.sourcePayloadBytes ?? payload.length,
     secure,
@@ -1499,12 +1661,14 @@ function rotate90(matrix) {
   return out;
 }
 
-function extractVisibleCells(matrix, layout) {
+function extractVisibleCells(matrix, layout, cellEncoding = CELL_ENCODINGS.RGBW) {
+  const encoding = normalizeCellEncoding(cellEncoding);
+  const maxValue = encoding === CELL_ENCODINGS.TRIANGLE16 ? 15 : 3;
   const out = [];
   for (const [row, col] of layout.dataPositions) {
     const value = matrix[row][col];
-    if (!Number.isInteger(value) || value < 0 || value > 3) {
-      throw new Error("Data region contains an invalid QuadQR data cell.");
+    if (!Number.isInteger(value) || value < 0 || value > maxValue) {
+      throw new Error(`Data region contains an invalid ${encoding === CELL_ENCODINGS.TRIANGLE16 ? "Triangle16" : "RGBW"} data cell.`);
     }
     out.push(value);
   }
@@ -1518,6 +1682,34 @@ function unmaskCells(visibleCells, positions, maskId) {
   });
 }
 
+function unmaskAndRestoreLogicalCells(
+  visibleCells,
+  positions,
+  maskId,
+  version,
+  spectralInterleaving,
+  cellEncoding = CELL_ENCODINGS.RGBW
+) {
+  const encoding = normalizeCellEncoding(cellEncoding);
+  const permutation = spectralInterleaving ? spectralPermutation(visibleCells.length, version) : null;
+  const logical = new Array(visibleCells.length);
+  const headerCells = getHeaderPlan(version).codewordCells;
+
+  for (let logicalIndex = 0; logicalIndex < visibleCells.length; logicalIndex++) {
+    const physicalIndex = permutation ? permutation[logicalIndex] : logicalIndex;
+    const [row, col] = positions[physicalIndex];
+    logical[logicalIndex] = applyCellMask(
+      visibleCells[physicalIndex],
+      row,
+      col,
+      maskId,
+      encoding,
+      encoding === CELL_ENCODINGS.TRIANGLE16 && logicalIndex < headerCells
+    );
+  }
+  return logical;
+}
+
 function restoreLogicalOrder(physicalValues, version, spectralInterleaving) {
   if (!spectralInterleaving) return physicalValues.slice();
   const permutation = spectralPermutation(physicalValues.length, version);
@@ -1528,20 +1720,21 @@ function restoreLogicalOrder(physicalValues, version, spectralInterleaving) {
   return logical;
 }
 
-function cellsToSymbolConfidences(confidences, byteCount) {
+function cellsToSymbolConfidences(
+  confidences,
+  byteCount,
+  cellsPerByte = RGBW_CELLS_PER_BYTE
+) {
   if (!confidences) return null;
-  if (confidences.length < byteCount * CELLS_PER_BYTE) return null;
+  if (confidences.length < byteCount * cellsPerByte) return null;
   const out = new Array(byteCount);
   for (let symbolIndex = 0; symbolIndex < byteCount; symbolIndex++) {
-    const offset = symbolIndex * CELLS_PER_BYTE;
-    // A single wrong 2-bit cell changes the GF(256) symbol, so the weakest
-    // constituent cell is the useful confidence bound for that symbol.
-    out[symbolIndex] = Math.min(
-      confidences[offset] ?? 1,
-      confidences[offset + 1] ?? 1,
-      confidences[offset + 2] ?? 1,
-      confidences[offset + 3] ?? 1
-    );
+    const offset = symbolIndex * cellsPerByte;
+    let value = 1;
+    for (let cellIndex = 0; cellIndex < cellsPerByte; cellIndex++) {
+      value = Math.min(value, confidences[offset + cellIndex] ?? 1);
+    }
+    out[symbolIndex] = value;
   }
   return out;
 }
@@ -1578,11 +1771,11 @@ function decodeRsAdaptive(codeword, paritySymbols, symbolConfidences, options = 
   }
 }
 
-function decodeProtectedHeader(rawCells, version, rawConfidences = null, options = {}) {
+function decodeProtectedHeader(rawCells, version, rawConfidences = null, options = {}, cellEncoding = CELL_ENCODINGS.RGBW) {
   const plan = getHeaderPlan(version);
   const headerCells = rawCells.slice(0, plan.codewordCells);
-  const codeword = Array.from(cellsToBytes(headerCells, plan.codewordBytes));
-  const confidences = cellsToSymbolConfidences(rawConfidences?.slice(0, plan.codewordCells), plan.codewordBytes);
+  const codeword = Array.from(protectedHeaderCellsToBytes(headerCells, plan.codewordBytes, cellEncoding));
+  const confidences = cellsToSymbolConfidences(rawConfidences?.slice(0, plan.codewordCells), plan.codewordBytes, RGBW_CELLS_PER_BYTE);
   const decoded = decodeRsAdaptive(codeword, plan.paritySymbols, confidences, options);
   const header = new Uint8Array(decoded.data);
   const parsed = parseHeader(header, version);
@@ -1597,16 +1790,17 @@ function decodeProtectedHeader(rawCells, version, rawConfidences = null, options
   };
 }
 
-function decodeProtectedBody(rawCells, payloadLength, eccLevel, version, rawConfidences = null, options = {}) {
-  const plan = getBodyRsPlan(payloadLength, eccLevel, version);
+function decodeProtectedBody(rawCells, payloadLength, eccLevel, version, rawConfidences = null, options = {}, cellEncoding = CELL_ENCODINGS.RGBW) {
+  const plan = getBodyRsPlan(payloadLength, eccLevel, version, cellEncoding);
   const bodyStart = getHeaderPlan(version).codewordCells;
   const encodedCells = rawCells.slice(bodyStart, bodyStart + plan.encodedCells);
   if (encodedCells.length !== plan.encodedCells) throw new Error("Protected body is incomplete.");
 
-  const encodedSymbols = Array.from(cellsToBytes(encodedCells, plan.encodedSymbols));
+  const encodedSymbols = Array.from(cellsToBytes(encodedCells, plan.encodedSymbols, cellEncoding));
   const symbolConfidences = cellsToSymbolConfidences(
     rawConfidences?.slice(bodyStart, bodyStart + plan.encodedCells),
-    plan.encodedSymbols
+    plan.encodedSymbols,
+    cellsPerByteForEncoding(cellEncoding)
   );
   const blocks = deinterleaveBlocks(encodedSymbols, plan.codewordBlockLengths);
   const confidenceBlocks = symbolConfidences
@@ -1649,96 +1843,136 @@ function decodeCanonical(matrix, rotation, tolerance = 0, confidenceMatrix = nul
   if (!validateStructure(matrix, tolerance)) throw new Error("QuadQR finder/alignment structure does not match.");
 
   const layout = createLayout(version);
-  const visible = extractVisibleCells(matrix, layout);
-  const visibleConfidences = confidenceMatrix
-    ? layout.dataPositions.map(([row, col]) => confidenceMatrix[row]?.[col] ?? 1)
-    : null;
   const errors = [];
+  const hintedEncoding = options.cellEncodingHint != null
+    ? normalizeCellEncoding(options.cellEncodingHint)
+    : null;
+  const hasExtendedCells = layout.dataPositions.some(([row, col]) => (matrix[row]?.[col] ?? 0) > 3);
+  const encodingAttempts = hintedEncoding
+    ? [hintedEncoding]
+    : hasExtendedCells
+      ? [CELL_ENCODINGS.TRIANGLE16, CELL_ENCODINGS.RGBW]
+      : [CELL_ENCODINGS.RGBW, CELL_ENCODINGS.TRIANGLE16];
 
-  // New symbols use spectral-spatial interleaving. Legacy order remains a
-  // decode fallback so existing QuadQR images do not become unreadable.
-  for (const spectralInterleaving of [true, false]) {
-    for (let maskId = 0; maskId < 4; maskId++) {
-      try {
-        const physicalRaw = unmaskCells(visible, layout.dataPositions, maskId);
-        const raw = restoreLogicalOrder(physicalRaw, version, spectralInterleaving);
-        const rawConfidences = visibleConfidences
-          ? restoreLogicalOrder(visibleConfidences, version, spectralInterleaving)
-          : null;
-        const headerDecoded = decodeProtectedHeader(raw, version, rawConfidences, options);
-        const header = headerDecoded.header;
-        const flags = headerDecoded.flags;
-        const eccLevel = eccFromFlags(flags);
-        const payloadLength = headerDecoded.payloadLength;
-        if (streamCellCount(payloadLength, eccLevel, version) > raw.length) {
-          throw new Error("Declared payload exceeds matrix capacity.");
+  for (const cellEncoding of encodingAttempts) {
+    let visible;
+    try {
+      visible = extractVisibleCells(matrix, layout, cellEncoding);
+    } catch (error) {
+      errors.push(`${cellEncoding}: ${error.message}`);
+      continue;
+    }
+
+    const visibleConfidences = confidenceMatrix
+      ? layout.dataPositions.map(([row, col]) => confidenceMatrix[row]?.[col] ?? 1)
+      : null;
+
+    // New symbols use spectral-spatial interleaving. Legacy order remains a
+    // decode fallback so existing RGBW QuadQR images do not become unreadable.
+    for (const spectralInterleaving of [true, false]) {
+      for (let maskId = 0; maskId < 4; maskId++) {
+        try {
+          const raw = unmaskAndRestoreLogicalCells(
+            visible,
+            layout.dataPositions,
+            maskId,
+            version,
+            spectralInterleaving,
+            cellEncoding
+          );
+          const rawConfidences = visibleConfidences
+            ? restoreLogicalOrder(visibleConfidences, version, spectralInterleaving)
+            : null;
+          const headerDecoded = decodeProtectedHeader(
+            raw,
+            version,
+            rawConfidences,
+            options,
+            cellEncoding
+          );
+          const header = headerDecoded.header;
+          const flags = headerDecoded.flags;
+          const declaredCellEncoding = cellEncodingFromFlags(flags);
+          if (declaredCellEncoding !== cellEncoding) {
+            throw new Error(`Header declares ${declaredCellEncoding}, not ${cellEncoding}.`);
+          }
+          const eccLevel = eccFromFlags(flags);
+          const payloadLength = headerDecoded.payloadLength;
+          if (streamCellCount(payloadLength, eccLevel, version, cellEncoding) > raw.length) {
+            throw new Error("Declared payload exceeds matrix capacity.");
+          }
+
+          const bodyDecoded = decodeProtectedBody(
+            raw,
+            payloadLength,
+            eccLevel,
+            version,
+            rawConfidences,
+            options,
+            cellEncoding
+          );
+          const body = bodyDecoded.body;
+          const payload = body.slice(0, payloadLength);
+          const expectedCrc = readU32be(body, payloadLength);
+          const actualCrc = crc32(concatBytes(header, payload));
+          if (expectedCrc !== actualCrc) throw new Error("CRC mismatch after ECC.");
+
+          const isText = (flags & TEXT_FLAG) !== 0;
+          const secure = (flags & SECURE_FLAG) !== 0;
+          const extendedFlag = (flags & EXTENDED_PAYLOAD_FLAG) !== 0;
+          const signedFlag = (flags & SIGNED_FLAG) !== 0;
+          const security = secure ? inspectSecureEnvelope(payload) : null;
+          const envelope = extendedFlag && !secure ? parsePayloadEnvelope(payload) : null;
+          const applicationPayload = envelope ? envelope.payload : payload;
+          const erasureSymbols = headerDecoded.erasureSymbols + bodyDecoded.erasureSymbols;
+          const unknownErrorSymbols = headerDecoded.unknownErrorSymbols + bodyDecoded.unknownErrorSymbols;
+          return {
+            ok: true,
+            format: "QuadQR",
+            formatVersion: FORMAT_VERSION,
+            version,
+            size,
+            alignmentPatterns: layout.alignments.length,
+            maskId,
+            rotation,
+            flags,
+            highDensity: cellEncoding === CELL_ENCODINGS.TRIANGLE16,
+            cellEncoding,
+            bitsPerDataCell: cellEncoding === CELL_ENCODINGS.TRIANGLE16 ? 4 : 2,
+            statesPerDataCell: cellEncoding === CELL_ENCODINGS.TRIANGLE16 ? 16 : 4,
+            eccLevel,
+            eccParitySymbols: bodyDecoded.plan.paritySymbols,
+            eccBlocks: bodyDecoded.plan.dataBlockLengths.length,
+            correctableSymbolsPerBlock: bodyDecoded.plan.correctableSymbolsPerBlock,
+            spectralInterleaving,
+            confidenceAwareEcc: Boolean(rawConfidences),
+            confidenceAssisted: headerDecoded.confidenceAssisted || bodyDecoded.confidenceAssisted,
+            erasureSymbols,
+            unknownErrorSymbols,
+            correctedHeaderSymbols: headerDecoded.correctedSymbols,
+            correctedBodySymbols: bodyDecoded.correctedSymbols,
+            correctedSymbols: headerDecoded.correctedSymbols + bodyDecoded.correctedSymbols,
+            protectedPayload: envelope ? payload : undefined,
+            payload: secure ? payload : applicationPayload,
+            text: secure ? null : (isText ? getTextDecoder().decode(applicationPayload) : null),
+            compressed: envelope?.compressed ?? false,
+            compression: envelope?.compression ?? "none",
+            signed: envelope?.signed ?? signedFlag,
+            signatureVerified: envelope?.signatureVerified,
+            signatureTrusted: envelope?.signatureTrusted,
+            signingKeyId: envelope?.keyId ?? null,
+            hasEmbeddedPublicKey: envelope?.hasEmbeddedPublicKey ?? false,
+            signer: envelope?.signer ?? null,
+            secure,
+            encrypted: secure,
+            decrypted: false,
+            requiresDecryption: secure,
+            security,
+            crc32: actualCrc >>> 0
+          };
+        } catch (error) {
+          errors.push(`${cellEncoding} ${spectralInterleaving ? "spectral" : "legacy"} mask ${maskId}: ${error.message}`);
         }
-
-        const bodyDecoded = decodeProtectedBody(
-          raw,
-          payloadLength,
-          eccLevel,
-          version,
-          rawConfidences,
-          options
-        );
-        const body = bodyDecoded.body;
-        const payload = body.slice(0, payloadLength);
-        const expectedCrc = readU32be(body, payloadLength);
-        const actualCrc = crc32(concatBytes(header, payload));
-        if (expectedCrc !== actualCrc) throw new Error("CRC mismatch after ECC.");
-
-        const isText = (flags & TEXT_FLAG) !== 0;
-        const secure = (flags & SECURE_FLAG) !== 0;
-        const extendedFlag = (flags & EXTENDED_PAYLOAD_FLAG) !== 0;
-        const signedFlag = (flags & SIGNED_FLAG) !== 0;
-        const security = secure ? inspectSecureEnvelope(payload) : null;
-        const envelope = extendedFlag && !secure ? parsePayloadEnvelope(payload) : null;
-        const applicationPayload = envelope ? envelope.payload : payload;
-        const erasureSymbols = headerDecoded.erasureSymbols + bodyDecoded.erasureSymbols;
-        const unknownErrorSymbols = headerDecoded.unknownErrorSymbols + bodyDecoded.unknownErrorSymbols;
-        return {
-          ok: true,
-          format: "QuadQR",
-          formatVersion: FORMAT_VERSION,
-          version,
-          size,
-          alignmentPatterns: layout.alignments.length,
-          maskId,
-          rotation,
-          flags,
-          eccLevel,
-          eccParitySymbols: bodyDecoded.plan.paritySymbols,
-          eccBlocks: bodyDecoded.plan.dataBlockLengths.length,
-          correctableSymbolsPerBlock: bodyDecoded.plan.correctableSymbolsPerBlock,
-          spectralInterleaving,
-          confidenceAwareEcc: Boolean(rawConfidences),
-          confidenceAssisted: headerDecoded.confidenceAssisted || bodyDecoded.confidenceAssisted,
-          erasureSymbols,
-          unknownErrorSymbols,
-          correctedHeaderSymbols: headerDecoded.correctedSymbols,
-          correctedBodySymbols: bodyDecoded.correctedSymbols,
-          correctedSymbols: headerDecoded.correctedSymbols + bodyDecoded.correctedSymbols,
-          protectedPayload: envelope ? payload : undefined,
-          payload: secure ? payload : applicationPayload,
-          text: secure ? null : (isText ? getTextDecoder().decode(applicationPayload) : null),
-          compressed: envelope?.compressed ?? false,
-          compression: envelope?.compression ?? "none",
-          signed: envelope?.signed ?? signedFlag,
-          signatureVerified: envelope?.signatureVerified,
-          signatureTrusted: envelope?.signatureTrusted,
-          signingKeyId: envelope?.keyId ?? null,
-          hasEmbeddedPublicKey: envelope?.hasEmbeddedPublicKey ?? false,
-          signer: envelope?.signer ?? null,
-          secure,
-          encrypted: secure,
-          decrypted: false,
-          requiresDecryption: secure,
-          security,
-          crc32: actualCrc >>> 0
-        };
-      } catch (error) {
-        errors.push(`${spectralInterleaving ? "spectral" : "legacy"} mask ${maskId}: ${error.message}`);
       }
     }
   }
@@ -1852,6 +2086,80 @@ function cellRgb(cell, palette) {
     case CELL.WHITE: return palette.white;
     default: throw new Error(`Unknown cell value ${cell}.`);
   }
+}
+
+
+function inferCellEncoding(codeOrMatrix, matrix, layout = null) {
+  if (!Array.isArray(codeOrMatrix) && codeOrMatrix?.cellEncoding) {
+    return normalizeCellEncoding(codeOrMatrix.cellEncoding);
+  }
+  const activeLayout = layout ?? renderLayoutForMatrix(matrix);
+  if (activeLayout) {
+    for (const [row, col] of activeLayout.dataPositions) {
+      if ((matrix[row]?.[col] ?? 0) > 3) return CELL_ENCODINGS.TRIANGLE16;
+    }
+  }
+  return CELL_ENCODINGS.RGBW;
+}
+
+function triangleCellColors(cell) {
+  const { first, second } = unpackTriangleCell(cell);
+  return { first, second };
+}
+
+function drawTriangleCellCanvas(ctx, x, y, width, height, cell, palette) {
+  const pair = triangleCellColors(cell);
+  if (pair.first === pair.second) {
+    ctx.fillStyle = cellColor(pair.first, palette);
+    ctx.fillRect(x, y, width, height);
+    return;
+  }
+
+  // Fixed "/" split. first = upper-left triangle, second = lower-right.
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + width, y);
+  ctx.lineTo(x, y + height);
+  ctx.closePath();
+  ctx.fillStyle = cellColor(pair.first, palette);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(x + width, y);
+  ctx.lineTo(x + width, y + height);
+  ctx.lineTo(x, y + height);
+  ctx.closePath();
+  ctx.fillStyle = cellColor(pair.second, palette);
+  ctx.fill();
+}
+
+function fillImageTriangleCell(data, imageWidth, x, y, width, height, cell, palette) {
+  const pair = triangleCellColors(cell);
+  const firstRgb = cellRgb(pair.first, palette);
+  const secondRgb = cellRgb(pair.second, palette);
+  for (let yy = 0; yy < height; yy++) {
+    for (let xx = 0; xx < width; xx++) {
+      const normalizedX = (xx + 0.5) / Math.max(1, width);
+      const normalizedY = (yy + 0.5) / Math.max(1, height);
+      const rgb = normalizedX + normalizedY <= 1 ? firstRgb : secondRgb;
+      const p = ((y + yy) * imageWidth + (x + xx)) * 4;
+      data[p] = rgb.r;
+      data[p + 1] = rgb.g;
+      data[p + 2] = rgb.b;
+      data[p + 3] = 255;
+    }
+  }
+}
+
+function svgTriangleCell(x, y, size, cell, palette) {
+  const pair = triangleCellColors(cell);
+  if (pair.first === pair.second) return svgRect(x, y, size, size, cellColor(pair.first, palette));
+  const first = cellColor(pair.first, palette);
+  const second = cellColor(pair.second, palette);
+  return [
+    `<polygon points="${x},${y} ${x + size},${y} ${x},${y + size}" fill="${first}"/>`,
+    `<polygon points="${x + size},${y} ${x + size},${y + size} ${x},${y + size}" fill="${second}"/>`
+  ].join("");
 }
 
 
@@ -2324,6 +2632,7 @@ export function renderToCanvas(codeOrMatrix, canvas, options = {}) {
   const mode = normalizeRenderMode(options.mode ?? options.renderMode ?? RENDER_MODES.SCREEN);
   const style = normalizeRenderStyle(mode === RENDER_MODES.PRINT && options.allowStyledPrint !== true ? RENDER_STYLES.CLASSIC : options.style);
   const layout = renderLayoutForMatrix(matrix);
+  const cellEncoding = inferCellEncoding(codeOrMatrix, matrix, layout);
   const size = matrix.length;
   const logo = resolveLogoRenderOptions(options, size, moduleSize, quietZone, palette, codeOrMatrix);
 
@@ -2341,6 +2650,14 @@ export function renderToCanvas(codeOrMatrix, canvas, options = {}) {
       const rect = rasterModuleRect(r, c, quietZone, moduleSize);
       const { x, y, width: cellWidth, height: cellHeight } = rect;
       const cellSize = Math.min(cellWidth, cellHeight);
+
+      if (cellEncoding === CELL_ENCODINGS.TRIANGLE16 && !structural) {
+        // Experimental Triangle16 always renders payload cells with exact,
+        // hard-edged geometry. Decorative per-cell styles would contaminate the
+        // two independent color samples and reduce scan reliability.
+        drawTriangleCellCanvas(ctx, x, y, cellWidth, cellHeight, cell, palette);
+        continue;
+      }
 
       if (style === RENDER_STYLES.CLASSIC || structural) {
         ctx.fillStyle = cellColor(cell, palette);
@@ -2415,6 +2732,7 @@ export function renderToImageData(codeOrMatrix, options = {}) {
   const mode = normalizeRenderMode(options.mode ?? options.renderMode ?? RENDER_MODES.SCREEN);
   const style = normalizeRenderStyle(mode === RENDER_MODES.PRINT && options.allowStyledPrint !== true ? RENDER_STYLES.CLASSIC : options.style);
   const layout = renderLayoutForMatrix(matrix);
+  const cellEncoding = inferCellEncoding(codeOrMatrix, matrix, layout);
   const size = matrix.length;
   const data = new Uint8ClampedArray(pixelSize * pixelSize * 4);
   const white = palette.white;
@@ -2431,7 +2749,6 @@ export function renderToImageData(codeOrMatrix, options = {}) {
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
       const cell = matrix[r][c];
-      const rgb = cellRgb(cell, palette);
       const structural = isStructuralRenderCell(layout, r, c, cell);
       const rect = rasterModuleRect(r, c, quietZone, moduleSize);
       const x0 = rect.x;
@@ -2439,6 +2756,13 @@ export function renderToImageData(codeOrMatrix, options = {}) {
       const cellWidth = rect.width;
       const cellHeight = rect.height;
       const cellSize = Math.min(cellWidth, cellHeight);
+
+      if (cellEncoding === CELL_ENCODINGS.TRIANGLE16 && !structural) {
+        fillImageTriangleCell(data, pixelSize, x0, y0, cellWidth, cellHeight, cell, palette);
+        continue;
+      }
+
+      const rgb = cellRgb(cell, palette);
 
       if (style === RENDER_STYLES.CLASSIC || structural) {
         fillImageRect(data, pixelSize, x0, y0, cellWidth, cellHeight, rgb);
@@ -2501,6 +2825,7 @@ export function renderToSVG(codeOrMatrix, options = {}) {
   const mode = normalizeRenderMode(options.mode ?? options.renderMode ?? RENDER_MODES.SCREEN);
   const style = normalizeRenderStyle(mode === RENDER_MODES.PRINT && options.allowStyledPrint !== true ? RENDER_STYLES.CLASSIC : options.style);
   const layout = renderLayoutForMatrix(matrix);
+  const cellEncoding = inferCellEncoding(codeOrMatrix, matrix, layout);
   const size = matrix.length;
   const logo = resolveLogoRenderOptions(options, size, moduleSize, quietZone, palette, codeOrMatrix);
   const body = [svgRect(0, 0, pixelSize, pixelSize, palette.white)];
@@ -2511,7 +2836,12 @@ export function renderToSVG(codeOrMatrix, options = {}) {
       const structural = isStructuralRenderCell(layout, r, c, cell);
       const x = (c + quietZone) * moduleSize;
       const y = (r + quietZone) * moduleSize;
-      const fill = cellColor(cell, palette);
+      const fill = cellEncoding === CELL_ENCODINGS.TRIANGLE16 && !structural ? null : cellColor(cell, palette);
+
+      if (cellEncoding === CELL_ENCODINGS.TRIANGLE16 && !structural) {
+        body.push(svgTriangleCell(x, y, moduleSize, cell, palette));
+        continue;
+      }
 
       if (style === RENDER_STYLES.CLASSIC || structural) {
         body.push(svgRect(x, y, moduleSize, moduleSize, fill));
@@ -2738,6 +3068,60 @@ function classifySampledRgbGrid(rgbGrid, classifier, layout = null) {
   };
 }
 
+function classifyTriangleSampledRgbGrid(rgbGrid, triangleGrid, classifier, layout) {
+  const size = rgbGrid.length;
+  const matrix = make2D(size, CELL.WHITE);
+  const confidence = make2D(size, 1);
+  const dataClassifier = {
+    ...classifier,
+    entries: classifier.entries.filter(({ cell }) => cell !== CELL.BLACK)
+  };
+  let distanceSum = 0;
+  let confidenceSum = 0;
+  let minimumConfidence = 1;
+  let lowConfidenceCells = 0;
+
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const isDataCell = layout && !layout.reserved[r][c];
+      if (!isDataCell) {
+        const classified = classifyRgb(rgbGrid[r][c], classifier);
+        matrix[r][c] = classified.cell;
+        confidence[r][c] = classified.confidence;
+        distanceSum += classified.distance;
+        confidenceSum += classified.confidence;
+        minimumConfidence = Math.min(minimumConfidence, classified.confidence);
+        if (classified.confidence < 0.4) lowConfidenceCells++;
+        continue;
+      }
+
+      const samples = triangleGrid?.[r]?.[c];
+      if (!samples) throw new Error("Triangle16 sampling grid is incomplete.");
+      const classifyData = (rgb) => classifier.dataMode === "hue"
+        ? classifyDataHue(rgb, classifier)
+        : classifyRgb(rgb, dataClassifier);
+      const first = classifyData(samples.first);
+      const second = classifyData(samples.second);
+      const cellConfidence = Math.min(first.confidence, second.confidence);
+      matrix[r][c] = packTriangleCell(first.cell, second.cell);
+      confidence[r][c] = cellConfidence;
+      distanceSum += (first.distance + second.distance) / 2;
+      confidenceSum += cellConfidence;
+      minimumConfidence = Math.min(minimumConfidence, cellConfidence);
+      if (cellConfidence < 0.4) lowConfidenceCells++;
+    }
+  }
+
+  return {
+    matrix,
+    confidence,
+    averageColorDistance: distanceSum / (size * size),
+    averageCellConfidence: confidenceSum / (size * size),
+    minimumCellConfidence: minimumConfidence,
+    lowConfidenceCells
+  };
+}
+
 function structuralAccuracy(matrix, layout) {
   let matches = 0;
   let total = 0;
@@ -2777,6 +3161,7 @@ function tryPerspectiveScan(imageData, options) {
     finderAutoColorAnalysisInset: options.finderAutoColorAnalysisInset,
     finderAutoColorMinimumInputRange: options.finderAutoColorMinimumInputRange,
     finderAutoColorTargetSamples: options.finderAutoColorTargetSamples,
+    preciseAlignment: options.preciseAlignment,
     diagnostics: options._visionDiagnostics,
     diagnosticLabel: options._diagnosticLabel ?? "normal"
   });
@@ -2802,9 +3187,18 @@ function tryPerspectiveScan(imageData, options) {
     let bestStructureScore = 0;
     for (const profile of sampleProfiles) {
       let sampled;
+      let triangleSampled = null;
       let observedPalette;
       try {
         sampled = samplePerspectiveMatrix(imageData, geometry.homography, layout.size, profile);
+        if (options.highDensitySampling !== false && options.triangle16 !== false) {
+          triangleSampled = samplePerspectiveTriangleMatrix(
+            imageData,
+            geometry.homography,
+            layout.size,
+            profile
+          );
+        }
         observedPalette = sampleObservedPalette(sampled.rgbGrid, layout.calibration, {
           robust: profile.robustCalibration
         });
@@ -2863,11 +3257,67 @@ function tryPerspectiveScan(imageData, options) {
         }
       };
 
+      const tryTriangleAttempt = (attempt, metadata = {}) => {
+        if (!triangleSampled?.triangleGrid) return false;
+        const activeObservedPalette = metadata.observedPalette ?? observedPalette;
+        const activeSamplingMode = metadata.samplingMode ?? `${profile.sampleMode}-triangle16`;
+        const classified = classifyTriangleSampledRgbGrid(
+          sampled.rgbGrid,
+          triangleSampled.triangleGrid,
+          attempt.classifier,
+          layout
+        );
+        const structureScore = structuralAccuracy(classified.matrix, layout);
+        bestStructureScore = Math.max(bestStructureScore, structureScore);
+        pushObservation(options, {
+          version: geometry.version,
+          matrix: classified.matrix,
+          confidence: classified.confidence,
+          geometry,
+          observedPalette: activeObservedPalette,
+          samplingMode: activeSamplingMode,
+          colorNormalization: attempt.colorNormalization,
+          cellEncoding: CELL_ENCODINGS.TRIANGLE16,
+          structureScore,
+          averageCellConfidence: classified.averageCellConfidence,
+          lowConfidenceCells: classified.lowConfidenceCells
+        });
+
+        try {
+          const decoded = decodeMatrix(classified.matrix, {
+            structureTolerance: options.structureTolerance ?? 0.18,
+            cellConfidence: classified.confidence,
+            cellEncodingHint: CELL_ENCODINGS.TRIANGLE16,
+            maxErasureConfidence: options.maxErasureConfidence
+          });
+          if (decoded.version !== geometry.version) return false;
+          results.push({
+            ...decoded,
+            perspectiveCorrected: true,
+            colorCalibrated: true,
+            colorNormalization: attempt.colorNormalization,
+            samplingMode: activeSamplingMode,
+            geometry,
+            observedPalette: activeObservedPalette,
+            averageColorDistance: classified.averageColorDistance,
+            averageCellConfidence: classified.averageCellConfidence,
+            minimumCellConfidence: classified.minimumCellConfidence,
+            lowConfidenceCells: classified.lowConfidenceCells,
+            rectified: options.includeRectified
+              ? rectifyImageData(imageData, geometry.homography, layout.size, options.rectifiedModuleSize ?? 8)
+              : undefined
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
       // Fast path: preserve the original observed-RGB classifier first, then
       // try per-channel white balancing. Most clean frames stop here without
       // paying for the more expensive spatial normalization fallback.
       for (const attempt of paletteClassifierAttempts(observedPalette)) {
-        if (tryAttempt(attempt, sampled.rgbGrid)) {
+        if (tryAttempt(attempt, sampled.rgbGrid) || tryTriangleAttempt(attempt)) {
           geometryDecoded = true;
           break;
         }
@@ -2994,17 +3444,30 @@ function tryPerspectiveScan(imageData, options) {
         [step, -step], [step, step], [-step, -step], [-step, step]
       ];
       const refinementCandidates = [];
+      const triangleRefinementCandidates = [];
 
       for (const [offsetX, offsetY] of refinementOffsets) {
         let sampled;
+        let triangleSampled = null;
         let observedPalette;
         try {
-          sampled = samplePerspectiveMatrix(imageData, geometry.homography, layout.size, {
+          const samplingOptions = {
             sampleMode: "cross",
             sampleRadius: 0,
             sampleOffsetX: offsetX,
-            sampleOffsetY: offsetY
-          });
+            sampleOffsetY: offsetY,
+            triangleSampleInset: options.highDensitySampleInset ?? options.triangleSampleInset,
+            triangleSampleRadius: options.highDensitySampleRadius ?? options.triangleSampleRadius
+          };
+          sampled = samplePerspectiveMatrix(imageData, geometry.homography, layout.size, samplingOptions);
+          if (options.highDensitySampling !== false && options.triangle16 !== false) {
+            triangleSampled = samplePerspectiveTriangleMatrix(
+              imageData,
+              geometry.homography,
+              layout.size,
+              samplingOptions
+            );
+          }
           observedPalette = sampleObservedPalette(sampled.rgbGrid, layout.calibration, { robust: true });
         } catch {
           continue;
@@ -3034,30 +3497,80 @@ function tryPerspectiveScan(imageData, options) {
 
           // Do not spend RS work on a refinement that made the known finder /
           // alignment structure worse. This keeps the recovery path bounded.
-          if (structureScore < (options.refinementDecodeThreshold ?? 0.95)) continue;
-          refinementCandidates.push({
-            attempt,
-            classified,
-            observedPalette,
-            offsetX,
-            offsetY,
-            structureScore
-          });
+          if (structureScore >= (options.refinementDecodeThreshold ?? 0.95)) {
+            refinementCandidates.push({
+              attempt,
+              classified,
+              observedPalette,
+              offsetX,
+              offsetY,
+              structureScore,
+              cellEncoding: CELL_ENCODINGS.RGBW,
+              samplingMode: "refined-center"
+            });
+          }
+
+          if (triangleSampled?.triangleGrid) {
+            const triangleClassified = classifyTriangleSampledRgbGrid(
+              sampled.rgbGrid,
+              triangleSampled.triangleGrid,
+              attempt.classifier,
+              layout
+            );
+            const triangleStructureScore = structuralAccuracy(triangleClassified.matrix, layout);
+            bestStructureScore = Math.max(bestStructureScore, triangleStructureScore);
+            pushObservation(options, {
+              version: geometry.version,
+              matrix: triangleClassified.matrix,
+              confidence: triangleClassified.confidence,
+              geometry,
+              observedPalette,
+              samplingMode: "refined-triangle16",
+              samplingOffset: { x: offsetX, y: offsetY },
+              colorNormalization: attempt.colorNormalization,
+              cellEncoding: CELL_ENCODINGS.TRIANGLE16,
+              structureScore: triangleStructureScore,
+              averageCellConfidence: triangleClassified.averageCellConfidence,
+              lowConfidenceCells: triangleClassified.lowConfidenceCells
+            });
+            if (triangleStructureScore >= (options.refinementDecodeThreshold ?? 0.95)) {
+              triangleRefinementCandidates.push({
+                attempt,
+                classified: triangleClassified,
+                observedPalette,
+                offsetX,
+                offsetY,
+                structureScore: triangleStructureScore,
+                cellEncoding: CELL_ENCODINGS.TRIANGLE16,
+                samplingMode: "refined-triangle16"
+              });
+            }
+          }
         }
       }
 
-      refinementCandidates.sort((a, b) =>
+      const sortRefinementCandidates = (items) => items.sort((a, b) =>
         (b.structureScore - a.structureScore) ||
         (b.classified.averageCellConfidence - a.classified.averageCellConfidence) ||
         (a.classified.averageColorDistance - b.classified.averageColorDistance)
       );
+      sortRefinementCandidates(refinementCandidates);
+      sortRefinementCandidates(triangleRefinementCandidates);
 
       const decodeLimit = Math.max(1, Math.min(8, Math.round(options.refinementDecodeCandidates ?? 4)));
-      for (const candidate of refinementCandidates.slice(0, decodeLimit)) {
+      // Keep separate per-encoding limits. A Triangle16 image can produce very
+      // confident but meaningless centre samples, and those must not crowd out
+      // the dual-region candidates during the final bounded recovery pass.
+      const decodeCandidates = [
+        ...refinementCandidates.slice(0, decodeLimit),
+        ...triangleRefinementCandidates.slice(0, decodeLimit)
+      ];
+      for (const candidate of decodeCandidates) {
         try {
           const decoded = decodeMatrix(candidate.classified.matrix, {
             structureTolerance: options.structureTolerance ?? 0.18,
             cellConfidence: candidate.classified.confidence,
+            cellEncodingHint: candidate.cellEncoding,
             maxErasureConfidence: options.maxErasureConfidence
           });
           if (decoded.version !== geometry.version) continue;
@@ -3068,7 +3581,7 @@ function tryPerspectiveScan(imageData, options) {
             samplingOffset: { x: candidate.offsetX, y: candidate.offsetY },
             colorCalibrated: true,
             colorNormalization: candidate.attempt.colorNormalization,
-            samplingMode: "refined-center",
+            samplingMode: candidate.samplingMode,
             geometry,
             observedPalette: candidate.observedPalette,
             averageColorDistance: candidate.classified.averageColorDistance,
@@ -3118,6 +3631,15 @@ function tryAxisAlignedScan(imageData, options) {
     for (let profileIndex = 0; profileIndex < radiusProfiles.length && !accepted; profileIndex++) {
       try {
         const sampled = sampleAxisAlignedGrid(imageData, bounds, size, radiusProfiles[profileIndex]);
+        const triangleSampled = options.highDensitySampling === false || options.triangle16 === false
+          ? null
+          : sampleAxisAlignedTriangleGrid(
+              imageData,
+              bounds,
+              size,
+              Math.min(0.10, Math.max(0.04, radiusProfiles[profileIndex] * 0.48)),
+              options.highDensitySampleInset ?? options.triangleSampleInset ?? 0.28
+            );
         const layout = createLayout(version);
         const classifierAttempts = [];
         try {
@@ -3157,45 +3679,70 @@ function tryAxisAlignedScan(imageData, options) {
         });
 
         for (const attempt of classifierAttempts) {
-          try {
-            const classified = classifySampledRgbGrid(attempt.rgbGrid ?? sampled.rgbGrid, attempt.classifier, layout);
-            const structureScore = structuralAccuracy(classified.matrix, layout);
-            pushObservation(options, {
-              version,
-              matrix: classified.matrix,
-              confidence: classified.confidence,
-              bounds,
-              samplingMode: profileIndex === 0 ? "axis" : "axis-center",
-              colorNormalization: attempt.colorNormalization,
-              structureScore,
-              averageCellConfidence: classified.averageCellConfidence,
-              lowConfidenceCells: classified.lowConfidenceCells
+          const centerGrid = attempt.rgbGrid ?? sampled.rgbGrid;
+          const samplingMode = profileIndex === 0 ? "axis" : "axis-center";
+          const classifiedAttempts = [{
+            classified: classifySampledRgbGrid(centerGrid, attempt.classifier, layout),
+            cellEncoding: CELL_ENCODINGS.RGBW,
+            samplingMode
+          }];
+          if (triangleSampled?.triangleGrid && attempt.rgbGrid === sampled.rgbGrid) {
+            classifiedAttempts.push({
+              classified: classifyTriangleSampledRgbGrid(
+                centerGrid,
+                triangleSampled.triangleGrid,
+                attempt.classifier,
+                layout
+              ),
+              cellEncoding: CELL_ENCODINGS.TRIANGLE16,
+              samplingMode: `${samplingMode}-triangle16`
             });
-            const decoded = decodeMatrix(classified.matrix, {
-              structureTolerance: options.structureTolerance ?? 0.12,
-              cellConfidence: classified.confidence,
-              maxErasureConfidence: options.maxErasureConfidence
-            });
-            candidates.push({
-              ...decoded,
-              bounds,
-              sampledVersion: version,
-              moduleWidth: moduleW,
-              moduleHeight: moduleH,
-              perspectiveCorrected: false,
-              colorCalibrated: attempt.calibrated,
-              colorNormalization: attempt.colorNormalization,
-              samplingMode: profileIndex === 0 ? "axis" : "axis-center",
-              averageColorDistance: classified.averageColorDistance,
-              averageCellConfidence: classified.averageCellConfidence,
-              minimumCellConfidence: classified.minimumCellConfidence,
-              lowConfidenceCells: classified.lowConfidenceCells
-            });
-            accepted = true;
-            break;
-          } catch {
-            // Try next classifier/profile.
           }
+
+          for (const classifiedAttempt of classifiedAttempts) {
+            try {
+              const classified = classifiedAttempt.classified;
+              const structureScore = structuralAccuracy(classified.matrix, layout);
+              pushObservation(options, {
+                version,
+                matrix: classified.matrix,
+                confidence: classified.confidence,
+                bounds,
+                samplingMode: classifiedAttempt.samplingMode,
+                colorNormalization: attempt.colorNormalization,
+                cellEncoding: classifiedAttempt.cellEncoding,
+                structureScore,
+                averageCellConfidence: classified.averageCellConfidence,
+                lowConfidenceCells: classified.lowConfidenceCells
+              });
+              const decoded = decodeMatrix(classified.matrix, {
+                structureTolerance: options.structureTolerance ?? 0.12,
+                cellConfidence: classified.confidence,
+                cellEncodingHint: classifiedAttempt.cellEncoding,
+                maxErasureConfidence: options.maxErasureConfidence
+              });
+              candidates.push({
+                ...decoded,
+                bounds,
+                sampledVersion: version,
+                moduleWidth: moduleW,
+                moduleHeight: moduleH,
+                perspectiveCorrected: false,
+                colorCalibrated: attempt.calibrated,
+                colorNormalization: attempt.colorNormalization,
+                samplingMode: classifiedAttempt.samplingMode,
+                averageColorDistance: classified.averageColorDistance,
+                averageCellConfidence: classified.averageCellConfidence,
+                minimumCellConfidence: classified.minimumCellConfidence,
+                lowConfidenceCells: classified.lowConfidenceCells
+              });
+              accepted = true;
+              break;
+            } catch {
+              // Try the next cell encoding/classifier/profile.
+            }
+          }
+          if (accepted) break;
         }
       } catch {
         // Try a narrower centre sample, then next version.
@@ -3307,7 +3854,7 @@ function perspectiveStress(imageData, severity) {
     { x: width - 1 - inset * 1.0, y: height - 1 - inset * 0.35 },
     { x: inset * 0.20, y: height - 1 - inset * 0.95 }
   ];
-  const inverse = computeHomography(destination, source);
+  const inverse = computeHomography(source, destination);
   const out = new Uint8ClampedArray(width * height * 4);
   out.fill(255);
   for (let y = 0; y < height; y++) {
@@ -3590,6 +4137,36 @@ export function scanImageData(imageData, options = {}) {
   if (options.perspective !== false) {
     const perspective = tryPerspectiveScan(imageData, scanOptions);
     if (perspective) return decorateScanResult(perspective, debugContext, options);
+  }
+
+  // Triangle16 has half-cell color regions, so geometry that is adequate for
+  // solid RGBW cells can still be off by a few tenths of a module and mix the
+  // two triangle colors. If normal geometry was found but no payload decoded,
+  // retry geometry once with finer alignment localization. This stays off the
+  // clean/normal camera fast path.
+  if (
+    options.perspective !== false &&
+    options.preciseAlignmentRecovery !== false &&
+    !options._preciseAlignmentRecovery &&
+    geometryCollector.length > 0
+  ) {
+    try {
+      const precise = tryPerspectiveScan(imageData, {
+        ...scanOptions,
+        preciseAlignment: true,
+        _preciseAlignmentRecovery: true,
+        _diagnosticLabel: "precise-alignment"
+      });
+      if (precise) {
+        return decorateScanResult({
+          ...precise,
+          geometryRefined: true,
+          recoveryMode: precise.recoveryMode ?? "precise-alignment"
+        }, debugContext, options);
+      }
+    } catch {
+      // Continue to color recovery and axis-aligned fallback.
+    }
   }
 
   // If the normal scanner could see QuadQR geometry but could not decode the
@@ -3995,6 +4572,7 @@ export async function startCameraScanner(video, options = {}) {
 
   const scanInterval = Math.max(80, options.scanInterval ?? 180);
   const scratchCanvas = document.createElement("canvas");
+  const highResolutionCanvas = document.createElement("canvas");
   const multiFrameEnabled = options.multiFrame !== false;
   const multiFrameWindow = Math.max(2, Math.min(8, Math.round(options.multiFrameWindow ?? 4)));
   const multiFrameMinFrames = Math.max(2, Math.min(multiFrameWindow, Math.round(options.multiFrameMinFrames ?? 2)));
@@ -4002,6 +4580,12 @@ export async function startCameraScanner(video, options = {}) {
   const cameraAutoColorEvery = Math.max(1, Math.round(options.cameraAutoColorEvery ?? 1));
   const cameraAutoEnhanceEvery = Math.max(1, Math.round(options.cameraAutoEnhanceEvery ?? 2));
   const cameraFinderRecoveryEvery = Math.max(1, Math.round(options.cameraFinderRecoveryEvery ?? 2));
+  const cameraHighResolutionEvery = Math.max(1, Math.round(options.cameraHighResolutionEvery ?? 2));
+  const baseCameraMaxDimension = Math.max(480, Math.round(options.maxDimension ?? 1080));
+  const cameraHighResolutionMaxDimension = Math.max(
+    baseCameraMaxDimension,
+    Math.round(options.cameraHighResolutionMaxDimension ?? 1600)
+  );
   let missStreak = 0;
   let stopped = false;
   let busy = false;
@@ -4049,7 +4633,7 @@ export async function startCameraScanner(video, options = {}) {
 
   const scanNow = () => scanVideoFrame(video, {
     ...options,
-    maxDimension: options.maxDimension ?? 1080,
+    maxDimension: baseCameraMaxDimension,
     canvas: scratchCanvas
   });
 
@@ -4116,7 +4700,7 @@ export async function startCameraScanner(video, options = {}) {
       busy = true;
       frameNumber++;
       const observations = [];
-      const frameDiagnostics = diagnosticsEnabled ? {} : null;
+      const frameDiagnostics = {};
       const capturedFrame = {};
       const frameStarted = nowMs();
       let allowAutoEnhance = false;
@@ -4144,7 +4728,7 @@ export async function startCameraScanner(video, options = {}) {
           // If geometry exists, the rectified QR-only pixel enhancer is both
           // stronger and much cheaper than reprocessing the whole live frame.
           fullFrameAutoEnhanceRecovery: options.fullFrameAutoEnhanceRecovery ?? false,
-          maxDimension: options.maxDimension ?? 1080,
+          maxDimension: baseCameraMaxDimension,
           canvas: scratchCanvas,
           _capturedFrame: capturedFrame,
           _observationCollector: observations,
@@ -4184,6 +4768,71 @@ export async function startCameraScanner(video, options = {}) {
           error: error?.message ?? String(error),
           ...frameDiagnostics
         });
+
+        // Geometry-aware high-resolution retry. A dense QuadQR can look large
+        // enough in the preview while each individual module has become too
+        // small after the normal 1080 px scanner cap. If the fast pass already
+        // sees at least two convincing finders, spend one bounded retry on a
+        // higher-resolution copy of the visible camera ROI. Empty frames and
+        // ordinary small codes never pay this cost.
+        const shouldTryHighResolution = options.cameraHighResolutionRecovery !== false &&
+          cameraHighResolutionMaxDimension > baseCameraMaxDimension &&
+          (frameDiagnostics?.finderCount ?? 0) >= (options.cameraHighResolutionMinFinders ?? 2) &&
+          ((missStreak - 1) % cameraHighResolutionEvery === 0);
+        if (shouldTryHighResolution) {
+          const highResolutionObservations = [];
+          const highResolutionDiagnostics = {};
+          const highResolutionCapturedFrame = {};
+          emitDiagnostic({
+            type: "method",
+            state: "trying",
+            method: "high-resolution-geometry-recovery",
+            message: `Dense geometry detected · retrying at up to ${cameraHighResolutionMaxDimension}px`,
+            ...frameDiagnostics
+          });
+          try {
+            const recoveryStarted = nowMs();
+            const recovered = scanVideoFrame(video, {
+              ...options,
+              _diagnosticLabel: "high-resolution-geometry-recovery",
+              finderRecovery: true,
+              autoEnhanceRecovery: false,
+              fullFrameAutoEnhanceRecovery: false,
+              maxDimension: cameraHighResolutionMaxDimension,
+              canvas: highResolutionCanvas,
+              _capturedFrame: highResolutionCapturedFrame,
+              _observationCollector: highResolutionObservations,
+              _frameDiagnostics: highResolutionDiagnostics
+            });
+            const recoveryElapsedMs = nowMs() - recoveryStarted;
+            emitDiagnostic({
+              type: "success",
+              state: "decoded",
+              method: "high-resolution-geometry-recovery",
+              elapsedMs: recoveryElapsedMs,
+              message: `High-resolution retry decoded v${recovered.version} · ${Math.round(recoveryElapsedMs)} ms`,
+              ...(highResolutionDiagnostics ?? frameDiagnostics)
+            });
+            missStreak = 0;
+            observationHistory.clear();
+            if (emitResult({
+              ...recovered,
+              cameraHighResolutionRecovery: true,
+              cameraProgressiveRecovery: true,
+              recoveryMode: recovered.recoveryMode ?? "high-resolution-geometry-recovery"
+            }, highResolutionCapturedFrame, highResolutionDiagnostics ?? frameDiagnostics)) return;
+          } catch (highResolutionError) {
+            observations.push(...highResolutionObservations);
+            emitDiagnostic({
+              type: "method",
+              state: "failed",
+              method: "high-resolution-geometry-recovery",
+              message: `High-resolution geometry retry did not decode${highResolutionDiagnostics?.finderCount != null ? ` · ${highResolutionDiagnostics.finderCount} finder(s)` : ""}`,
+              error: highResolutionError?.message ?? String(highResolutionError),
+              ...(highResolutionDiagnostics ?? frameDiagnostics)
+            });
+          }
+        }
 
         // The user's real phone-camera case is dominated by color cast before
         // finder detection: Photoshop Auto Color alone makes the same live QR
@@ -4489,6 +5138,9 @@ export const internals = Object.freeze({
   HEADER_CODEWORD_CELLS,
   COMPACT_HEADER_CODEWORD_CELLS,
   CELLS_PER_BYTE,
+  RGBW_CELLS_PER_BYTE,
+  TRIANGLE16_CELLS_PER_BYTE,
+  TRIANGLE16_FLAG,
   TEXT_FLAG,
   SECURE_FLAG
 });

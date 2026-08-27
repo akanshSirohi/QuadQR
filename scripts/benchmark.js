@@ -30,36 +30,49 @@ function ratio(value) {
 }
 
 const options = parseArgs(process.argv.slice(2));
-const report = benchmarkReport(options);
+const normalReport = benchmarkReport({ ...options, highDensity: false });
+const denseReport = benchmarkReport({ ...options, highDensity: true });
 
 if (options.json) {
-  console.log(JSON.stringify(report, null, 2));
+  console.log(JSON.stringify({ normal: normalReport, highDensityExperimental: denseReport }, null, 2));
   process.exit(0);
 }
 
-console.log(`QuadQR benchmark · ECC ${report.performance.ecc}`);
-console.log(report.caveat);
+console.log(`QuadQR benchmark · ECC ${normalReport.performance.ecc}`);
+console.log(normalReport.caveat);
 console.log("\nSame-size capacity comparison (byte mode for standard QR):");
-console.table(report.capacity.map((row) => ({
+console.table(normalReport.capacity.map((row, index) => ({
   version: `v${row.version}`,
   matrix: `${row.size}x${row.size}`,
   QuadQR_B: row.quadqrBytes,
+  High_Density_Experimental_B: denseReport.capacity[index].quadqrBytes,
   QR_B: row.standardQrBytes,
-  gain_B: row.differenceBytes,
-  ratio: ratio(row.ratio)
+  normal_ratio: ratio(row.ratio),
+  high_density_ratio: ratio(denseReport.capacity[index].ratio)
 })));
 
-console.log(`\nCodec performance (${report.performance.iterations} measured iterations per payload):`);
-console.table(report.performance.results.map((row) => row.skipped ? {
-  payload_B: row.payloadBytes,
-  result: "skipped",
-  reason: row.reason
-} : {
-  payload_B: row.payloadBytes,
-  matrix: `${row.size}x${row.size}`,
-  version: `v${row.version}`,
-  encode_mean: ms(row.encode.meanMs),
-  encode_p95: ms(row.encode.p95Ms),
-  decode_mean: ms(row.decode.meanMs),
-  decode_p95: ms(row.decode.p95Ms)
-}));
+console.log(`\nCodec performance (${normalReport.performance.iterations} measured iterations per payload):`);
+const performanceRows = [];
+for (const [mode, performance] of [
+  ["Normal RGBW", normalReport.performance],
+  ["High Density (Experimental)", denseReport.performance]
+]) {
+  for (const row of performance.results) {
+    performanceRows.push(row.skipped ? {
+      mode,
+      payload_B: row.payloadBytes,
+      result: "skipped",
+      reason: row.reason
+    } : {
+      mode,
+      payload_B: row.payloadBytes,
+      matrix: `${row.size}x${row.size}`,
+      version: `v${row.version}`,
+      encode_mean: ms(row.encode.meanMs),
+      encode_p95: ms(row.encode.p95Ms),
+      decode_mean: ms(row.decode.meanMs),
+      decode_p95: ms(row.decode.p95Ms)
+    });
+  }
+}
+console.table(performanceRows);

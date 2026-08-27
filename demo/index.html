@@ -10,14 +10,14 @@
   <main class="shell">
     <header class="hero">
       <div>
-        <p class="eyebrow">EXPERIMENTAL FOUR-STATE 2D CODE</p>
+        <p class="eyebrow">EXPERIMENTAL COLOR 2D CODE</p>
         <h1>QuadQR</h1>
         <p class="sub">
-          Red, green, blue, and white data cells with exactly 2 bits per cell,
-          zero-overhead spectral interleaving, confidence-aware Reed-Solomon ECC, and camera color calibration.
+          RGBW data cells at 2 bits per cell, with an optional experimental High Density Mode using Triangle16 split cells at 4 bits per body cell,
+          with spectral interleaving, confidence-aware Reed-Solomon ECC, and camera color calibration.
         </p>
       </div>
-      <div class="badge"><span>QuadQR</span><span>RGBW</span><span>format v5</span></div>
+      <div class="badge"><span>QuadQR</span><span>High Density experimental</span><span>format v5</span></div>
     </header>
 
     <nav class="tabs" aria-label="Demo sections">
@@ -38,9 +38,9 @@
           </div>
 
           <label for="payload">Payload</label>
-          <textarea id="payload" rows="8">QuadQR: four colors, two bits per data cell, Spectrum ECC with confidence-aware recovery.</textarea>
+          <textarea id="payload" rows="8">QuadQR: higher-capacity RGBW matrix code with Spectrum ECC recovery.</textarea>
 
-          <div class="row generator-options core-options">
+          <div class="row three generator-options core-options">
             <label class="field">
               <span>Version</span>
               <select id="version"><option value="auto">Auto smallest</option></select>
@@ -52,6 +52,13 @@
                 <option value="M" selected>M · 24 parity bytes</option>
                 <option value="Q">Q · 36 parity bytes</option>
                 <option value="H">H · 48 parity bytes</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>High Density Mode</span>
+              <select id="highDensityMode">
+                <option value="false" selected>Disabled · Normal RGBW</option>
+                <option value="true">Enabled · Triangle16 · Experimental</option>
               </select>
             </label>
           </div>
@@ -257,6 +264,7 @@
           <h2>Four states, exactly two bits per data cell</h2>
           <div class="feature-grid">
             <p><strong>Direct 2-bit mapping.</strong> Red = 00, green = 01, blue = 10, and white = 11. One byte occupies exactly four data cells.</p>
+            <p><strong>High Density Mode.</strong> When enabled, the experimental Triangle16 layout splits each payload module on a fixed / diagonal. The upper-left and lower-right triangles independently use RGBW, creating 16 states and 4 bits per body cell. The protected header remains solid-color for more reliable mode recovery. It is disabled by default.</p>
             <p><strong>Spectrum ECC.</strong> GF(256) Reed-Solomon first tries normal correction, then uses low-confidence RGBW byte symbols as known erasures when hard decoding is not enough.</p>
             <p><strong>Spectral-spatial interleaving.</strong> Logical codeword cells are scattered across distant physical modules with a reversible zero-overhead permutation, improving resistance to localized damage without reducing capacity.</p>
             <p><strong>Perspective geometry.</strong> Three large finder patterns stay fixed. Larger versions keep one 5×5 primary alignment reference and add compact 3×3 secondary markers for stronger geometry and version validation with less capacity overhead.</p>
@@ -368,6 +376,7 @@
                 <option value="50">50</option>
               </select>
             </label>
+
           </div>
 
           <div class="actions">
@@ -383,7 +392,7 @@
               <div class="accordion-content">
                 <div class="table-wrap">
                   <table class="benchmark-table">
-                    <thead><tr><th>Version</th><th>Matrix</th><th>QuadQR</th><th>Standard QR</th><th>Difference</th><th>Ratio</th></tr></thead>
+                    <thead><tr><th>Version</th><th>Matrix</th><th>QuadQR</th><th>High Density T16 <small class="experimental-label">Experimental</small></th><th>Standard QR</th><th>Normal ratio</th><th>High density ratio</th></tr></thead>
                     <tbody id="capacityBenchmarkBody"></tbody>
                   </table>
                 </div>
@@ -398,8 +407,8 @@
               <div class="accordion-content">
                 <div class="table-wrap">
                   <table class="benchmark-table">
-                    <thead><tr><th>Payload</th><th>Matrix</th><th>Encode mean</th><th>Encode p95</th><th>Decode mean</th><th>Decode p95</th></tr></thead>
-                    <tbody id="speedBenchmarkBody"><tr><td colspan="6" class="muted-cell">Run the benchmark to measure this browser.</td></tr></tbody>
+                    <thead><tr><th>Mode</th><th>Payload</th><th>Matrix</th><th>Encode mean</th><th>Encode p95</th><th>Decode mean</th><th>Decode p95</th></tr></thead>
+                    <tbody id="speedBenchmarkBody"><tr><td colspan="7" class="muted-cell">Run the benchmark to measure this browser.</td></tr></tbody>
                   </table>
                 </div>
               </div>
@@ -415,6 +424,7 @@
                 <div class="row benchmark-controls">
                   <label class="field"><span>Payload bytes</span><input id="capacityPayloadBytes" type="number" min="0" value="256" /></label>
                   <label class="field"><span>ECC</span><select id="capacityEcc"><option>L</option><option selected>M</option><option>Q</option><option>H</option></select></label>
+                  <label class="field"><span>High Density Mode</span><select id="capacityHighDensity"><option value="false" selected>Disabled · Normal RGBW</option><option value="true">Enabled · Triangle16 · Experimental</option></select></label>
                   <label class="field"><span>Compression</span><select id="capacityCompression"><option value="none">None</option><option value="auto" selected>Auto</option><option value="lz">LZ</option></select></label>
                   <label class="field"><span>Signed</span><select id="capacitySigned"><option value="false" selected>No</option><option value="true">Yes · Ed25519</option></select></label>
                 </div>

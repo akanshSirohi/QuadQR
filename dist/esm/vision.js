@@ -292,6 +292,31 @@ function detectFinderCandidates(binary, width, height, options = {}) {
   return clusterFinderCandidates(raw, minConfirmations);
 }
 
+function recoverFinderSetFromTwo(binary, width, height, strongFinders, detector = {}) {
+  if (strongFinders.length !== 2) return strongFinders;
+  const moduleMean = (strongFinders[0].moduleSize + strongFinders[1].moduleSize) / 2;
+  const loose = detectFinderCandidates(binary, width, height, {
+    toleranceScale: Math.max(1.45, (detector.toleranceScale ?? 1) * 1.35),
+    moduleSpreadLimit: Math.max(0.72, detector.moduleSpreadLimit ?? 0.45),
+    minConfirmations: 1
+  });
+
+  const extra = loose.filter((candidate) => {
+    const moduleRatio = Math.abs(candidate.moduleSize - moduleMean) / Math.max(candidate.moduleSize, moduleMean);
+    if (moduleRatio > 0.62) return false;
+    return strongFinders.every((known) =>
+      Math.hypot(candidate.x - known.x, candidate.y - known.y) > Math.max(moduleMean, known.moduleSize) * 5
+    );
+  }).slice(0, 12);
+
+  if (!extra.length) return strongFinders;
+  return strongFinders.concat(extra).sort((a, b) =>
+    (b.confirmations - a.confirmations) ||
+    (a.score - b.score) ||
+    (b.moduleSize - a.moduleSize)
+  );
+}
+
 function dot(a, b) {
   return a.x * b.x + a.y * b.y;
 }
@@ -374,6 +399,14 @@ function alignmentTemplateValue(pattern, r, c) {
   return alignmentPatternIsBlack(pattern, r, c) ? 1 : 0;
 }
 
+const ALIGNMENT_SUBCELL_PROBES = Object.freeze([
+  Object.freeze([0, 0]),
+  Object.freeze([-0.32, 0]),
+  Object.freeze([0.32, 0]),
+  Object.freeze([0, -0.32]),
+  Object.freeze([0, 0.32])
+]);
+
 function alignmentScore(binary, width, height, center, basisU, basisV, scale, pattern) {
   let matches = 0;
   let total = 0;
@@ -391,7 +424,31 @@ function alignmentScore(binary, width, height, center, basisU, basisV, scale, pa
   return total ? matches / total : 0;
 }
 
-function searchAlignment(binary, width, height, triple, version) {
+function preciseAlignmentScore(binary, width, height, center, basisU, basisV, scale, pattern) {
+  let matches = 0;
+  let total = 0;
+  const radius = alignmentPatternRadius(pattern);
+  for (let r = -radius; r <= radius; r++) {
+    for (let c = -radius; c <= radius; c++) {
+      const expected = alignmentTemplateValue(pattern, r, c);
+      // Centre-only alignment scoring has a broad plateau: a candidate can be
+      // wrong by almost half a module while every centre still lands in the
+      // correct solid tile. This denser score is reserved for the slow recovery
+      // path, where Triangle16 needs sub-module geometry precision.
+      for (const [du, dv] of ALIGNMENT_SUBCELL_PROBES) {
+        const x = center.x + basisU.x * (c + du) * scale + basisV.x * (r + dv) * scale;
+        const y = center.y + basisU.y * (c + du) * scale + basisV.y * (r + dv) * scale;
+        const value = sampleBinaryAt(binary, width, height, x, y);
+        if (value === null) continue;
+        total++;
+        if (value === expected) matches++;
+      }
+    }
+  }
+  return total ? matches / total : 0;
+}
+
+function searchAlignment(binary, width, height, triple, version, options = {}) {
   const size = sizeForVersion(version);
   const separation = size - 7;
   const basisU = {
@@ -411,8 +468,12 @@ function searchAlignment(binary, width, height, triple, version) {
   };
 
   let best = { score: 0, center: predicted, scale: 1 };
-  const offsets = [-2.5, -1.5, -0.75, 0, 0.75, 1.5, 2.5];
+  const precise = options.preciseAlignment === true;
+  const offsets = precise
+    ? [-2.5, -1.5, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1.5, 2.5]
+    : [-2.5, -1.5, -0.75, 0, 0.75, 1.5, 2.5];
   const scales = [0.72, 0.85, 1, 1.15, 1.3];
+  const scoreAlignment = precise ? preciseAlignmentScore : alignmentScore;
 
   for (const ou of offsets) {
     for (const ov of offsets) {
@@ -421,7 +482,7 @@ function searchAlignment(binary, width, height, triple, version) {
         y: predicted.y + basisU.y * ou + basisV.y * ov
       };
       for (const scale of scales) {
-        const score = alignmentScore(binary, width, height, center, basisU, basisV, scale, target);
+        const score = scoreAlignment(binary, width, height, center, basisU, basisV, scale, target);
         if (score > best.score) best = { score, center, scale };
       }
     }
@@ -462,6 +523,183 @@ function scoreAlignmentGrid(binary, width, height, homography, version) {
     0
   ) / totalWeight;
   return { score, patternScores };
+}
+
+function localProjectiveBasis(homography, moduleX, moduleY) {
+  const center = projectPoint(homography, moduleX, moduleY);
+  const alongU = projectPoint(homography, moduleX + 1, moduleY);
+  const alongV = projectPoint(homography, moduleX, moduleY + 1);
+  return {
+    center,
+    basisU: { x: alongU.x - center.x, y: alongU.y - center.y },
+    basisV: { x: alongV.x - center.x, y: alongV.y - center.y }
+  };
+}
+
+function searchProjectedAlignment(binary, width, height, homography, pattern) {
+  const moduleX = pattern.col + 0.5;
+  const moduleY = pattern.row + 0.5;
+  const local = localProjectiveBasis(homography, moduleX, moduleY);
+  const moduleScale = Math.max(
+    0.5,
+    (Math.hypot(local.basisU.x, local.basisU.y) + Math.hypot(local.basisV.x, local.basisV.y)) / 2
+  );
+  const offsets = [-1, -0.5, 0, 0.5, 1];
+  const scales = [0.88, 1, 1.12];
+  let best = {
+    score: projectedAlignmentScore(binary, width, height, homography, pattern),
+    center: local.center,
+    scale: 1,
+    offsetU: 0,
+    offsetV: 0,
+    displacementModules: 0
+  };
+
+  for (const offsetU of offsets) {
+    for (const offsetV of offsets) {
+      const center = {
+        x: local.center.x + local.basisU.x * offsetU + local.basisV.x * offsetV,
+        y: local.center.y + local.basisU.y * offsetU + local.basisV.y * offsetV
+      };
+      for (const scale of scales) {
+        const score = alignmentScore(
+          binary,
+          width,
+          height,
+          center,
+          local.basisU,
+          local.basisV,
+          scale,
+          pattern
+        );
+        if (score > best.score) {
+          best = {
+            score,
+            center,
+            scale,
+            offsetU,
+            offsetV,
+            displacementModules: Math.hypot(offsetU, offsetV),
+            displacementPixels: Math.hypot(offsetU, offsetV) * moduleScale
+          };
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+function refineHomographyWithAlignmentGrid(
+  binary,
+  width,
+  height,
+  initialHomography,
+  version,
+  sourcePoints,
+  destinationPoints,
+  initialGrid,
+  options = {}
+) {
+  const patterns = alignmentPatternCentersForVersion(version);
+  if (patterns.length <= 1 || options.alignmentRefinement === false) {
+    return {
+      homography: initialHomography,
+      grid: initialGrid,
+      refined: false,
+      points: []
+    };
+  }
+
+  const primary = patterns.find((pattern) => pattern.primary);
+  const secondaries = patterns.filter((pattern) => !pattern.primary);
+  const minimumScore = options.alignmentRefinePatternThreshold ?? 0.84;
+  const maxPoints = Math.max(1, Math.min(18, Math.round(options.alignmentRefineMaxPoints ?? 12)));
+  const candidates = [];
+
+  for (const pattern of secondaries) {
+    const found = searchProjectedAlignment(binary, width, height, initialHomography, pattern);
+    if (found.score < minimumScore) continue;
+    if (found.displacementModules > (options.alignmentRefineMaxDisplacement ?? 1.45)) continue;
+    candidates.push({ pattern, ...found });
+  }
+
+  if (!candidates.length) {
+    return { homography: initialHomography, grid: initialGrid, refined: false, points: [] };
+  }
+
+  // Prefer confident references, but retain spatial distribution so dense
+  // versions use alignment information across the entire matrix rather than
+  // allowing a cluster of nearby markers to dominate the fit.
+  candidates.sort((a, b) =>
+    (b.score - a.score) ||
+    ((b.pattern.row + b.pattern.col) - (a.pattern.row + a.pattern.col))
+  );
+  const selected = [];
+  for (const candidate of candidates) {
+    if (selected.length >= maxPoints) break;
+    const tooClose = selected.some((item) =>
+      Math.hypot(item.pattern.col - candidate.pattern.col, item.pattern.row - candidate.pattern.row) < 6
+    );
+    if (!tooClose || selected.length < 3) selected.push(candidate);
+  }
+  if (!selected.length) return { homography: initialHomography, grid: initialGrid, refined: false, points: [] };
+
+  const refinedSource = sourcePoints.slice();
+  const refinedDestination = destinationPoints.slice();
+  const weights = [4, 4, 4, 5];
+  const pointInfo = [];
+
+  for (const candidate of selected) {
+    refinedSource.push(candidate.center);
+    refinedDestination.push({
+      x: candidate.pattern.col + 0.5,
+      y: candidate.pattern.row + 0.5
+    });
+    // A 3x3 marker carries less evidence than the 5x5 primary and the three
+    // finder patterns, so it helps average geometry without overpowering them.
+    weights.push(0.8 + candidate.score * 1.7);
+    pointInfo.push({
+      row: candidate.pattern.row,
+      col: candidate.pattern.col,
+      score: candidate.score,
+      x: candidate.center.x,
+      y: candidate.center.y,
+      displacementModules: candidate.displacementModules
+    });
+  }
+
+  let refinedHomography;
+  try {
+    refinedHomography = computeHomographyLeastSquares(refinedSource, refinedDestination, weights);
+  } catch {
+    return { homography: initialHomography, grid: initialGrid, refined: false, points: [] };
+  }
+
+  const refinedGrid = scoreAlignmentGrid(binary, width, height, refinedHomography, version);
+  const primaryBefore = primary
+    ? projectedAlignmentScore(binary, width, height, initialHomography, primary)
+    : 1;
+  const primaryAfter = primary
+    ? projectedAlignmentScore(binary, width, height, refinedHomography, primary)
+    : 1;
+  const allowedGridDrop = options.alignmentRefineAllowedGridDrop ?? 0.006;
+  const allowedPrimaryDrop = options.alignmentRefineAllowedPrimaryDrop ?? 0.04;
+
+  if (
+    refinedGrid.score + allowedGridDrop < initialGrid.score ||
+    primaryAfter + allowedPrimaryDrop < primaryBefore
+  ) {
+    return { homography: initialHomography, grid: initialGrid, refined: false, points: [] };
+  }
+
+  return {
+    homography: refinedHomography,
+    grid: refinedGrid,
+    refined: true,
+    points: pointInfo,
+    initialGridScore: initialGrid.score
+  };
 }
 
 function solveLinearSystemFloat(matrix, vector) {
@@ -505,6 +743,43 @@ export function computeHomography(sourcePoints, destinationPoints) {
   return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
 }
 
+function computeHomographyLeastSquares(sourcePoints, destinationPoints, weights = null) {
+  // Same destination -> source convention as computeHomography(), but accepts
+  // more than four correspondences and averages locator/alignment measurement
+  // noise. This is used only as a refinement after a valid four-point projective
+  // solution already exists.
+  assert(
+    sourcePoints.length === destinationPoints.length && sourcePoints.length >= 4,
+    "At least four matching point pairs are required."
+  );
+
+  const normal = Array.from({ length: 8 }, () => Array(8).fill(0));
+  const rhs = Array(8).fill(0);
+
+  const addEquation = (row, value, weight) => {
+    for (let i = 0; i < 8; i++) {
+      rhs[i] += row[i] * value * weight;
+      for (let j = 0; j < 8; j++) normal[i][j] += row[i] * row[j] * weight;
+    }
+  };
+
+  for (let i = 0; i < sourcePoints.length; i++) {
+    const u = destinationPoints[i].x;
+    const v = destinationPoints[i].y;
+    const x = sourcePoints[i].x;
+    const y = sourcePoints[i].y;
+    const weight = Math.max(0.05, Number(weights?.[i] ?? 1));
+    addEquation([u, v, 1, 0, 0, 0, -u * x, -v * x], x, weight);
+    addEquation([0, 0, 0, u, v, 1, -u * y, -v * y], y, weight);
+  }
+
+  // Tiny Tikhonov regularisation keeps near-degenerate noisy fits numerically
+  // stable without moving a normal QR-sized solution in any meaningful way.
+  for (let i = 0; i < 8; i++) normal[i][i] += 1e-9;
+  const h = solveLinearSystemFloat(normal, rhs);
+  return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+}
+
 export function projectPoint(h, u, v) {
   const denominator = h[6] * u + h[7] * v + h[8];
   return {
@@ -530,7 +805,7 @@ function geometryCandidatesFromBinary(binary, width, height, finders, threshold,
     for (const item of versions) {
       const version = item.version;
       const size = sizeForVersion(version);
-      const alignment = searchAlignment(binary, width, height, triple, version);
+      const alignment = searchAlignment(binary, width, height, triple, version, options);
       if (alignment.score < (options.alignmentThreshold ?? 0.72)) continue;
 
       const alignmentTarget = alignment.target;
@@ -554,8 +829,34 @@ function geometryCandidatesFromBinary(binary, width, height, finders, threshold,
         continue;
       }
 
-      const alignmentGrid = scoreAlignmentGrid(binary, width, height, homography, version);
-      if (alignmentGrid.score < (options.alignmentGridThreshold ?? 0.68)) continue;
+      const initialAlignmentGrid = scoreAlignmentGrid(binary, width, height, homography, version);
+      const alignmentGridThreshold = options.alignmentGridThreshold ?? 0.68;
+      const refinementFloor = Math.max(0, alignmentGridThreshold - (options.alignmentRefineCandidateMargin ?? 0.10));
+      const skipRefinementScore = options.alignmentRefineSkipScore ?? 0.985;
+      const refinement = (
+        initialAlignmentGrid.score >= refinementFloor &&
+        initialAlignmentGrid.score < skipRefinementScore
+      )
+        ? refineHomographyWithAlignmentGrid(
+            binary,
+            width,
+            height,
+            homography,
+            version,
+            src,
+            dest,
+            initialAlignmentGrid,
+            options
+          )
+        : {
+            homography,
+            grid: initialAlignmentGrid,
+            refined: false,
+            points: []
+          };
+      homography = refinement.homography;
+      const alignmentGrid = refinement.grid;
+      if (alignmentGrid.score < alignmentGridThreshold) continue;
 
       const versionPenalty = item.error / 4;
       const alignmentConfidence = 0.55 * alignment.score + 0.45 * alignmentGrid.score;
@@ -574,6 +875,9 @@ function geometryCandidatesFromBinary(binary, width, height, finders, threshold,
           target: { row: alignmentTarget.row, col: alignmentTarget.col },
           patterns: alignmentGrid.patternScores.length,
           gridScore: alignmentGrid.score,
+          initialGridScore: refinement.initialGridScore ?? initialAlignmentGrid.score,
+          refined: refinement.refined,
+          refinementPoints: refinement.points,
           patternScores: alignmentGrid.patternScores
         },
         threshold,
@@ -645,19 +949,21 @@ export function detectCodeGeometry(imageData, options = {}) {
   const maxCandidates = options.maxCandidates ?? 8;
 
   const evaluatePass = (pass, recovery = false) => {
-    const finders = detectFinderCandidates(pass.binary, width, height, pass.detector ?? {});
-    const geometries = geometryCandidatesFromBinary(
+    const detector = pass.detector ?? {};
+    const finders = detectFinderCandidates(pass.binary, width, height, detector);
+    const geometryOptions = {
+      ...options,
+      finderMethod: pass.finderMethod,
+      alignmentThreshold: recovery ? 0.68 : 0.72,
+      alignmentGridThreshold: recovery ? 0.64 : 0.68
+    };
+    let geometries = geometryCandidatesFromBinary(
       pass.binary,
       width,
       height,
       finders,
       pass.threshold,
-      {
-        ...options,
-        finderMethod: pass.finderMethod,
-        alignmentThreshold: recovery ? 0.68 : 0.72,
-        alignmentGridThreshold: recovery ? 0.64 : 0.68
-      }
+      geometryOptions
     );
 
     pushFinderDiagnostic(
@@ -667,6 +973,35 @@ export function detectCodeGeometry(imageData, options = {}) {
       finders,
       geometries
     );
+
+    // Dense codes under projective distortion can leave two finder patterns
+    // perfectly strong while the third is stretched enough to miss the normal
+    // 1:1:3:1:1 tolerance. Only in that very specific recovery state, run one
+    // bounded looser detector and let the normal three-finder geometry checks
+    // reject false data-cell lookalikes. The clean fast path is unchanged.
+    if (!geometries.length && recovery && finders.length === 2) {
+      const recoveredFinders = recoverFinderSetFromTwo(pass.binary, width, height, finders, detector);
+      if (recoveredFinders.length > 2) {
+        const finderMethod = `${pass.finderMethod}-two-finder-recovery`;
+        geometries = geometryCandidatesFromBinary(
+          pass.binary,
+          width,
+          height,
+          recoveredFinders,
+          pass.threshold,
+          { ...geometryOptions, finderMethod }
+        );
+        pushFinderDiagnostic(
+          { ...options, width, height, diagnosticLabel: `${options.diagnosticLabel ?? "perspective"}-two-finder` },
+          finderMethod,
+          pass.threshold,
+          recoveredFinders,
+          geometries
+        );
+        if (geometries.length) return { finders: recoveredFinders, geometries };
+      }
+    }
+
     return { finders, geometries };
   };
 
@@ -681,6 +1016,38 @@ export function detectCodeGeometry(imageData, options = {}) {
   }, false);
   if (fast.geometries.length) return fast.geometries.slice(0, maxCandidates);
   if (options.finderRecovery === false) return [];
+
+  // If the clean threshold already found exactly two strong locators, try the
+  // bounded perspective-tolerant third-finder pass before any color processing.
+  // This is substantially cheaper than Auto Color and targets the dense-code
+  // projective failure mode directly.
+  if (fast.finders.length === 2) {
+    const recoveredFinders = recoverFinderSetFromTwo(valueInfo.binary, width, height, fast.finders, {});
+    if (recoveredFinders.length > 2) {
+      const finderMethod = "rgb-value-otsu-two-finder-recovery";
+      const recoveredGeometries = geometryCandidatesFromBinary(
+        valueInfo.binary,
+        width,
+        height,
+        recoveredFinders,
+        valueInfo.threshold,
+        {
+          ...options,
+          finderMethod,
+          alignmentThreshold: 0.68,
+          alignmentGridThreshold: 0.64
+        }
+      );
+      pushFinderDiagnostic(
+        { ...options, width, height, diagnosticLabel: `${options.diagnosticLabel ?? "perspective"}-two-finder` },
+        finderMethod,
+        valueInfo.threshold,
+        recoveredFinders,
+        recoveredGeometries
+      );
+      if (recoveredGeometries.length) return recoveredGeometries.slice(0, maxCandidates);
+    }
+  }
 
   // Camera recovery #1: Photoshop Auto Color-style per-channel levels before
   // finder thresholding. Live camera frames are usually much larger than the
@@ -1088,6 +1455,49 @@ export function samplePerspectiveMatrix(imageData, homography, size, options = {
   return { rgbGrid };
 }
 
+/**
+ * Sample the two protected regions of every Triangle16 module.
+ *
+ * Triangle16 uses a fixed "/" diagonal. Samples are intentionally placed well
+ * inside the upper-left and lower-right triangles, away from the diagonal and
+ * module borders. This makes the decoder much less sensitive to antialiasing,
+ * blur, resampling and small homography errors than center sampling.
+ */
+export function samplePerspectiveTriangleMatrix(imageData, homography, size, options = {}) {
+  const triangleGrid = Array.from({ length: size }, () => new Array(size));
+  const mode = options.sampleMode ?? "cross";
+  const radius = options.highDensitySampleRadius ?? options.triangleSampleRadius ??
+    (mode === "median" ? 0.075 : 0.085);
+  const inset = Math.max(0.18, Math.min(0.36, Number(options.highDensitySampleInset ?? options.triangleSampleInset ?? 0.28)));
+  const firstOffset = inset;
+  const secondOffset = 1 - inset;
+  const offsetX = Number.isFinite(options.sampleOffsetX) ? options.sampleOffsetX : 0;
+  const offsetY = Number.isFinite(options.sampleOffsetY) ? options.sampleOffsetY : 0;
+  const sampler = mode === "median" ? robustProjectedSample : averageProjectedSample;
+
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      triangleGrid[r][c] = {
+        first: sampler(
+          imageData,
+          homography,
+          c + firstOffset + offsetX,
+          r + firstOffset + offsetY,
+          radius
+        ),
+        second: sampler(
+          imageData,
+          homography,
+          c + secondOffset + offsetX,
+          r + secondOffset + offsetY,
+          radius
+        )
+      };
+    }
+  }
+  return { triangleGrid };
+}
+
 function meanRgb(values) {
   if (!values.length) throw new Error("No calibration samples available.");
   return values.reduce(
@@ -1282,6 +1692,34 @@ export function sampleAxisAlignedGrid(imageData, bounds, size, radiusRatio = 0.1
     }
   }
   return { rgbGrid, moduleWidth: moduleW, moduleHeight: moduleH };
+}
+
+export function sampleAxisAlignedTriangleGrid(imageData, bounds, size, radiusRatio = 0.085, insetRatio = 0.28) {
+  const moduleW = bounds.width / size;
+  const moduleH = bounds.height / size;
+  const inset = Math.max(0.18, Math.min(0.36, insetRatio));
+  const radius = Math.max(0, Math.min(moduleW, moduleH) * radiusRatio);
+  const triangleGrid = Array.from({ length: size }, () => new Array(size));
+
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      triangleGrid[r][c] = {
+        first: sampleAverageAxis(
+          imageData,
+          bounds.x + (c + inset) * moduleW,
+          bounds.y + (r + inset) * moduleH,
+          radius
+        ),
+        second: sampleAverageAxis(
+          imageData,
+          bounds.x + (c + 1 - inset) * moduleW,
+          bounds.y + (r + 1 - inset) * moduleH,
+          radius
+        )
+      };
+    }
+  }
+  return { triangleGrid, moduleWidth: moduleW, moduleHeight: moduleH };
 }
 
 export const visionInternals = Object.freeze({

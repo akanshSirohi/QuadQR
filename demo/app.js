@@ -24,6 +24,7 @@ import { buildCapacityComparison, benchmarkCodec, calculateCapacityPlan } from "
 const payloadEl = document.querySelector("#payload");
 const versionEl = document.querySelector("#version");
 const eccLevelEl = document.querySelector("#eccLevel");
+const highDensityModeEl = document.querySelector("#highDensityMode");
 const imageSizeEl = document.querySelector("#imageSize");
 const quietZoneEl = document.querySelector("#quietZone");
 const renderStyleEl = document.querySelector("#renderStyle");
@@ -92,6 +93,7 @@ const capacityBenchmarkBody = document.querySelector("#capacityBenchmarkBody");
 const speedBenchmarkBody = document.querySelector("#speedBenchmarkBody");
 const capacityPayloadBytesEl = document.querySelector("#capacityPayloadBytes");
 const capacityEccEl = document.querySelector("#capacityEcc");
+const capacityHighDensityEl = document.querySelector("#capacityHighDensity");
 const capacitySignedEl = document.querySelector("#capacitySigned");
 const capacityCompressionEl = document.querySelector("#capacityCompression");
 const calculateCapacityBtn = document.querySelector("#calculateCapacityBtn");
@@ -115,13 +117,17 @@ let lastCameraLogSignature = "";
 let lastCameraFrameDiagnostic = null;
 let lastCameraUiUpdate = 0;
 
+function highDensityEnabled(element) {
+  return element?.value === "true";
+}
+
 function rebuildVersions() {
   const selected = versionEl.value || "auto";
   const ecc = eccLevelEl.value;
   versionEl.innerHTML = '<option value="auto">Auto smallest</option>';
 
   for (let version = 1; version <= MAX_VERSION; version++) {
-    const info = getVersionInfo(version, { ecc });
+    const info = getVersionInfo(version, { ecc, highDensity: highDensityEnabled(highDensityModeEl) });
     const option = document.createElement("option");
     option.value = String(version);
     option.textContent = `v${version} · ${info.size}×${info.size} · ${info.capacityBytes} B`;
@@ -222,7 +228,7 @@ function updateStats(code) {
     `${Number(imageSizeEl.value)}×${Number(imageSizeEl.value)} px`,
     code.sourcePayloadBytes !== code.payloadBytes ? `${code.sourcePayloadBytes} B source · ${code.payloadBytes} B encoded` : `${code.payloadBytes} B`,
     `${code.capacityBytes} B`,
-    `${code.bitsPerDataCell} bits/cell`,
+    `${code.bitsPerDataCell} bits/cell · ${code.highDensity ? "High Density · Experimental" : "Normal RGBW"}`,
     `${code.eccLevel} · ${code.eccParitySymbols} parity bytes`,
     `${code.alignmentPatterns} pattern${code.alignmentPatterns === 1 ? "" : "s"}`,
     `${code.eccBlocks} · correct ${code.correctableSymbolsPerBlock}/block`,
@@ -455,7 +461,8 @@ async function generate() {
     const signing = signingOptionsFromGenerator();
     const commonOptions = {
       version: requestedVersion,
-      ecc: eccLevelEl.value
+      ecc: eccLevelEl.value,
+      highDensity: highDensityEnabled(highDensityModeEl)
     };
     const code = await encodeGeneratorPayload(commonOptions, security, signing);
 
@@ -485,7 +492,7 @@ async function generate() {
     scanabilityResultsEl.innerHTML = "";
     await new Promise((resolve) => requestAnimationFrame(resolve));
     try {
-      const report = runImageStressTest(currentCanvasImageData(480), {
+      const report = runImageStressTest(currentCanvasImageData(scanabilityImageSize()), {
         version: code.version,
         crc32: code.crc32
       });
@@ -542,6 +549,21 @@ function currentCanvasImageData(maxSize = null) {
   return scratchCtx.getImageData(0, 0, width, height);
 }
 
+function scanabilityImageSize() {
+  if (!currentCode) return 480;
+  const matrixModules = currentCode.matrix?.length ?? (21 + 4 * (currentCode.version - 1));
+  const quietZone = Math.max(0, Number(quietZoneEl.value) || 0);
+  const totalModules = matrixModules + quietZone * 2;
+  // Keep roughly 10 pixels/module when the rendered output has them available.
+  // Dense versions should not be penalized simply because the benchmark used
+  // to force every symbol through the same 480 px intermediate image.
+  const densityAwareTarget = Math.ceil(totalModules * 10);
+  return Math.min(
+    Math.max(canvas.width, canvas.height),
+    Math.max(480, densityAwareTarget)
+  );
+}
+
 function drawImageDataToStressCanvas(imageData) {
   stressCanvas.width = imageData.width;
   stressCanvas.height = imageData.height;
@@ -566,7 +588,7 @@ async function runScanabilityTest() {
   scanabilityMetaEl.textContent = "Applying camera-style distortions and decoding each result.";
   await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
-    const report = runImageStressTest(currentCanvasImageData(480), {
+    const report = runImageStressTest(currentCanvasImageData(scanabilityImageSize()), {
       version: currentCode.version,
       crc32: currentCode.crc32
     });
@@ -585,6 +607,7 @@ function calculateCapacityUi() {
   const plan = calculateCapacityPlan({
     payloadBytes: Number(capacityPayloadBytesEl.value),
     ecc: capacityEccEl.value,
+    highDensity: highDensityEnabled(capacityHighDensityEl),
     signed: capacitySignedEl.value === "true",
     compression: capacityCompressionEl.value
   });
@@ -635,7 +658,7 @@ async function runStressSuiteUi() {
   stressLabResultEl.textContent = "Running full scanability suite…";
   await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
-    const report = runImageStressTest(currentCanvasImageData(480), { version: currentCode.version, crc32: currentCode.crc32 });
+    const report = runImageStressTest(currentCanvasImageData(scanabilityImageSize()), { version: currentCode.version, crc32: currentCode.crc32 });
     stressLabResultEl.className = `scan-result ${report.score >= 75 ? "good" : "bad"}`;
     stressLabResultEl.textContent = `${report.score.toFixed(0)}/100 · ${report.rating} · ${report.passed}/${report.total} scenarios decoded.`;
     renderStressReport(report, scanabilityResultsEl);
@@ -651,28 +674,42 @@ function formatMs(value) {
 }
 
 function renderCapacityBenchmark() {
-  const rows = buildCapacityComparison({
+  const options = {
     ecc: benchmarkEccEl.value,
     versions: [1, 2, 5, 10, 20, 30, 40]
-  });
+  };
+  const normalRows = buildCapacityComparison({ ...options, highDensity: false });
+  const highDensityRows = buildCapacityComparison({ ...options, highDensity: true });
 
   capacityBenchmarkBody.innerHTML = "";
-  for (const row of rows) {
+  for (let index = 0; index < normalRows.length; index++) {
+    const normal = normalRows[index];
+    const dense = highDensityRows[index];
     const tr = document.createElement("tr");
-    const ratio = row.ratio == null ? "n/a" : `${row.ratio.toFixed(2)}×`;
+    const normalRatio = normal.ratio == null ? "n/a" : `${normal.ratio.toFixed(2)}×`;
+    const denseRatio = dense.ratio == null ? "n/a" : `${dense.ratio.toFixed(2)}×`;
     const values = [
-      `v${row.version}`,
-      `${row.size}×${row.size}`,
-      `${row.quadqrBytes} B`,
-      `${row.standardQrBytes} B`,
-      `${row.differenceBytes >= 0 ? "+" : ""}${row.differenceBytes} B`,
-      ratio
+      `v${normal.version}`,
+      `${normal.size}×${normal.size}`,
+      `${normal.quadqrBytes} B`,
+      `${dense.quadqrBytes} B`,
+      `${normal.standardQrBytes} B`,
+      normalRatio,
+      denseRatio
     ];
-    const labels = ["Version", "Matrix", "QuadQR", "Standard QR", "Difference", "Ratio"];
-    values.forEach((value, index) => {
+    const labels = [
+      "Version",
+      "Matrix",
+      "QuadQR",
+      "High Density Triangle16 (Experimental)",
+      "Standard QR",
+      "Normal ratio",
+      "High density ratio"
+    ];
+    values.forEach((value, valueIndex) => {
       const td = document.createElement("td");
       td.textContent = value;
-      td.dataset.label = labels[index];
+      td.dataset.label = labels[valueIndex];
       tr.appendChild(td);
     });
     capacityBenchmarkBody.appendChild(tr);
@@ -682,56 +719,66 @@ function renderCapacityBenchmark() {
 async function runBenchmark() {
   runBenchmarkBtn.disabled = true;
   setPill(benchmarkPill, "neutral", "Running");
-  speedBenchmarkBody.innerHTML = '<tr><td colspan="6" class="muted-cell">Running benchmark...</td></tr>';
+  speedBenchmarkBody.innerHTML = '<tr><td colspan="7" class="muted-cell">Running benchmark...</td></tr>';
 
   // Let the UI paint before the synchronous benchmark loop starts.
   await new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
   try {
     renderCapacityBenchmark();
-    const report = benchmarkCodec({
+    const benchmarkOptions = {
       ecc: benchmarkEccEl.value,
       iterations: Number(benchmarkIterationsEl.value),
       payloadSizes: [32, 128, 512, 1024, 2048]
-    });
+    };
+    const reports = [
+      { label: "Normal RGBW", report: benchmarkCodec({ ...benchmarkOptions, highDensity: false }) },
+      { label: "High Density · Experimental", report: benchmarkCodec({ ...benchmarkOptions, highDensity: true }) }
+    ];
 
     speedBenchmarkBody.innerHTML = "";
-    for (const row of report.results) {
-      const tr = document.createElement("tr");
-      if (row.skipped) {
-        const payload = document.createElement("td");
-        payload.textContent = `${row.payloadBytes} B`;
-        payload.dataset.label = "Payload";
-        const reason = document.createElement("td");
-        reason.colSpan = 5;
-        reason.textContent = row.reason;
-        reason.className = "muted-cell";
-        tr.append(payload, reason);
-      } else {
-        const values = [
-          `${row.payloadBytes} B`,
-          `${row.size}×${row.size} (v${row.version})`,
-          formatMs(row.encode.meanMs),
-          formatMs(row.encode.p95Ms),
-          formatMs(row.decode.meanMs),
-          formatMs(row.decode.p95Ms)
-        ];
-        const labels = ["Payload", "Matrix", "Encode mean", "Encode p95", "Decode mean", "Decode p95"];
-        values.forEach((value, index) => {
-          const td = document.createElement("td");
-          td.textContent = value;
-          td.dataset.label = labels[index];
-          tr.appendChild(td);
-        });
+    for (const { label: modeLabel, report } of reports) {
+      for (const row of report.results) {
+        const tr = document.createElement("tr");
+        if (row.skipped) {
+          const mode = document.createElement("td");
+          mode.textContent = modeLabel;
+          mode.dataset.label = "Mode";
+          const payload = document.createElement("td");
+          payload.textContent = `${row.payloadBytes} B`;
+          payload.dataset.label = "Payload";
+          const reason = document.createElement("td");
+          reason.colSpan = 5;
+          reason.textContent = row.reason;
+          reason.className = "muted-cell";
+          tr.append(mode, payload, reason);
+        } else {
+          const values = [
+            modeLabel,
+            `${row.payloadBytes} B`,
+            `${row.size}×${row.size} (v${row.version})`,
+            formatMs(row.encode.meanMs),
+            formatMs(row.encode.p95Ms),
+            formatMs(row.decode.meanMs),
+            formatMs(row.decode.p95Ms)
+          ];
+          const labels = ["Mode", "Payload", "Matrix", "Encode mean", "Encode p95", "Decode mean", "Decode p95"];
+          values.forEach((value, index) => {
+            const td = document.createElement("td");
+            td.textContent = value;
+            td.dataset.label = labels[index];
+            tr.appendChild(td);
+          });
+        }
+        speedBenchmarkBody.appendChild(tr);
       }
-      speedBenchmarkBody.appendChild(tr);
     }
     setPill(benchmarkPill, "good", "Complete");
   } catch (error) {
     speedBenchmarkBody.innerHTML = "";
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 6;
+    td.colSpan = 7;
     td.className = "muted-cell";
     td.textContent = error.message;
     tr.appendChild(td);
@@ -747,6 +794,7 @@ function friendlyScanMethod(method) {
     "camera": "Camera",
     "fast-scan": "Fast scan",
     "finder-recovery": "Finder recovery",
+    "high-resolution-geometry-recovery": "High-res geometry",
     "camera-auto-color": "Camera Auto Color",
     "progressive-color-recovery": "Color recovery",
     "qr-region-auto-enhance": "QR color enhance",
@@ -767,6 +815,7 @@ function friendlyScanMethod(method) {
 function friendlyFinderMethod(method) {
   const names = {
     "rgb-value-otsu": "RGB value/Otsu",
+    "rgb-value-otsu-two-finder-recovery": "RGB value/two-finder recovery",
     "auto-color-value-otsu": "Auto Color value/Otsu",
     "rgb-value-high-threshold": "RGB value/high threshold",
     "rgb-value-low-threshold": "RGB value/low threshold",
@@ -774,6 +823,7 @@ function friendlyFinderMethod(method) {
   };
   if (!method) return "";
   if (names[method]) return names[method];
+  if (String(method).endsWith("-two-finder-recovery")) return `${String(method).replace("-two-finder-recovery", "").replaceAll("-", " ")} / two-finder recovery`;
   const match = String(method).match(/^auto-color-center(\d+)-(otsu|high)$/);
   if (match) return `Auto Color center ${Number(match[1])}%/${match[2] === "otsu" ? "Otsu" : "high"}`;
   return String(method).replaceAll("-", " ");
@@ -1231,6 +1281,10 @@ renderStyleEl.addEventListener("change", () => {
   if (currentCode) generate();
 });
 eccLevelEl.addEventListener("change", () => {
+  rebuildVersions();
+  generate();
+});
+highDensityModeEl.addEventListener("change", () => {
   rebuildVersions();
   generate();
 });

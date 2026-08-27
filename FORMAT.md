@@ -4,7 +4,7 @@
 
 Experimental custom symbology. It is not ISO QR Code.
 
-Only this RGBW format is implemented. Earlier RGB/ternary formats are intentionally not supported.
+Normal mode uses the default 4-state RGBW data cells. An optional experimental **High Density Mode** uses the 16-state Triangle16 physical layout for payload/body cells. Earlier RGB/ternary formats are intentionally not supported.
 
 ## Matrix sizes
 
@@ -32,6 +32,17 @@ Four data states:
 | White | `11` | 3 |
 
 Structural white and data white intentionally share the same visible/internal value. Reserved-position geometry distinguishes their roles.
+
+### High Density Mode (Triangle16)
+
+High Density Mode is identified by header flag bit 6 and implemented with Triangle16 cells. Each non-reserved payload module is split by a fixed `/` diagonal into an upper-left triangle and a lower-right triangle. Each triangle independently uses the RGBW 2-bit alphabet. The packed internal value is:
+
+```text
+cell = (upperLeftColor << 2) | lowerRightColor
+range = 0..15
+```
+
+Therefore Triangle16 has 16 visible states and carries 4 raw bits per body data cell. Same-color pairs such as R/R or B/B render as a visually solid module. Structural modules never use Triangle16 packing.
 
 ## Finder structures
 
@@ -99,6 +110,18 @@ Therefore:
 1 RGBW data cell = exactly 2 raw bits
 ```
 
+For Triangle16 ECC/body bytes:
+
+```text
+bits 7..4 -> Triangle16 cell 0
+bits 3..0 -> Triangle16 cell 1
+
+1 byte = exactly 2 Triangle16 body cells
+1 Triangle16 body cell = exactly 4 raw bits
+```
+
+The protected header remains encoded as four solid-color RGBW-equivalent cells per byte even when Triangle16 is selected. Internally those solid header cells are represented as R/R, G/G, B/B, or W/W. This keeps the bootstrap/header substantially easier to recover from blur and perspective distortion.
+
 ## Masks
 
 Four masks are defined. Each returns a 2-bit value 0..3:
@@ -117,7 +140,7 @@ visible = raw XOR mask
 raw     = visible XOR mask
 ```
 
-The encoder evaluates all four masks using run-length and four-state balance penalties. The mask ID is not serialized. The decoder tries all four and accepts only a path whose protected header, ECC, and CRC validate.
+The encoder evaluates all four masks using run-length and color-balance penalties. In Triangle16 body cells, two deterministic 2-bit masks are packed into one 4-bit XOR mask; protected solid-color header cells use the normal RGBW mask on both halves so they remain solid. The mask ID is not serialized. The decoder tries all four and accepts only a path whose protected header, ECC, and CRC validate.
 
 ## Header
 
@@ -167,7 +190,10 @@ Flags for both header forms:
 bit 0      UTF-8 text flag
 bits 1..2  ECC profile id
 bit 3      Secure Payload envelope flag
-bits 4..7  reserved
+bit 4      internal payload-extension metadata present
+bit 5      signed-payload hint
+bit 6      High Density Mode flag
+bit 7      reserved
 ```
 
 ECC ids:

@@ -1009,6 +1009,20 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   assert.ok(decoded.geometry.alignment.score >= 0.72);
 }
 
+// Dense symbols must survive the built-in perspective stress transform at
+// roughly the same module density used by the demo scanability test. This also
+// guards the destination->source homography direction used by the raster warp.
+{
+  const text = ("QuadQR dense perspective regression with Spectrum ECC. ").repeat(8).slice(0, 350);
+  const encoded = encodeText(text, { version: 8, ecc: "M", compression: "none" });
+  const clean = renderToImageData(encoded, { imageSize: 570, quietZone: 4 });
+  const distorted = applyStressDistortion(clean, "perspective", 0.55);
+  const decoded = scanImageData(distorted, { minVersion: 8, maxVersion: 8 });
+  assert.equal(decoded.text, text);
+  assert.equal(decoded.crc32, encoded.crc32);
+  assert.ok(decoded.geometry.alignment.gridScore >= 0.68);
+}
+
 // A multi-alignment symbol must survive image scanning and perspective/color cast.
 {
   const text = "QuadQR v10 distributed alignment geometry";
@@ -1220,6 +1234,66 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   assert.ok(print.quietZone >= 4);
 }
 
+// Experimental Triangle16: two RGBW triangles per data module = 16 states / 4 bits.
+{
+  const text = "Triangle16 integration test: higher density with protected solid-color header.";
+  const rgbwInfo = getVersionInfo(5, { ecc: "M", highDensity: false });
+  const triangleInfo = getVersionInfo(5, { ecc: "M", highDensity: true });
+  assert.equal(triangleInfo.bitsPerDataCell, 4);
+  assert.equal(triangleInfo.statesPerDataCell, 16);
+  assert.ok(triangleInfo.capacityBytes > rgbwInfo.capacityBytes * 1.8);
+
+  const encoded = encodeText(text, {
+    ecc: "M",
+    highDensity: true
+  });
+  assert.equal(encoded.highDensity, true);
+  assert.equal(encoded.bitsPerDataCell, 4);
+  assert.equal(decodeMatrix(encoded.matrix).text, text);
+
+  const image = renderToImageData(encoded, { imageSize: 720, quietZone: 4 });
+  const scanned = scanImageData(image, {
+    minVersion: encoded.version,
+    maxVersion: encoded.version
+  });
+  assert.equal(scanned.text, text);
+  assert.equal(scanned.highDensity, true);
+  assert.match(scanned.samplingMode ?? "", /triangle16/);
+
+  const stress = runImageStressTest(image, {
+    version: encoded.version,
+    crc32: encoded.crc32
+  }, {
+    profiles: [
+      { id: "clean-tri", label: "Clean", type: "clean", severity: 0, weight: 1 },
+      { id: "blur-tri", label: "Blur", type: "blur", severity: 0.25, weight: 1 },
+      { id: "perspective-tri", label: "Perspective", type: "perspective", severity: 0.25, weight: 1 }
+    ]
+  });
+  assert.equal(stress.passed, stress.total);
+
+  const svg = renderToSVG(encoded, { imageSize: 360, quietZone: 4 });
+  assert.match(svg, /<polygon/);
+}
+
+// Dense Triangle16 perspective regression. Solid RGBW cells can tolerate a
+// finder/alignment solution that is a fraction of a module off; split cells
+// cannot. The precise-alignment recovery pass must keep a high-utilization v10
+// symbol decodable under the same deterministic projective distortion.
+{
+  const payload = Uint8Array.from({ length: 1000 }, (_, index) => (index * 73 + 19) & 0xff);
+  const encoded = encodeBytes(payload, {
+    version: 10,
+    ecc: "M",
+    highDensity: true
+  });
+  const image = renderToImageData(encoded, { imageSize: 900, quietZone: 4 });
+  const distorted = applyStressDistortion(image, "perspective", 0.22);
+  const decoded = scanImageData(distorted, { minVersion: 10, maxVersion: 10 });
+  bytesEqual(decoded.payload, payload);
+  assert.equal(decoded.highDensity, true);
+}
+
 // Benchmark helpers and stable standard QR byte-mode reference capacities.
 {
   assert.equal(getStandardQrByteCapacity(1, "L"), 17);
@@ -1237,6 +1311,19 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   assert.equal(comparison.quadqrBytes, getVersionInfo(10, { ecc: "M" }).capacityBytes);
   assert.equal(comparison.standardQrBytes, 213);
   assert.ok(comparison.ratio > 1);
+
+  const triangleComparison = compareCapacity(10, "M", { highDensity: true });
+  assert.equal(triangleComparison.highDensity, true);
+  assert.equal(triangleComparison.quadqrBitsPerDataCell, 4);
+  assert.ok(triangleComparison.quadqrBytes > comparison.quadqrBytes * 1.8);
+
+  const trianglePlan = calculateCapacityPlan({
+    payloadBytes: 256,
+    ecc: "M",
+    highDensity: true
+  });
+  assert.equal(trianglePlan.highDensity, true);
+  assert.ok(trianglePlan.quadqrVersion >= 1);
 
   const plan = calculateCapacityPlan({ payloadBytes: 256, ecc: "M", compression: "auto" });
   assert.ok(plan.quadqrVersion >= 1);
