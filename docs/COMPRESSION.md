@@ -13,7 +13,7 @@ encodeText(text, { compression: "lz" });
 ```
 
 - `none` stores the application payload directly.
-- `auto` compares bundled Brotli, portable DEFLATE, and the legacy LZ codec, then selects the smallest candidate only when the complete stored representation is smaller.
+- `auto` compares bundled Brotli at quality 6, portable DEFLATE, and the legacy LZ codec, then selects the smallest candidate only when the complete stored representation is smaller. The balanced Brotli setting avoids the large browser CPU cost of quality 11 while retaining nearly all of its QR-sized compression benefit.
 - `brotli` forces the bundled Brotli codec.
 - `deflate` forces the raw-DEFLATE codec.
 - `lz` forces the original QuadQR LZSS-style stream for compatibility and testing.
@@ -31,7 +31,7 @@ compressBrotliPayload(bytes);
 decompressBrotliPayload(compressedBytes, originalLength);
 ```
 
-The compressor accepts an optional `{ quality }` object for direct helper use. Normal `encodeText()` / `encodeBytes()` compression keeps algorithm selection internal.
+The compressor accepts an optional `{ quality }` object for direct helper use. Forced `compression: "brotli"` retains the codec default quality, while `compression: "auto"` uses quality 6 as the balanced candidate. Normal `encodeText()` / `encodeBytes()` compression keeps algorithm selection internal.
 
 ## Portable DEFLATE profile
 

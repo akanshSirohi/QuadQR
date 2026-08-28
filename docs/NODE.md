@@ -84,7 +84,7 @@ console.log(decoded.compression); // usually "brotli" for repetitive data
 console.log(decoded.text);
 ```
 
-`compression: "auto"` compares bundled Brotli, portable DEFLATE, and the legacy LZ codec. You can force `compression: "brotli"`, `compression: "deflate"`, or `compression: "lz"` when deterministic algorithm selection is required.
+`compression: "auto"` compares bundled Brotli at balanced quality 6, portable DEFLATE, and the legacy LZ codec. You can force `compression: "brotli"`, `compression: "deflate"`, or `compression: "lz"` when deterministic algorithm selection is required.
 
 ## Other image formats
 

@@ -33,7 +33,7 @@ npx quadqr-js encode "repeat repeat repeat repeat" \
   -o compressed.png
 ```
 
-Compression modes are `none`, `auto`, `brotli`, `deflate`, and `lz`. `auto` compares QuadQR's bundled Brotli, portable DEFLATE, and legacy LZ codecs and stores the smallest final candidate. If the extension-envelope overhead would erase the gain, Auto leaves the original payload untouched. No separate payload mode is required.
+Compression modes are `none`, `auto`, `brotli`, `deflate`, and `lz`. `auto` compares QuadQR's bundled Brotli at balanced quality 6, portable DEFLATE, and legacy LZ codecs and stores the smallest final candidate. If the extension-envelope overhead would erase the gain, Auto leaves the original payload untouched. No separate payload mode is required.
 
 ## Signed QuadQR
 

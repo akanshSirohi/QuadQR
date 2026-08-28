@@ -415,7 +415,7 @@ const code = QuadQR.encodeText("hello hello hello", {
 `compression` may be `none`, `auto`, `brotli`, `deflate`, or `lz`.
 
 - `none` stores the payload directly.
-- `auto` compares the bundled Brotli, portable DEFLATE, and legacy LZ candidates, chooses the smallest one, and only enables compression when the complete stored representation is smaller. If compression does not help, no internal envelope is added.
+- `auto` compares bundled Brotli at balanced quality 6, portable DEFLATE, and legacy LZ candidates, chooses the smallest one, and only enables compression when the complete stored representation is smaller. If compression does not help, no internal envelope is added.
 - `brotli` always stores the payload using QuadQR's bundled synchronous Brotli codec.
 - `deflate` always stores the payload using QuadQR's synchronous pure-JavaScript raw DEFLATE codec.
 - `lz` always stores the payload through the original portable LZSS-style compressor for backward compatibility.

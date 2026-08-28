@@ -241,7 +241,7 @@ console.log(verified.signatureVerified); // true
 console.log(verified.signatureTrusted);  // true
 ```
 
-Compression modes are `none`, `auto`, `brotli`, `deflate`, and `lz`. Compression 2.0 makes `auto` compare bundled Brotli, portable DEFLATE, and the legacy LZ stream, then choose the smallest final candidate. Auto only enables compression when the complete stored representation is actually smaller, including internal envelope overhead. `brotli`, `deflate`, and `lz` can still be forced explicitly. All three codecs are synchronous and bundled with QuadQR, so the same compression path works in browsers and server-side Node.js without `node:zlib`, `CompressionStream`, or a runtime dependency. Ed25519 signing stores the signature plus an optional compact `keyId`; the public verification key stays outside the QuadQR by default. Applications do not need to choose or maintain content types.
+Compression modes are `none`, `auto`, `brotli`, `deflate`, and `lz`. Compression 2.0 makes `auto` compare bundled Brotli at a balanced quality setting, portable DEFLATE, and the legacy LZ stream, then choose the smallest final candidate. Auto only enables compression when the complete stored representation is actually smaller, including internal envelope overhead. `brotli`, `deflate`, and `lz` can still be forced explicitly. All three codecs are synchronous and bundled with QuadQR, so the same compression path works in browsers and server-side Node.js without `node:zlib`, `CompressionStream`, or a runtime dependency. The included demo runs encoding, image verification, Reliability Lab work, perspective sweeps, and codec benchmarks in module Web Workers so these synchronous algorithms do not freeze the browser UI. Ed25519 signing stores the signature plus an optional compact `keyId`; the public verification key stays outside the QuadQR by default. Applications do not need to choose or maintain content types.
 
 Signing can also be composed with Secure Payload. QuadQR compresses if requested, signs the normal payload with the private key, then encrypts the protected bytes with AES-256-GCM. A verifier supplies the trusted public key separately, or resolves it from `keyId`.
 
@@ -649,7 +649,7 @@ Logo overlays intentionally consume some ECC margin because they cover encoded c
 
 **Live demo:** https://akanshsirohi.github.io/QuadQR/demo/
 
-The browser demo runs directly on GitHub Pages and is split into separate views so the interface does not become overloaded. The generator keeps only payload, version, and ECC visible by default; optional capabilities are grouped into independent advanced accordions.
+The browser demo runs directly on GitHub Pages and is split into separate views so the interface does not become overloaded. The generator keeps only payload, version, and ECC visible by default; optional capabilities are grouped into independent advanced accordions. CPU-heavy encoding/compression, rendered-image verification, uploaded-image scanning, scanability tests, Reliability Lab runs, perspective sweeps, and codec benchmarks are dispatched to module Web Workers. Generation shows explicit progress instead of freezing the browser, repeated UI changes are coalesced, and render-only changes reuse the already encoded matrix instead of recompressing the payload.
 
 ### Generator & Image Scanner
 
@@ -901,7 +901,8 @@ dist/
 
 demo/
   index.html         Interactive generator, image scanner, camera scanner, benchmark
-  app.js
+  app.js             Responsive UI + worker orchestration
+  compute-worker.js  Background encode/scan/reliability/benchmark tasks
   styles.css
 
 docs-site/

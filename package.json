@@ -53,7 +53,8 @@
     "test": "node tests/self-test.js && node tests/package-test.js",
     "benchmark": "node scripts/benchmark.js",
     "pack:check": "npm run build && npm pack --dry-run",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run build && npm test",
+    "test:demo": "node tests/demo-worker-test.js"
   },
   "engines": {
     "node": ">=20.19"

@@ -162,7 +162,7 @@ deflate
 lz
 ```
 
-`compression: "auto"` evaluates bundled Brotli, portable DEFLATE, and legacy LZ, then selects the smallest compressed body. For unsigned payloads it enables compression only when that body plus the extension-envelope overhead is smaller than the original payload, making Auto genuinely zero-overhead when compression is not useful. Signed payloads already require an extension envelope, so Auto compares the body size directly.
+`compression: "auto"` evaluates bundled Brotli at quality 6, portable DEFLATE, and legacy LZ, then selects the smallest compressed body. Quality 6 is the portable Auto-mode tradeoff chosen to avoid quality-11 CPU spikes in browsers while keeping the explicit Brotli mode available when maximum compression is requested. For unsigned payloads it enables compression only when that body plus the extension-envelope overhead is smaller than the original payload, making Auto genuinely zero-overhead when compression is not useful. Signed payloads already require an extension envelope, so Auto compares the body size directly.
 
 Compression occurs before signing, encryption, and Format v5 ECC.
 

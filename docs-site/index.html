@@ -218,7 +218,7 @@ const checked = await QuadQR.verifyDecodedSignature(
   { publicKey: keys.publicKey }
 );
 console.log(checked.signatureVerified, checked.signatureTrusted);</code></pre></div>
-        <p class="note"><code>compression: "auto"</code> compares bundled Brotli, portable DEFLATE, and legacy LZ, and adds no compression envelope when the final stored result would not save space. The private key signs, while the trusted public key stays outside the QuadQR by default. The compact key ID helps a scanner select the correct trusted verification key.</p>
+        <p class="note"><code>compression: "auto"</code> compares balanced Brotli, portable DEFLATE, and legacy LZ, and adds no compression envelope when the final stored result would not save space. The private key signs, while the trusted public key stays outside the QuadQR by default. The compact key ID helps a scanner select the correct trusted verification key.</p>
       </section>
 
       <section id="rendering">

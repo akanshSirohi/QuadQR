@@ -1,7 +1,4 @@
 import {
-  encodeText,
-  encodeSignedText,
-  encodeSecureText,
   decryptDecoded,
   verifyDecodedSignature,
   generateSigningKeyPair,
@@ -9,19 +6,13 @@ import {
   bytesToHex,
   renderToCanvas,
   renderToSVG,
-  scanImageData,
-  scanFile,
   startCameraScanner,
-  runImageStressTest,
-  runReliabilityLab,
-  runPerspectiveSweep,
-  applyStressDistortion,
   estimateSafeLogoSize,
   getPrintGuidance,
   getVersionInfo,
   MAX_VERSION
 } from "../library/quadqr.js";
-import { buildCapacityComparison, benchmarkCodec, calculateCapacityPlan } from "../library/benchmark.js";
+import { buildCapacityComparison, calculateCapacityPlan } from "../library/benchmark.js";
 
 const payloadEl = document.querySelector("#payload");
 const versionEl = document.querySelector("#version");
@@ -54,6 +45,10 @@ const securityRawKeyEl = document.querySelector("#securityRawKey");
 const generateRawKeyBtn = document.querySelector("#generateRawKeyBtn");
 const securityHintEl = document.querySelector("#securityHint");
 const generateBtn = document.querySelector("#generateBtn");
+const generateBtnText = document.querySelector("#generateBtnText");
+const generationOverlay = document.querySelector("#generationOverlay");
+const generationStatus = document.querySelector("#generationStatus");
+const generationStatusDetail = document.querySelector("#generationStatusDetail");
 const downloadBtn = document.querySelector("#downloadBtn");
 const downloadSvgBtn = document.querySelector("#downloadSvgBtn");
 const canvas = document.querySelector("#qrCanvas");
@@ -135,6 +130,94 @@ let lastCameraLogSignature = "";
 let lastCameraFrameDiagnostic = null;
 let lastCameraUiUpdate = 0;
 
+class DemoWorkerClient {
+  constructor(url) {
+    this.url = url;
+    this.worker = null;
+    this.nextId = 1;
+    this.pending = new Map();
+  }
+
+  ensureWorker() {
+    if (this.worker) return this.worker;
+    if (typeof Worker === "undefined") {
+      throw new Error("This demo requires Web Worker support for non-blocking encoding.");
+    }
+    const worker = new Worker(this.url, { type: "module" });
+    this.worker = worker;
+    worker.addEventListener("message", (event) => {
+      const { id, ok, result, error } = event.data ?? {};
+      const pending = this.pending.get(id);
+      if (!pending) return;
+      this.pending.delete(id);
+      if (ok) pending.resolve(result);
+      else {
+        const workerError = new Error(error?.message || "Background task failed.");
+        workerError.name = error?.name || "Error";
+        workerError.stack = error?.stack || workerError.stack;
+        if (error?.debug != null) workerError.debug = error.debug;
+        pending.reject(workerError);
+      }
+    });
+    worker.addEventListener("error", (event) => {
+      const error = new Error(event.message || "Demo background worker crashed.");
+      for (const pending of this.pending.values()) pending.reject(error);
+      this.pending.clear();
+      worker.terminate();
+      if (this.worker === worker) this.worker = null;
+    });
+    return worker;
+  }
+
+  run(task, payload, transfer = []) {
+    const worker = this.ensureWorker();
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      worker.postMessage({ id, task, payload }, transfer);
+    });
+  }
+
+  reset(reason = "Background task cancelled.") {
+    if (this.worker) this.worker.terminate();
+    this.worker = null;
+    const error = new Error(reason);
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
+  }
+}
+
+const encodeWorker = new DemoWorkerClient(new URL("./compute-worker.js", import.meta.url));
+const verificationWorker = new DemoWorkerClient(new URL("./compute-worker.js", import.meta.url));
+const analysisWorker = new DemoWorkerClient(new URL("./compute-worker.js", import.meta.url));
+let generationRunning = false;
+let generationQueued = false;
+let queuedGenerationMode = null;
+let activeGenerationMode = null;
+let generationPromise = Promise.resolve();
+let generationRevision = 0;
+let scanabilityRevision = 0;
+
+function setGenerationBusy(busy, status = "Preparing…", detail = "Heavy compression and verification run off the UI thread.") {
+  generateBtn.disabled = busy;
+  generateBtn.classList.toggle("is-loading", busy);
+  generateBtn.setAttribute("aria-busy", String(busy));
+  generateBtnText.textContent = busy ? "Working…" : "Generate + verify";
+  generationStatus.textContent = status;
+  generationStatusDetail.textContent = detail;
+  generationOverlay.classList.toggle("hidden", !busy);
+}
+
+function updateGenerationPhase(status, detail) {
+  if (!generationRunning) return;
+  generationStatus.textContent = status;
+  if (detail) generationStatusDetail.textContent = detail;
+}
+
+function transferableImageData(imageData) {
+  return { width: imageData.width, height: imageData.height, data: imageData.data };
+}
+
 function highDensityEnabled(element) {
   return element?.value === "true";
 }
@@ -189,6 +272,49 @@ function loadImage(source) {
     image.onerror = () => reject(new Error("Unable to load the selected logo image."));
     image.src = source;
   });
+}
+
+
+async function imageFileToImageData(file, maxDimension = 1800) {
+  let source = null;
+  let revoke = null;
+  try {
+    if (typeof createImageBitmap === "function") {
+      try {
+        source = await createImageBitmap(file);
+      } catch {
+        // SVG and a few browser codecs may not be supported by createImageBitmap.
+      }
+    }
+    if (!source) {
+      const url = URL.createObjectURL(file);
+      revoke = () => URL.revokeObjectURL(url);
+      source = await new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error("Unable to decode the selected image."));
+        image.src = url;
+      });
+    }
+
+    const sourceWidth = source.naturalWidth ?? source.width;
+    const sourceHeight = source.naturalHeight ?? source.height;
+    if (!sourceWidth || !sourceHeight) throw new Error("Selected image has invalid dimensions.");
+    const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
+    const width = Math.max(1, Math.round(sourceWidth * scale));
+    const height = Math.max(1, Math.round(sourceHeight * scale));
+    const scratch = document.createElement("canvas");
+    scratch.width = width;
+    scratch.height = height;
+    const ctx = scratch.getContext("2d", { willReadFrequently: true, alpha: false });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(source, 0, 0, width, height);
+    return ctx.getImageData(0, 0, width, height);
+  } finally {
+    source?.close?.();
+    revoke?.();
+  }
 }
 
 function formatFileSize(bytes) {
@@ -253,7 +379,7 @@ function updateStats(code) {
     String(code.maskId),
     `${(code.utilization * 100).toFixed(1)}%`,
     [
-      code.compressed ? "LZ compressed" : null,
+      code.compressed ? `${String(code.compression || "compressed").toUpperCase()} compressed` : null,
       code.signed ? "Ed25519 signed" : null,
       code.secure ? `${code.security?.mode === "raw-key" ? "Raw key" : "Password"} encrypted` : null
     ].filter(Boolean).join(" · ") || "None",
@@ -301,26 +427,6 @@ function updateRenderModeUi() {
   if (print) {
     styleHintEl.textContent = "Print mode forces Classic rendering, a minimum 4-module quiet zone, and darker print-safe RGB primaries. Use getPrintGuidance() when physical dimensions are known.";
   }
-}
-
-async function encodeGeneratorPayload(commonOptions, security, signing) {
-  const compression = compressionModeEl.value;
-  if (security) {
-    return encodeSecureText(payloadEl.value, {
-      ...commonOptions,
-      compression,
-      security,
-      ...(signing ? { signing } : {})
-    });
-  }
-  if (signing) {
-    return encodeSignedText(payloadEl.value, {
-      ...commonOptions,
-      compression,
-      ...signing
-    });
-  }
-  return encodeText(payloadEl.value, { ...commonOptions, compression });
 }
 
 function demoSignatureVerificationOptions(result) {
@@ -409,7 +515,7 @@ function formatResult(container, result, titleText, options = {}) {
     const payloadMeta = document.createElement("div");
     payloadMeta.className = "security-meta";
     payloadMeta.textContent = [
-      result.compressed ? "LZ compressed" : null,
+      result.compressed ? `${String(result.compression || "compressed").toUpperCase()} compressed` : null,
       result.signed ? `Ed25519 signed${result.signingKeyId ? ` · key ID ${result.signingKeyId}` : ""}` : null,
       result.signed && result.signatureVerified === true && result.signatureTrusted === true ? "trusted signature verified" : null,
       result.signed && result.signatureVerified === true && result.signatureTrusted !== true ? "signature valid · signer not trusted" : null,
@@ -471,84 +577,191 @@ function formatResult(container, result, titleText, options = {}) {
   }
 }
 
-async function generate() {
+async function renderAndVerifyCode(code, revision, security, statusPrefix = "", expectedText = null) {
+  if (revision !== generationRevision) return null;
+  updateGenerationPhase(`${statusPrefix}Rendering preview…`, "Drawing the matrix and preparing the SVG preview.");
+  const renderOptions = generatorRenderOptions();
+  renderToCanvas(code, canvas, renderOptions);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  drawImageDataToStressCanvas(imageData);
+  updateSvgPreview(renderToSVG(code, generatorRenderOptions({ svg: true })));
+  updateStats(code);
+
+  updateGenerationPhase(`${statusPrefix}Verifying rendered pixels…`, "Pixel decoding runs off the UI thread before downloads are enabled.");
+  const verificationPixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const scanned = await verificationWorker.run(
+    "scan",
+    {
+      imageData: transferableImageData(verificationPixels),
+      options: { minVersion: code.version, maxVersion: code.version }
+    },
+    [verificationPixels.data.buffer]
+  );
+  if (revision !== generationRevision) return null;
+
+  const verified = await fullyVerifyDecoded(scanned, security);
+  if (expectedText != null && verified.text !== expectedText) {
+    throw new Error("Generated image decoded, but payload did not match.");
+  }
+
+  currentCode = code;
+  currentRenderOptions = renderOptions;
+  downloadBtn.disabled = false;
+  downloadSvgBtn.disabled = false;
+  scanabilityBtn.disabled = false;
+  setPill(
+    verificationPill,
+    "good",
+    [code.signed ? "Signed" : null, code.secure ? "Secure" : null, "Spectrum ECC verified"].filter(Boolean).join(" + ")
+  );
+  return code;
+}
+
+async function performGeneration(revision) {
   clearError();
-  generateBtn.disabled = true;
+  scanabilityRevision++;
+  analysisWorker.reset("Superseded by a new generation request.");
+
+  const requestedVersion = versionEl.value === "auto" ? "auto" : Number(versionEl.value);
+  const security = securityOptionsFromGenerator();
+  const signing = signingOptionsFromGenerator();
+  const commonOptions = {
+    version: requestedVersion,
+    ecc: eccLevelEl.value,
+    highDensity: highDensityEnabled(highDensityModeEl)
+  };
+
+  updateGenerationPhase(
+    compressionModeEl.value === "auto" ? "Compressing + encoding…" : "Encoding payload…",
+    compressionModeEl.value === "auto"
+      ? "Balanced Brotli, DEFLATE and legacy LZ are compared in a background worker. The page stays responsive."
+      : "Encoding is running in a background worker so the browser UI does not freeze."
+  );
+  const expectedText = payloadEl.value;
+  const code = await encodeWorker.run("encode", {
+    text: expectedText,
+    commonOptions,
+    compression: compressionModeEl.value,
+    security,
+    signing
+  });
+  if (revision !== generationRevision) return null;
+  return renderAndVerifyCode(code, revision, security, "", expectedText);
+}
+
+async function performRerender(revision) {
+  if (!currentCode) return performGeneration(revision);
+  clearError();
+  scanabilityRevision++;
+  analysisWorker.reset("Superseded by a render update.");
+  const security = securityOptionsFromGenerator();
+  return renderAndVerifyCode(currentCode, revision, security, "Updating · ");
+}
+
+async function runAutomaticScanability(code, revision) {
+  if (!code || revision !== generationRevision || currentCode !== code) return;
+  const safetyRevision = ++scanabilityRevision;
+  scanabilityBtn.disabled = true;
+  scanabilityScoreEl.textContent = "Testing…";
+  scanabilityMetaEl.textContent = "Background robustness checks are running. You can keep using the page.";
+  scanabilityResultsEl.innerHTML = "";
+
+  // Yield once so the final QR and verification state paint immediately.
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  if (safetyRevision !== scanabilityRevision || revision !== generationRevision) return;
 
   try {
-    const requestedVersion = versionEl.value === "auto" ? "auto" : Number(versionEl.value);
-    const security = securityOptionsFromGenerator();
-    const signing = signingOptionsFromGenerator();
-    const commonOptions = {
-      version: requestedVersion,
-      ecc: eccLevelEl.value,
-      highDensity: highDensityEnabled(highDensityModeEl)
-    };
-    const code = await encodeGeneratorPayload(commonOptions, security, signing);
-
-    const renderOptions = generatorRenderOptions();
-    renderToCanvas(code, canvas, renderOptions);
-
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    drawImageDataToStressCanvas(imageData);
-    const scanned = scanImageData(imageData, {
-      minVersion: code.version,
-      maxVersion: code.version
-    });
-    const verified = await fullyVerifyDecoded(scanned, security);
-
-    if (verified.text !== payloadEl.value) {
-      throw new Error("Generated image decoded, but payload did not match.");
-    }
-
-    currentCode = code;
-    currentRenderOptions = renderOptions;
-    updateSvgPreview(renderToSVG(code, generatorRenderOptions({ svg: true })));
-    updateStats(code);
-    scanabilityBtn.disabled = true;
-    scanabilityScoreEl.textContent = "Testing…";
-    scanabilityMetaEl.textContent = "Running the automatic pre-export distortion suite.";
-    scanabilityResultsEl.innerHTML = "";
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    try {
-      const report = runImageStressTest(currentCanvasImageData(scanabilityImageSize()), {
-        version: code.version,
-        crc32: code.crc32
-      });
-      scanabilityScoreEl.textContent = `${report.score.toFixed(0)}/100 · ${report.rating}`;
-      scanabilityMetaEl.textContent =
-        `${report.passed}/${report.total} scenarios decoded · weighted pass ${report.passPercent.toFixed(0)}%` +
-        (logoEnabledEl.checked && currentLogoImage && logoSizeEl.value === "auto"
-          ? ` · auto logo ${(estimateSafeLogoSize(code, renderOptions) * 100).toFixed(1)}%`
-          : "");
-      renderStressReport(report);
-    } catch (safetyError) {
-      scanabilityScoreEl.textContent = "Safety test unavailable";
-      scanabilityMetaEl.textContent = safetyError.message;
-    }
-    downloadBtn.disabled = false;
-    downloadSvgBtn.disabled = false;
-    scanabilityBtn.disabled = false;
-    setPill(
-      verificationPill,
-      "good",
-      [code.signed ? "Signed" : null, code.secure ? "Secure" : null, "Spectrum ECC verified"].filter(Boolean).join(" + ")
+    const imageData = currentCanvasImageData(scanabilityImageSize());
+    const report = await analysisWorker.run(
+      "stress",
+      {
+        imageData: transferableImageData(imageData),
+        expected: { version: code.version, crc32: code.crc32 }
+      },
+      [imageData.data.buffer]
     );
+    if (safetyRevision !== scanabilityRevision || revision !== generationRevision || currentCode !== code) return;
+    scanabilityScoreEl.textContent = `${report.score.toFixed(0)}/100 · ${report.rating}`;
+    scanabilityMetaEl.textContent =
+      `${report.passed}/${report.total} scenarios decoded · weighted pass ${report.passPercent.toFixed(0)}%` +
+      (logoEnabledEl.checked && currentLogoImage && logoSizeEl.value === "auto"
+        ? ` · auto logo ${(estimateSafeLogoSize(code, currentRenderOptions) * 100).toFixed(1)}%`
+        : "");
+    renderStressReport(report);
   } catch (error) {
-    currentCode = null;
-    currentRenderOptions = null;
-    qrPreviewEl.innerHTML = "";
-    downloadBtn.disabled = true;
-    downloadSvgBtn.disabled = true;
-    scanabilityBtn.disabled = true;
-    setPill(verificationPill, "bad", "Verification failed");
-    showError(error.message);
+    if (safetyRevision !== scanabilityRevision || revision !== generationRevision) return;
+    scanabilityScoreEl.textContent = "Safety test unavailable";
+    scanabilityMetaEl.textContent = error.message;
   } finally {
-    generateBtn.disabled = false;
+    if (safetyRevision === scanabilityRevision && revision === generationRevision) {
+      scanabilityBtn.disabled = false;
+    }
   }
 }
 
+function requestGeneration(mode = "full") {
+  generationRevision++;
+  // A render-only change must never downgrade an in-flight full re-encode.
+  // If it invalidates a full generation, repeat the full generation with the
+  // latest UI state instead of accidentally reusing the previous matrix.
+  const effectiveMode = generationRunning && activeGenerationMode === "full" ? "full" : mode;
+  if (effectiveMode === "full" || queuedGenerationMode == null) queuedGenerationMode = effectiveMode;
+  if (generationRunning) {
+    generationQueued = true;
+    return generationPromise;
+  }
+
+  generationPromise = (async () => {
+    generationRunning = true;
+    setGenerationBusy(true, "Preparing…", "Starting background compute.");
+    let finalCode = null;
+    try {
+      do {
+        generationQueued = false;
+        const revision = generationRevision;
+        const taskMode = queuedGenerationMode ?? "full";
+        queuedGenerationMode = null;
+        activeGenerationMode = taskMode;
+        try {
+          const generated = taskMode === "render"
+            ? await performRerender(revision)
+            : await performGeneration(revision);
+          if (generated && revision === generationRevision) finalCode = generated;
+        } catch (error) {
+          if (revision !== generationRevision || generationQueued) continue;
+          currentCode = null;
+          currentRenderOptions = null;
+          qrPreviewEl.innerHTML = "";
+          downloadBtn.disabled = true;
+          downloadSvgBtn.disabled = true;
+          scanabilityBtn.disabled = true;
+          setPill(verificationPill, "bad", "Verification failed");
+          showError(error.message);
+        }
+      } while (generationQueued || queuedGenerationMode != null);
+    } finally {
+      activeGenerationMode = null;
+      generationRunning = false;
+      setGenerationBusy(false);
+    }
+
+    if (finalCode && currentCode === finalCode) {
+      void runAutomaticScanability(finalCode, generationRevision);
+    }
+    return finalCode;
+  })();
+
+  return generationPromise;
+}
+
+function generate() {
+  return requestGeneration("full");
+}
+
+function rerenderCurrentCode() {
+  return requestGeneration(currentCode ? "render" : "full");
+}
 
 
 function currentCanvasImageData(maxSize = null) {
@@ -603,23 +816,33 @@ function renderStressReport(report, container = scanabilityResultsEl) {
 
 async function runScanabilityTest() {
   if (!currentCode) return;
+  const code = currentCode;
+  const revision = ++scanabilityRevision;
+  analysisWorker.reset("Starting a manual scanability test.");
   scanabilityBtn.disabled = true;
   scanabilityScoreEl.textContent = "Testing…";
-  scanabilityMetaEl.textContent = "Applying camera-style distortions and decoding each result.";
+  scanabilityMetaEl.textContent = "Applying camera-style distortions in a background worker.";
   await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
-    const report = runImageStressTest(currentCanvasImageData(scanabilityImageSize()), {
-      version: currentCode.version,
-      crc32: currentCode.crc32
-    });
+    const imageData = currentCanvasImageData(scanabilityImageSize());
+    const report = await analysisWorker.run(
+      "stress",
+      {
+        imageData: transferableImageData(imageData),
+        expected: { version: code.version, crc32: code.crc32 }
+      },
+      [imageData.data.buffer]
+    );
+    if (revision !== scanabilityRevision || currentCode !== code) return;
     scanabilityScoreEl.textContent = `${report.score.toFixed(0)}/100 · ${report.rating}`;
     scanabilityMetaEl.textContent = `${report.passed}/${report.total} scenarios decoded · weighted pass ${report.passPercent.toFixed(0)}%`;
     renderStressReport(report);
   } catch (error) {
+    if (revision !== scanabilityRevision) return;
     scanabilityScoreEl.textContent = "Test failed";
     scanabilityMetaEl.textContent = error.message;
   } finally {
-    scanabilityBtn.disabled = false;
+    if (revision === scanabilityRevision) scanabilityBtn.disabled = false;
   }
 }
 
@@ -685,18 +908,27 @@ async function runReliabilityUi() {
     reliabilityStatusEl.textContent = "Generate a QuadQR first.";
     return;
   }
+  const code = currentCode;
+  analysisWorker.reset("Starting Reliability Lab.");
+  scanabilityRevision++;
   runReliabilityBtn.disabled = true;
   setPill(reliabilityPill, "neutral", "Running");
   reliabilityStatusEl.className = "scan-result";
-  reliabilityStatusEl.textContent = "Running deterministic camera and perspective scenarios…";
+  reliabilityStatusEl.textContent = "Running deterministic camera and perspective scenarios in the background…";
   reliabilityResultsBody.innerHTML = '<tr><td colspan="6" class="muted-cell">Running reliability tests…</td></tr>';
   await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
-    const report = runReliabilityLab(
-      currentCanvasImageData(reliabilityImageSize()),
-      { version: currentCode.version, crc32: currentCode.crc32 },
-      { suite: reliabilitySuiteEl.value }
+    const imageData = currentCanvasImageData(reliabilityImageSize());
+    const report = await analysisWorker.run(
+      "reliability",
+      {
+        imageData: transferableImageData(imageData),
+        expected: { version: code.version, crc32: code.crc32 },
+        options: { suite: reliabilitySuiteEl.value }
+      },
+      [imageData.data.buffer]
     );
+    if (currentCode !== code) return;
     reliabilityScoreEl.textContent = `${report.score.toFixed(0)}/100`;
     reliabilityRatingEl.textContent = `${report.rating} · ${report.suite}`;
     reliabilityPassedEl.textContent = `${report.passed}/${report.total}`;
@@ -711,6 +943,7 @@ async function runReliabilityUi() {
     setPill(reliabilityPill, report.score >= 75 ? "good" : "bad", `${report.score.toFixed(0)}/100`);
     renderReliabilityReport(report);
   } catch (error) {
+    if (currentCode !== code) return;
     setPill(reliabilityPill, "bad", "Failed");
     reliabilityStatusEl.className = "scan-result bad";
     reliabilityStatusEl.textContent = error.message;
@@ -742,24 +975,30 @@ async function testPerspectiveUi() {
     perspectiveResultEl.textContent = "Generate a QuadQR first.";
     return;
   }
+  const code = currentCode;
+  analysisWorker.reset("Starting perspective test.");
+  scanabilityRevision++;
   testPerspectiveBtn.disabled = true;
   const transform = currentPerspectiveOptions();
-  const distorted = applyStressDistortion(
-    currentCanvasImageData(),
-    "perspective-3d",
-    0.5,
-    transform
-  );
-  drawImageDataToStressCanvas(distorted);
   perspectiveResultEl.className = "scan-result";
-  perspectiveResultEl.textContent = "Scanning transformed image…";
+  perspectiveResultEl.textContent = "Transforming and scanning in the background…";
   await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
-    const decoded = scanImageData(distorted, {
-      minVersion: currentCode.version,
-      maxVersion: currentCode.version
-    });
-    const matches = decoded.crc32 === currentCode.crc32;
+    const imageData = currentCanvasImageData();
+    const result = await analysisWorker.run(
+      "perspective-test",
+      {
+        imageData: transferableImageData(imageData),
+        transform,
+        scanOptions: { minVersion: code.version, maxVersion: code.version }
+      },
+      [imageData.data.buffer]
+    );
+    if (currentCode !== code) return;
+    drawImageDataToStressCanvas(result.distorted);
+    if (result.error) throw new Error(result.error.message);
+    const decoded = result.decoded;
+    const matches = decoded.crc32 === code.crc32;
     perspectiveResultEl.className = `scan-result ${matches ? "good" : "bad"}`;
     const gridScore = decoded.geometry?.alignment?.gridScore;
     perspectiveResultEl.textContent = matches
@@ -782,20 +1021,29 @@ async function runPerspectiveSweepUi() {
     perspectiveResultEl.textContent = "Generate a QuadQR first.";
     return;
   }
+  const code = currentCode;
+  analysisWorker.reset("Starting perspective sweep.");
+  scanabilityRevision++;
   runPerspectiveSweepBtn.disabled = true;
   perspectiveSweepResultsEl.innerHTML = "";
   perspectiveResultEl.className = "scan-result";
-  perspectiveResultEl.textContent = "Sweeping camera angles…";
+  perspectiveResultEl.textContent = "Sweeping camera angles in the background…";
   await new Promise((resolve) => requestAnimationFrame(resolve));
   try {
     const axis = perspectiveSweepAxisEl.value;
     const base = currentPerspectiveOptions();
     const angles = axis === "roll" ? [0, 20, 35, 50, 65, 75] : [0, 15, 25, 35, 45, 55];
-    const report = runPerspectiveSweep(
-      currentCanvasImageData(),
-      { version: currentCode.version, crc32: currentCode.crc32 },
-      { axis, angles, ...base }
+    const imageData = currentCanvasImageData();
+    const report = await analysisWorker.run(
+      "perspective-sweep",
+      {
+        imageData: transferableImageData(imageData),
+        expected: { version: code.version, crc32: code.crc32 },
+        options: { axis, angles, ...base }
+      },
+      [imageData.data.buffer]
     );
+    if (currentCode !== code) return;
     const axisLabel = axis === "roll" ? "Z rotation" : axis === "pitch" ? "X pitch" : "Y yaw";
     perspectiveResultEl.className = `scan-result ${report.passed >= Math.ceil(report.total * 0.65) ? "good" : "bad"}`;
     perspectiveResultEl.textContent =
@@ -865,21 +1113,22 @@ function renderCapacityBenchmark() {
 async function runBenchmark() {
   runBenchmarkBtn.disabled = true;
   setPill(benchmarkPill, "neutral", "Running");
-  speedBenchmarkBody.innerHTML = '<tr><td colspan="7" class="muted-cell">Running benchmark...</td></tr>';
-
-  // Let the UI paint before the synchronous benchmark loop starts.
-  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  speedBenchmarkBody.innerHTML = '<tr><td colspan="7" class="muted-cell">Running benchmark in a background worker…</td></tr>';
+  await new Promise((resolve) => requestAnimationFrame(resolve));
 
   try {
     renderCapacityBenchmark();
+    analysisWorker.reset("Starting codec benchmark.");
+    scanabilityRevision++;
     const benchmarkOptions = {
       ecc: benchmarkEccEl.value,
       iterations: Number(benchmarkIterationsEl.value),
       payloadSizes: [32, 128, 512, 1024, 2048]
     };
+    const workerReport = await analysisWorker.run("benchmark", { options: benchmarkOptions });
     const reports = [
-      { label: "Normal RGBW", report: benchmarkCodec({ ...benchmarkOptions, highDensity: false }) },
-      { label: "High Density · Experimental", report: benchmarkCodec({ ...benchmarkOptions, highDensity: true }) }
+      { label: "Normal RGBW", report: workerReport.normal },
+      { label: "High Density · Experimental", report: workerReport.highDensity }
     ];
 
     speedBenchmarkBody.innerHTML = "";
@@ -1366,7 +1615,7 @@ generateSigningKeyBtn.addEventListener("click", async () => {
     generateSigningKeyBtn.disabled = false;
   }
 });
-renderModeEl.addEventListener("change", () => { updateRenderModeUi(); generate(); });
+renderModeEl.addEventListener("change", () => { updateRenderModeUi(); rerenderCurrentCode(); });
 securityModeEl.addEventListener("change", () => {
   updateSecurityUi();
   currentCode = null;
@@ -1379,17 +1628,17 @@ generateRawKeyBtn.addEventListener("click", () => {
   securityRawKeyEl.value = bytesToHex(generateRaw256Key());
   securityRawKeyEl.focus();
 });
-imageSizeEl.addEventListener("change", () => currentCode && generate());
-quietZoneEl.addEventListener("change", () => currentCode && generate());
-logoSizeEl.addEventListener("change", () => currentCode && generate());
-logoClearBackgroundEl.addEventListener("change", () => currentCode && generate());
-logoEnabledEl.addEventListener("change", () => currentCode && generate());
+imageSizeEl.addEventListener("change", () => currentCode && rerenderCurrentCode());
+quietZoneEl.addEventListener("change", () => currentCode && rerenderCurrentCode());
+logoSizeEl.addEventListener("change", () => currentCode && rerenderCurrentCode());
+logoClearBackgroundEl.addEventListener("change", () => currentCode && rerenderCurrentCode());
+logoEnabledEl.addEventListener("change", () => currentCode && rerenderCurrentCode());
 removeLogoBtn.addEventListener("click", async () => {
   currentLogoImage = null;
   currentLogoDataUrl = null;
   logoFileEl.value = "";
   updateLogoUploadUi();
-  if (currentCode) await generate();
+  if (currentCode) await rerenderCurrentCode();
 });
 logoFileEl.addEventListener("change", async () => {
   const file = logoFileEl.files?.[0];
@@ -1397,7 +1646,7 @@ logoFileEl.addEventListener("change", async () => {
     currentLogoImage = null;
     currentLogoDataUrl = null;
     updateLogoUploadUi();
-    if (currentCode) generate();
+    if (currentCode) rerenderCurrentCode();
     return;
   }
 
@@ -1408,7 +1657,7 @@ logoFileEl.addEventListener("change", async () => {
     currentLogoImage = image;
     logoEnabledEl.checked = true;
     updateLogoUploadUi(file);
-    await generate();
+    await rerenderCurrentCode();
   } catch (error) {
     currentLogoImage = null;
     currentLogoDataUrl = null;
@@ -1425,7 +1674,7 @@ renderStyleEl.addEventListener("change", () => {
     inset: "Inset uses narrow recessed edge lighting while preserving the exact R/G/B/W center of every data tile."
   };
   styleHintEl.textContent = hints[renderStyleEl.value] || hints.classic;
-  if (currentCode) generate();
+  if (currentCode) rerenderCurrentCode();
 });
 eccLevelEl.addEventListener("change", () => {
   rebuildVersions();
@@ -1460,11 +1709,22 @@ scanFileEl.addEventListener("change", async () => {
   const file = scanFileEl.files?.[0];
   if (!file) return;
   scanResultEl.className = "scan-result";
-  scanResultEl.textContent = "Scanning image...";
+  scanResultEl.textContent = "Decoding image…";
   scanDebugOutputEl.classList.add("hidden");
 
   try {
-    let result = await scanFile(file, { debug: scanDebugEl.checked });
+    const imageData = await imageFileToImageData(file);
+    scanResultEl.textContent = "Scanning image in the background…";
+    analysisWorker.reset("Starting uploaded image scan.");
+    scanabilityRevision++;
+    let result = await analysisWorker.run(
+      "scan",
+      {
+        imageData: transferableImageData(imageData),
+        options: { debug: scanDebugEl.checked }
+      },
+      [imageData.data.buffer]
+    );
     if (result.signed && !result.requiresDecryption) result = await tryVerifyWithDemoKey(result);
     formatResult(scanResultEl, result, "Verified QuadQR");
     if (scanDebugEl.checked) {
@@ -1566,7 +1826,12 @@ perspectiveYawEl.addEventListener("input", updatePerspectiveLabels);
 perspectiveRollEl.addEventListener("input", updatePerspectiveLabels);
 testPerspectiveBtn.addEventListener("click", testPerspectiveUi);
 runPerspectiveSweepBtn.addEventListener("click", runPerspectiveSweepUi);
-window.addEventListener("pagehide", () => cameraController?.stop());
+window.addEventListener("pagehide", () => {
+  cameraController?.stop();
+  encodeWorker.reset("Page closed.");
+  verificationWorker.reset("Page closed.");
+  analysisWorker.reset("Page closed.");
+});
 
 resetCameraDiagnosticsUi();
 updateLogoUploadUi();

@@ -201,7 +201,7 @@ const code = encodeText("repeat repeat repeat repeat", {
 });
 ```
 
-`auto` compares bundled Brotli, portable DEFLATE, and legacy LZ, chooses the smallest candidate, and keeps the original payload untouched when the complete compressed representation would not save space.
+`auto` compares bundled Brotli at balanced quality 6, portable DEFLATE, and legacy LZ, chooses the smallest candidate, and keeps the original payload untouched when the complete compressed representation would not save space.
 
 For offline integrity verification:
 

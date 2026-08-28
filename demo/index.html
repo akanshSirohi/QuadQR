@@ -147,7 +147,7 @@
                   <span>Compression mode</span>
                   <select id="compressionMode"><option value="auto" selected>Auto · choose best compression</option><option value="none">Off · store payload directly</option><option value="brotli">Brotli · always compress</option><option value="deflate">DEFLATE · always compress</option><option value="lz">Legacy LZ · always compress</option></select>
                 </label>
-                <p class="style-hint">Your payload remains normal text or bytes. Auto compares bundled Brotli, portable DEFLATE, and legacy LZ, uses the smallest result, and adds no compression envelope when the final stored payload would not actually be smaller.</p>
+                <p class="style-hint">Your payload remains normal text or bytes. Auto compares balanced Brotli, portable DEFLATE, and legacy LZ in a background worker, uses the smallest result, and adds no compression envelope when the final stored payload would not actually be smaller.</p>
               </div>
             </details>
 
@@ -181,7 +181,7 @@
           </div>
 
           <div class="actions generator-actions">
-            <button id="generateBtn" class="primary">Generate + verify</button>
+            <button id="generateBtn" class="primary generate-button"><span class="button-spinner" aria-hidden="true"></span><span id="generateBtnText">Generate + verify</span></button>
             <button id="downloadBtn" class="secondary" disabled>Download PNG</button>
             <button id="downloadSvgBtn" class="secondary" disabled>Download SVG</button>
           </div>
@@ -199,6 +199,11 @@
 
           <div class="canvas-wrap svg-preview-wrap">
             <div id="qrPreview" class="qr-svg-preview" role="img" aria-label="Generated QuadQR SVG preview"></div>
+            <div id="generationOverlay" class="generation-overlay hidden" aria-live="polite">
+              <span class="generation-spinner" aria-hidden="true"></span>
+              <strong id="generationStatus">Preparing…</strong>
+              <small id="generationStatusDetail">Heavy compression and verification run off the UI thread.</small>
+            </div>
           </div>
           <canvas id="qrCanvas" class="verification-canvas" aria-hidden="true"></canvas>
 

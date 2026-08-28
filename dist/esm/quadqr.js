@@ -427,7 +427,7 @@ function compressionCandidates(payload) {
   return [
     { body: compressPayload(payload), compression: "lz" },
     { body: compressDeflatePayload(payload), compression: "deflate" },
-    { body: compressBrotliPayload(payload), compression: "brotli" }
+    { body: compressBrotliPayload(payload, { quality: 6 }), compression: "brotli" }
   ];
 }
 
