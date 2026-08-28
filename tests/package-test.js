@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { webcrypto } from "node:crypto";
+import { brotliCompressSync, brotliDecompressSync, constants as zlibConstants } from "node:zlib";
 
 import * as esm from "../dist/index.js";
 import * as nodeApi from "../dist/node.js";
@@ -24,6 +25,10 @@ console.log("Running package distribution tests...");
     "generateSigningKeyPair",
     "deriveSigningKeyId",
     "verifyDecodedSignature",
+    "compressDeflatePayload",
+    "decompressDeflatePayload",
+    "compressBrotliPayload",
+    "decompressBrotliPayload",
     "debugScanImageData",
     "assessScanability",
     "estimateSafeLogoSize",
@@ -31,6 +36,26 @@ console.log("Running package distribution tests...");
     "getPrintGuidance"
   ]) assert.equal(typeof esm[name], "function", `${name} must be exported from the ESM entry.`);
   assert.equal(typeof benchmarkApi.calculateCapacityPlan, "function");
+
+  const serverText = "server-side compression ".repeat(250);
+  const serverEncoded = esm.encodeText(serverText, { compression: "auto" });
+  const serverDecoded = esm.decodeMatrix(serverEncoded.matrix);
+  assert.equal(serverDecoded.text, serverText);
+  assert.equal(serverDecoded.compression, "brotli");
+
+  const tinyLegacy = esm.encodeText("abc", { compression: "lz" });
+  const tinyLegacyDecoded = esm.decodeMatrix(tinyLegacy.matrix);
+  assert.equal(tinyLegacyDecoded.text, "abc");
+  assert.equal(tinyLegacyDecoded.compression, "lz");
+
+  // Brotli output is interoperable with Node's native implementation in both directions.
+  const raw = new TextEncoder().encode("Brotli interoperability payload ".repeat(80));
+  const portableCompressed = esm.compressBrotliPayload(raw);
+  assert.deepEqual(new Uint8Array(brotliDecompressSync(portableCompressed)), raw);
+  const nativeCompressed = brotliCompressSync(raw, {
+    params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 7 }
+  });
+  assert.deepEqual(esm.decompressBrotliPayload(nativeCompressed, raw.length), raw);
 }
 
 // CommonJS wrapper on supported modern Node.
@@ -39,6 +64,8 @@ console.log("Running package distribution tests...");
   const cjs = require("../dist/index.cjs");
   const code = cjs.encodeText("npm CommonJS roundtrip");
   assert.equal(cjs.decodeMatrix(code.matrix).text, "npm CommonJS roundtrip");
+  const compressed = cjs.encodeText("CommonJS repeated ".repeat(200), { compression: "auto" });
+  assert.equal(cjs.decodeMatrix(compressed.matrix).compression, "brotli");
 }
 
 // Prebuilt WASM is loadable and transparently preserves CRC behavior.
@@ -138,6 +165,11 @@ console.log("Running package distribution tests...");
   assert.ok(context.QuadQR);
   const code = context.QuadQR.encodeText("CDN global roundtrip");
   assert.equal(context.QuadQR.decodeMatrix(code.matrix).text, "CDN global roundtrip");
+  const compressed = context.QuadQR.encodeText("browser repeated ".repeat(200), { compression: "auto" });
+  const compressedDecoded = context.QuadQR.decodeMatrix(compressed.matrix);
+  assert.equal(compressedDecoded.compression, "brotli");
+  const tinyBrotli = context.QuadQR.encodeText("abc", { compression: "brotli" });
+  assert.equal(context.QuadQR.decodeMatrix(tinyBrotli.matrix).text, "abc");
   assert.equal(typeof context.QuadQR.assessScanability, "function");
   assert.equal(typeof context.QuadQR.generateSigningKeyPair, "function");
 }

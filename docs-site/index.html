@@ -218,7 +218,7 @@ const checked = await QuadQR.verifyDecodedSignature(
   { publicKey: keys.publicKey }
 );
 console.log(checked.signatureVerified, checked.signatureTrusted);</code></pre></div>
-        <p class="note"><code>compression: "auto"</code> adds no compression envelope when it does not save space. The private key signs, while the trusted public key stays outside the QuadQR by default. The compact key ID helps a scanner select the correct trusted verification key.</p>
+        <p class="note"><code>compression: "auto"</code> compares bundled Brotli, portable DEFLATE, and legacy LZ, and adds no compression envelope when the final stored result would not save space. The private key signs, while the trusted public key stays outside the QuadQR by default. The compact key ID helps a scanner select the correct trusted verification key.</p>
       </section>
 
       <section id="rendering">
@@ -284,7 +284,9 @@ const sweep = QuadQR.runPerspectiveSweep(imageData, {
           <article><code>encodeText()</code><p>Encode UTF-8 text.</p></article>
           <article><code>encodeBytes()</code><p>Encode arbitrary bytes.</p></article>
           <article><code>encodeSecureText()</code><p>Encrypt and encode text.</p></article>
-          <article><code>compressPayload()</code><p>Portable LZ compression helper.</p></article>
+          <article><code>compressPayload()</code><p>Legacy portable LZ compression helper.</p></article>
+          <article><code>compressBrotliPayload()</code><p>Bundled synchronous Brotli compression helper.</p></article>
+          <article><code>compressDeflatePayload()</code><p>Compression 2.0 pure-JavaScript raw DEFLATE helper.</p></article>
           <article><code>encodeSignedText()</code><p>Sign with Ed25519.</p></article>
           <article><code>encodeUint8Array()</code><p>Explicit binary API.</p></article>
           <article><code>decodeMatrix()</code><p>Decode a sampled matrix.</p></article>

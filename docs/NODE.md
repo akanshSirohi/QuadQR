@@ -68,6 +68,24 @@ const result = await QuadQRNode.scanBuffer(pngBuffer);
 
 PNG generation and decoding do not require external native dependencies.
 
+## Server-side compression
+
+Compression uses the same synchronous JavaScript codec on Node.js as it does in the browser. No DOM API, browser `CompressionStream`, or Node `zlib` call is required by the QuadQR payload codec.
+
+```js
+import { encodeText, decodeMatrix } from "quadqr-js";
+
+const code = encodeText("hello ".repeat(1000), {
+  compression: "auto"
+});
+
+const decoded = decodeMatrix(code.matrix);
+console.log(decoded.compression); // usually "brotli" for repetitive data
+console.log(decoded.text);
+```
+
+`compression: "auto"` compares bundled Brotli, portable DEFLATE, and the legacy LZ codec. You can force `compression: "brotli"`, `compression: "deflate"`, or `compression: "lz"` when deterministic algorithm selection is required.
+
 ## Other image formats
 
 For JPEG, WebP, or AVIF input, the Node adapter can use `sharp` when the consuming application has it installed:

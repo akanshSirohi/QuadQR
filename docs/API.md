@@ -412,17 +412,27 @@ const code = QuadQR.encodeText("hello hello hello", {
 });
 ```
 
-`compression` may be `none`, `auto`, or `lz`.
+`compression` may be `none`, `auto`, `brotli`, `deflate`, or `lz`.
 
 - `none` stores the payload directly.
-- `auto` compresses only when the result is meaningfully smaller. If compression does not help, no internal envelope is added.
-- `lz` always stores the payload through QuadQR's portable LZ compressor.
+- `auto` compares the bundled Brotli, portable DEFLATE, and legacy LZ candidates, chooses the smallest one, and only enables compression when the complete stored representation is smaller. If compression does not help, no internal envelope is added.
+- `brotli` always stores the payload using QuadQR's bundled synchronous Brotli codec.
+- `deflate` always stores the payload using QuadQR's synchronous pure-JavaScript raw DEFLATE codec.
+- `lz` always stores the payload through the original portable LZSS-style compressor for backward compatibility.
 
 There is no public content-type registry. Text remains text and byte arrays remain byte arrays.
 
 ### `compressPayload(input)` / `decompressPayload(input, expectedLength?)`
 
-Portable synchronous LZSS-style compression helpers. They do not require Node zlib or browser `CompressionStream`.
+Legacy portable synchronous LZSS-style compression helpers. They remain available for compatibility.
+
+### `compressDeflatePayload(input)` / `decompressDeflatePayload(input, expectedLength?)`
+
+Compression 2.0 raw-DEFLATE helpers. The compressor emits deterministic RFC 1951 fixed-Huffman blocks with a 32 KiB match window and matches up to 258 bytes. The implementation is pure JavaScript and synchronous, so the same core works in browsers, Node.js servers, workers, and other JavaScript runtimes without `node:zlib`, `CompressionStream`, DOM APIs, or native dependencies.
+
+### `compressBrotliPayload(input, options?)` / `decompressBrotliPayload(input, expectedLength?)`
+
+Bundled synchronous Brotli helpers. `compressBrotliPayload()` accepts an optional `{ quality }` setting from 1 through 11 for direct codec use. The generated stream is standard Brotli and the decoder accepts standard Brotli streams. QuadQR does not require `node:zlib`, browser `CompressionStream`, DOM APIs, a native addon, or a runtime dependency for this path.
 
 ## Binary convenience APIs
 

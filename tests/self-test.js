@@ -17,6 +17,10 @@ import {
   verifyDecodedSignature,
   compressPayload,
   decompressPayload,
+  compressDeflatePayload,
+  decompressDeflatePayload,
+  compressBrotliPayload,
+  decompressBrotliPayload,
   bytesToHex,
   getVersionInfo,
   internals,
@@ -1178,28 +1182,78 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
 }
 
 
-// Compression stays an internal detail around a normal payload.
+// Compression 2.0 stays an internal detail around a normal payload.
 {
   const text = "Payload compression compression compression ".repeat(8);
   const raw = new TextEncoder().encode(text);
-  const compressed = compressPayload(raw);
-  const restored = decompressPayload(compressed, raw.length);
-  bytesEqual(restored, raw);
-  assert.ok(compressed.length < raw.length);
+
+  // Legacy portable LZ remains available and decodable for compatibility.
+  const lzCompressed = compressPayload(raw);
+  const lzRestored = decompressPayload(lzCompressed, raw.length);
+  bytesEqual(lzRestored, raw);
+  assert.ok(lzCompressed.length < raw.length);
+
+  // Forced legacy LZ must remain a valid stream even for 0..3 byte inputs.
+  for (const tinyText of ["", "a", "ab", "abc"]) {
+    const tinyRaw = new TextEncoder().encode(tinyText);
+    bytesEqual(decompressPayload(compressPayload(tinyRaw), tinyRaw.length), tinyRaw);
+    const tinyLz = decodeMatrix(encodeText(tinyText, { compression: "lz" }).matrix);
+    assert.equal(tinyLz.text, tinyText);
+    assert.equal(tinyLz.compression, "lz");
+  }
+
+  // The synchronous raw-DEFLATE path is pure JS and runtime-neutral.
+  const deflated = compressDeflatePayload(raw);
+  const inflated = decompressDeflatePayload(deflated, raw.length);
+  bytesEqual(inflated, raw);
+  assert.ok(deflated.length < lzCompressed.length);
+
+  // Brotli is also bundled, synchronous, and round-trips standard byte payloads.
+  const brotlied = compressBrotliPayload(raw);
+  const unbrotlied = decompressBrotliPayload(brotlied, raw.length);
+  bytesEqual(unbrotlied, raw);
+  assert.ok(brotlied.length <= deflated.length);
 
   const encoded = encodeText(text, { ecc: "M", compression: "auto" });
   const decoded = decodeMatrix(encoded.matrix);
   assert.equal(decoded.text, text);
-  assert.equal(decoded.compression, "lz");
+  assert.equal(decoded.compression, "brotli");
   assert.equal(decoded.compressed, true);
   assert.equal("contentType" in decoded, false);
-  assert.ok(encoded.payloadBytes < raw.length + 16);
+  assert.ok(encoded.payloadBytes < raw.length);
 
+  // Highly repetitive text should collapse dramatically compared with legacy LZ.
+  const repetitive = "hello ".repeat(1000).trimEnd();
+  const repetitiveRaw = new TextEncoder().encode(repetitive);
+  const repetitiveLz = compressPayload(repetitiveRaw);
+  const repetitiveDeflate = compressDeflatePayload(repetitiveRaw);
+  const repetitiveBrotli = compressBrotliPayload(repetitiveRaw);
+  assert.ok(repetitiveDeflate.length * 5 < repetitiveLz.length);
+  assert.ok(repetitiveBrotli.length < repetitiveDeflate.length);
+  const repetitiveEncoded = encodeText(repetitive, { ecc: "M", compression: "auto" });
+  const repetitiveDecoded = decodeMatrix(repetitiveEncoded.matrix);
+  assert.equal(repetitiveDecoded.text, repetitive);
+  assert.equal(repetitiveDecoded.compression, "brotli");
+
+  // Explicit modes remain deterministic.
+  const explicitLz = decodeMatrix(encodeText(text, { compression: "lz" }).matrix);
+  assert.equal(explicitLz.compression, "lz");
+  const explicitDeflate = decodeMatrix(encodeText(text, { compression: "deflate" }).matrix);
+  assert.equal(explicitDeflate.compression, "deflate");
+  const explicitBrotli = decodeMatrix(encodeText(text, { compression: "brotli" }).matrix);
+  assert.equal(explicitBrotli.compression, "brotli");
+
+  // Auto mode is genuinely zero-overhead when an envelope would make the
+  // stored representation larger than the original payload. Brotli must also
+  // safely handle tiny inputs when it is explicitly requested.
   const tiny = encodeText("abc", { compression: "auto" });
   const tinyDecoded = decodeMatrix(tiny.matrix);
   assert.equal(tinyDecoded.text, "abc");
   assert.equal(tinyDecoded.compressed, false);
   assert.equal(tiny.payloadBytes, 3);
+  const tinyBrotli = decodeMatrix(encodeText("abc", { compression: "brotli" }).matrix);
+  assert.equal(tinyBrotli.text, "abc");
+  assert.equal(tinyBrotli.compression, "brotli");
 }
 
 // Signed QuadQR: the private key signs, while a trusted external public key verifies.

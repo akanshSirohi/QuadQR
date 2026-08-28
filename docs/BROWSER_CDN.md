@@ -72,7 +72,7 @@ const report = assessScanability(compressed, { imageSize: 480 });
 console.log(report.score, report.rating);
 ```
 
-Compression and signing use internal metadata only when required. There is no public content-type mode to configure. The private key signs, while the public verification key stays outside the QuadQR by default. Use the stored `keyId` to select an application-trusted public key. Scanability testing is deterministic synthetic regression testing and should be supplemented with real devices and print samples.
+Compression 2.0 uses bundled synchronous Brotli/DEFLATE/LZ implementations and signing uses internal metadata only when required. There is no public content-type mode to configure. The private key signs, while the public verification key stays outside the QuadQR by default. Use the stored `keyId` to select an application-trusted public key. Scanability testing is deterministic synthetic regression testing and should be supplemented with real devices and print samples.
 
 ## Scan an uploaded image
 

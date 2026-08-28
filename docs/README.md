@@ -13,6 +13,7 @@ QuadQR is an experimental RGBW matrix symbology. Default RGBW cells carry two bi
 
 - [Getting Started](./GETTING_STARTED.md)
 - [API Reference](./API.md)
+- [Compression 2.0](./COMPRESSION.md)
 - [High Density Mode (Experimental)](./HIGH_DENSITY_MODE.md)
 - [Reliability Lab](./RELIABILITY_LAB.md)
 - [Browser and CDN](./BROWSER_CDN.md)
@@ -47,8 +48,8 @@ QuadQR is licensed under AGPL-3.0. See [`LICENSE`](../LICENSE).
 
 The current library also includes:
 
-- normal text/byte payloads with optional internal LZ compression;
-- portable automatic LZ compression;
+- normal text/byte payloads with optional internal Compression 2.0;
+- bundled synchronous Brotli + portable DEFLATE + legacy LZ compatibility;
 - first-class binary `Uint8Array` APIs;
 - Ed25519 signed QuadQR payloads and trusted-key verification;
 - signed + AES-256-GCM encrypted composition;

@@ -104,12 +104,12 @@ Fixed header size: **16 bytes**.
 | Offset | Size | Field |
 |---:|---:|---|
 | 0 | 4 | ASCII magic `QPX1` |
-| 4 | 1 | Extension version (`2`; decoder also accepts legacy `1`) |
+| 4 | 1 | Extension version (`3`; decoder also accepts legacy `1` and `2`) |
 | 5 | 1 | Flags |
 | 6 | 1 | Compression ID |
 | 7 | 1 | Signature algorithm ID |
 | 8 | 4 | Original application payload length, big-endian |
-| 12 | 1 | Signing key-ID length (v2); legacy signer-label length in v1 |
+| 12 | 1 | Signing key-ID length (v2+); legacy signer-label length in v1 |
 | 13 | 1 | Optional embedded public-key length |
 | 14 | 1 | Signature length |
 | 15 | 1 | Reserved (`0`) |
@@ -136,25 +136,33 @@ Compression IDs:
 
 ```text
 0 = none
-1 = QuadQR portable LZ
+1 = QuadQR portable LZ (legacy)
+2 = QuadQR portable raw DEFLATE
+3 = bundled Brotli
 ```
 
-The portable LZ stream is an LZSS-style format with groups of up to eight tokens. Each group begins with one flag byte. A flag bit of `0` means a one-byte literal. A flag bit of `1` means a two-byte back-reference:
+Compression ID `1` is the original LZSS-style stream with groups of up to eight tokens. Each group begins with one flag byte. A flag bit of `0` means a one-byte literal. A flag bit of `1` means a two-byte back-reference:
 
 ```text
 12-bit offset: 1..4095 bytes
 4-bit length: stored value + 3, therefore 3..18 bytes
 ```
 
+Compression ID `2` is a raw RFC 1951 DEFLATE stream. QuadQR's portable encoder uses a deterministic fixed-Huffman block, a 32 KiB LZ77 window, distances up to 32768 bytes, and matches up to 258 bytes. The QuadQR decoder accepts the stored/fixed block forms emitted by the library.
+
+Compression ID `3` is a standard Brotli stream produced and decoded by QuadQR's bundled synchronous JavaScript codec. It uses no Node `zlib`, browser `CompressionStream`, DOM API, native addon, or network-loaded codec at runtime. Brotli is especially effective for repetitive text and structured payloads, while DEFLATE and legacy LZ remain available for deterministic selection and backward compatibility.
+
 Public compression modes are:
 
 ```text
 none
 auto
+brotli
+deflate
 lz
 ```
 
-`compression: "auto"` uses compression only when it meaningfully reduces payload size. When it does not help and the payload is not signed, QuadQR stores the original payload directly with **no extension-envelope overhead**.
+`compression: "auto"` evaluates bundled Brotli, portable DEFLATE, and legacy LZ, then selects the smallest compressed body. For unsigned payloads it enables compression only when that body plus the extension-envelope overhead is smaller than the original payload, making Auto genuinely zero-overhead when compression is not useful. Signed payloads already require an extension envelope, so Auto compares the body size directly.
 
 Compression occurs before signing, encryption, and Format v5 ECC.
 
@@ -162,7 +170,7 @@ Compression occurs before signing, encryption, and Format v5 ECC.
 
 Signature algorithm ID `1` is **Ed25519**.
 
-Signed payloads in extension v2 store:
+Signed payloads in extension v2/v3 store:
 
 ```text
 optional compact key ID

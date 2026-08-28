@@ -145,9 +145,9 @@
               <div class="accordion-content">
                 <label class="field">
                   <span>Compression mode</span>
-                  <select id="compressionMode"><option value="auto" selected>Auto · only when smaller</option><option value="none">Off · store payload directly</option><option value="lz">LZ · always compress</option></select>
+                  <select id="compressionMode"><option value="auto" selected>Auto · choose best compression</option><option value="none">Off · store payload directly</option><option value="brotli">Brotli · always compress</option><option value="deflate">DEFLATE · always compress</option><option value="lz">Legacy LZ · always compress</option></select>
                 </label>
-                <p class="style-hint">Your payload remains normal text or bytes. QuadQR adds internal compression metadata only when needed, and Auto adds no envelope when compression does not help.</p>
+                <p class="style-hint">Your payload remains normal text or bytes. Auto compares bundled Brotli, portable DEFLATE, and legacy LZ, uses the smallest result, and adds no compression envelope when the final stored payload would not actually be smaller.</p>
               </div>
             </details>
 
@@ -510,7 +510,7 @@
                   <label class="field"><span>Payload bytes</span><input id="capacityPayloadBytes" type="number" min="0" value="256" /></label>
                   <label class="field"><span>ECC</span><select id="capacityEcc"><option>L</option><option selected>M</option><option>Q</option><option>H</option></select></label>
                   <label class="field"><span>High Density Mode</span><select id="capacityHighDensity"><option value="false" selected>Disabled · Normal RGBW</option><option value="true">Enabled · Triangle16 · Experimental</option></select></label>
-                  <label class="field"><span>Compression</span><select id="capacityCompression"><option value="none">None</option><option value="auto" selected>Auto</option><option value="lz">LZ</option></select></label>
+                  <label class="field"><span>Compression</span><select id="capacityCompression"><option value="none">None</option><option value="auto" selected>Auto · best</option><option value="brotli">Brotli</option><option value="deflate">DEFLATE</option><option value="lz">Legacy LZ</option></select></label>
                   <label class="field"><span>Signed</span><select id="capacitySigned"><option value="false" selected>No</option><option value="true">Yes · Ed25519</option></select></label>
                 </div>
                 <div class="actions"><button id="calculateCapacityBtn" class="secondary" type="button">Calculate</button></div>

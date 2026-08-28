@@ -426,4 +426,4 @@ bit 4 = internal payload-extension metadata present
 bit 5 = signed-payload hint
 ```
 
-These bits are not a public payload-type mode. Applications continue to encode normal UTF-8 text or arbitrary bytes. Compression and Ed25519 signing use a compact internal extension envelope only when metadata is required. The envelope, print profile, diagnostics, and scanability test model are specified in [`SPECIFICATION.md`](./SPECIFICATION.md). None of these features changes RGBW cell mapping or Spectrum ECC.
+These bits are not a public payload-type mode. Applications continue to encode normal UTF-8 text or arbitrary bytes. Compression 2.0 (bundled Brotli, portable DEFLATE, and legacy LZ compatibility) and Ed25519 signing use a compact internal extension envelope only when metadata is required. The envelope, print profile, diagnostics, and scanability test model are specified in [`SPECIFICATION.md`](./SPECIFICATION.md). None of these features changes RGBW cell mapping or Spectrum ECC.

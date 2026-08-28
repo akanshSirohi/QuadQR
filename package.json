@@ -88,6 +88,7 @@
     "aes-gcm",
     "wasm",
     "compression",
+    "brotli",
     "ed25519",
     "scan-diagnostics",
     "print-qr",

@@ -55,6 +55,14 @@ import {
   normalizeRaw256Key,
   bytesToHex
 } from "./security.js";
+import {
+  compressDeflatePayload as compressDeflateBytes,
+  decompressDeflatePayload as decompressDeflateBytes
+} from "./deflate.js";
+import {
+  compressBrotliPayload as compressBrotliBytes,
+  decompressBrotliPayload as decompressBrotliBytes
+} from "./brotli.js";
 
 export const FORMAT_VERSION = 5;
 export const MIN_VERSION = 1;
@@ -85,7 +93,9 @@ export const PRINT_PALETTE = Object.freeze({
 export const COMPRESSION_MODES = Object.freeze({
   NONE: "none",
   AUTO: "auto",
-  LZ: "lz"
+  LZ: "lz",
+  DEFLATE: "deflate",
+  BROTLI: "brotli"
 });
 export const SIGNATURE_ALGORITHMS = Object.freeze({ ED25519: "Ed25519" });
 
@@ -162,14 +172,14 @@ const TRIANGLE16_FLAG = 1 << 6;
 // Internal payload extension envelope. This is deliberately not a public
 // payload mode or content-type system. It exists only when compression or
 // signing needs metadata around an otherwise normal text/binary payload.
-const PAYLOAD_ENVELOPE_VERSION = 2;
+const PAYLOAD_ENVELOPE_VERSION = 3;
 const PAYLOAD_ENVELOPE_MAGIC = new Uint8Array([0x51, 0x50, 0x58, 0x31]); // QPX1
 const PAYLOAD_ENVELOPE_HEADER_BYTES = 16;
 const PAYLOAD_ENVELOPE_SIGNED_FLAG = 1;
 const PAYLOAD_ENVELOPE_COMPRESSED_FLAG = 1 << 1;
 const PAYLOAD_ENVELOPE_EMBEDDED_KEY_FLAG = 1 << 2;
-const PAYLOAD_ENVELOPE_COMPRESSION_IDS = Object.freeze({ none: 0, lz: 1 });
-const PAYLOAD_ENVELOPE_COMPRESSION_BY_ID = Object.freeze({ 0: "none", 1: "lz" });
+const PAYLOAD_ENVELOPE_COMPRESSION_IDS = Object.freeze({ none: 0, lz: 1, deflate: 2, brotli: 3 });
+const PAYLOAD_ENVELOPE_COMPRESSION_BY_ID = Object.freeze({ 0: "none", 1: "lz", 2: "deflate", 3: "brotli" });
 const PAYLOAD_ENVELOPE_SIGNATURE_IDS = Object.freeze({ none: 0, Ed25519: 1 });
 const PAYLOAD_ENVELOPE_SIGNATURE_BY_ID = Object.freeze({ 0: null, 1: "Ed25519" });
 const ECC_SHIFT = 1;
@@ -301,7 +311,7 @@ function readU16be(bytes, offset = 0) {
 
 function normalizeCompressionMode(value = "none") {
   const key = String(value).toLowerCase();
-  assert(["none", "auto", "lz"].includes(key), "compression must be none, auto, or lz.");
+  assert(["none", "auto", "lz", "deflate", "brotli"].includes(key), "compression must be none, auto, lz, deflate, or brotli.");
   return key;
 }
 
@@ -315,7 +325,6 @@ function asBytes(input) {
 /** Portable LZSS-style compressor used by QuadQR payload compression. */
 export function compressPayload(input) {
   const bytes = asBytes(input);
-  if (bytes.length < 4) return bytes.slice();
   const out = [];
   const recent = new Map();
   let pos = 0;
@@ -394,14 +403,49 @@ export function decompressPayload(input, expectedLength = null) {
   return Uint8Array.from(out);
 }
 
-function prepareCompressedBody(payload, compression = "none") {
+/** Raw RFC 1951 fixed-Huffman DEFLATE helper used by Compression 2.0. */
+export function compressDeflatePayload(input) {
+  return compressDeflateBytes(asBytes(input));
+}
+
+/** Restore a raw DEFLATE payload produced by compressDeflatePayload(). */
+export function decompressDeflatePayload(input, expectedLength = null) {
+  return decompressDeflateBytes(asBytes(input), expectedLength);
+}
+
+/** Portable Brotli helper used by Compression 2.0 in browsers and Node.js. */
+export function compressBrotliPayload(input, options = {}) {
+  return compressBrotliBytes(asBytes(input), options);
+}
+
+/** Restore a Brotli payload produced by compressBrotliPayload(). */
+export function decompressBrotliPayload(input, expectedLength = null) {
+  return decompressBrotliBytes(asBytes(input), expectedLength);
+}
+
+function compressionCandidates(payload) {
+  return [
+    { body: compressPayload(payload), compression: "lz" },
+    { body: compressDeflatePayload(payload), compression: "deflate" },
+    { body: compressBrotliPayload(payload), compression: "brotli" }
+  ];
+}
+
+function prepareCompressedBody(payload, compression = "none", options = {}) {
   const mode = normalizeCompressionMode(compression);
   if (mode === "none") return { body: payload, compression: "none" };
-  const compressed = compressPayload(payload);
-  if (mode === "auto" && compressed.length >= payload.length - 2) {
-    return { body: payload, compression: "none" };
-  }
-  return { body: compressed, compression: "lz" };
+  if (mode === "lz") return { body: compressPayload(payload), compression: "lz" };
+  if (mode === "deflate") return { body: compressDeflatePayload(payload), compression: "deflate" };
+  if (mode === "brotli") return { body: compressBrotliPayload(payload), compression: "brotli" };
+
+  const candidates = compressionCandidates(payload).sort((a, b) => a.body.length - b.body.length);
+  const best = candidates[0];
+  // Unsigned Auto mode requires the 16-byte extension envelope only when a
+  // compressor is selected. Signed payloads already need that envelope, so
+  // they only need the compressed body itself to be smaller.
+  const overhead = options.envelopeAlreadyRequired ? 0 : PAYLOAD_ENVELOPE_HEADER_BYTES;
+  if (best.body.length + overhead >= payload.length) return { body: payload, compression: "none" };
+  return best;
 }
 
 
@@ -451,7 +495,7 @@ function parsePayloadEnvelope(input) {
   const container = asBytes(input);
   assert(isPayloadEnvelope(container), "Payload extension envelope is not recognized.");
   const version = container[4];
-  assert(version === 1 || version === PAYLOAD_ENVELOPE_VERSION, `Unsupported payload extension version ${version}.`);
+  assert(version >= 1 && version <= PAYLOAD_ENVELOPE_VERSION, `Unsupported payload extension version ${version}.`);
   const flags = container[5];
   const compression = PAYLOAD_ENVELOPE_COMPRESSION_BY_ID[container[6]];
   assert(compression != null, `Unknown payload compression id ${container[6]}.`);
@@ -469,7 +513,13 @@ function parsePayloadEnvelope(input) {
   const publicKey = container.slice(endMetadata, endPublicKey);
   const signature = container.slice(endPublicKey, endSignature);
   const stored = container.slice(endSignature);
-  const payload = compression === "lz" ? decompressPayload(stored, originalLength) : stored;
+  const payload = compression === "lz"
+    ? decompressPayload(stored, originalLength)
+    : compression === "deflate"
+      ? decompressDeflatePayload(stored, originalLength)
+      : compression === "brotli"
+        ? decompressBrotliPayload(stored, originalLength)
+        : stored;
   assert(payload.length === originalLength, "Payload length mismatch after extension decoding.");
   const signed = Boolean(flags & PAYLOAD_ENVELOPE_SIGNED_FLAG);
   const signedBytes = signed ? concatBytes(container.slice(0, PAYLOAD_ENVELOPE_HEADER_BYTES), metadataBytes, publicKey, stored) : null;
@@ -558,7 +608,7 @@ async function packSignedPayloadEnvelope(input, options = {}) {
   const payload = asBytes(input);
   assert(options.privateKey, "privateKey is required to sign a QuadQR payload.");
   const subtle = subtleCrypto();
-  const prepared = prepareCompressedBody(payload, options.compression ?? "auto");
+  const prepared = prepareCompressedBody(payload, options.compression ?? "auto", { envelopeAlreadyRequired: true });
   const keyIdBytes = normalizeSigningKeyId(options.keyId);
 
   let publicKeyBytes = new Uint8Array(0);
@@ -604,7 +654,7 @@ async function verifyPayloadEnvelopeSignature(input, options = {}) {
   let trustSource = trusted ? "external" : null;
 
   // Legacy v1 symbols embedded the public key by default, so preserve their
-  // historical self-verification behavior. v2 requires explicit opt-in.
+  // historical self-verification behavior. v2+ require explicit opt-in.
   if (!trusted && parsed.publicKey.length && (parsed.version === 1 || options.allowEmbeddedKey === true)) {
     trusted = parsed.publicKey;
     trustSource = "embedded";

@@ -215,3 +215,11 @@ Keep both documentation surfaces updated when public APIs change:
 - `docs/`: Markdown documentation for repositories, npm consumers, and offline reading.
 
 The interactive product demo remains under `demo/`; do not merge it into the documentation site.
+
+## Compression 2.0
+
+- Keep payload compression synchronous and runtime-neutral. Core compression code must work in both browsers and server-side Node.js without DOM APIs, `CompressionStream`, or `node:zlib`.
+- `compression: "auto"` compares bundled Brotli, portable raw DEFLATE, and the legacy LZ codec, and must only add an unsigned compression envelope when the complete stored representation is smaller.
+- Keep compression ID `1` and the legacy LZ decoder for backward compatibility. Compression ID `2` is portable raw DEFLATE and compression ID `3` is Brotli.
+- Brotli must stay synchronous and runtime-neutral in the published core. Do not replace it with `node:zlib`, `CompressionStream`, a DOM-only implementation, or a network-loaded codec.
+- Do not introduce TypeScript.

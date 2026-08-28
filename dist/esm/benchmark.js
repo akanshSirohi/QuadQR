@@ -12,6 +12,8 @@ import {
   decodeMatrix,
   getVersionInfo,
   compressPayload,
+  compressDeflatePayload,
+  compressBrotliPayload,
   MAX_VERSION
 } from "./quadqr.js";
 
@@ -130,7 +132,10 @@ export function calculateCapacityPlan(options = {}) {
   else if (typeof options.payload === "string") sourceBytes = new TextEncoder().encode(options.payload);
   else sourceBytes = new Uint8Array(Math.max(0, Math.floor(options.payloadBytes ?? 0)));
 
-  const requestedCompression = options.compression ?? "none";
+  const requestedCompression = String(options.compression ?? "none").toLowerCase();
+  if (!["none", "auto", "lz", "deflate", "brotli"].includes(requestedCompression)) {
+    throw new Error("compression must be none, auto, lz, deflate, or brotli.");
+  }
   const signed = Boolean(options.signed);
   const keyIdBytes = options.keyId ? new TextEncoder().encode(String(options.keyId)).length : 0;
   const envelopeHeaderBytes = 16;
@@ -140,11 +145,24 @@ export function calculateCapacityPlan(options = {}) {
   let compressed = false;
 
   if (requestedCompression !== "none" && hasConcretePayload) {
-    const candidate = compressPayload(sourceBytes);
-    if (requestedCompression === "lz" || candidate.length < sourceBytes.length - 2) {
-      storedBytes = candidate.length;
+    const candidates = [];
+    if (requestedCompression === "auto" || requestedCompression === "lz") {
+      candidates.push({ compression: "lz", bytes: compressPayload(sourceBytes).length });
+    }
+    if (requestedCompression === "auto" || requestedCompression === "deflate") {
+      candidates.push({ compression: "deflate", bytes: compressDeflatePayload(sourceBytes).length });
+    }
+    if (requestedCompression === "auto" || requestedCompression === "brotli") {
+      candidates.push({ compression: "brotli", bytes: compressBrotliPayload(sourceBytes).length });
+    }
+    if (!candidates.length) throw new Error("compression must be none, auto, lz, deflate, or brotli.");
+    candidates.sort((a, b) => a.bytes - b.bytes);
+    const best = candidates[0];
+    const compressionOverhead = signed ? 0 : envelopeHeaderBytes;
+    if (requestedCompression !== "auto" || best.bytes + compressionOverhead < sourceBytes.length) {
+      storedBytes = best.bytes;
       compressed = true;
-      compression = "lz";
+      compression = best.compression;
     } else {
       compression = "none";
     }
@@ -152,7 +170,7 @@ export function calculateCapacityPlan(options = {}) {
     compression = "unknown";
   }
 
-  const needsEnvelope = signed || compressed || requestedCompression === "lz";
+  const needsEnvelope = signed || compressed || requestedCompression === "lz" || requestedCompression === "deflate" || requestedCompression === "brotli";
   const encodedBytes = storedBytes + (needsEnvelope ? envelopeHeaderBytes + signingBytes : 0);
   const extensionOverheadBytes = encodedBytes - storedBytes;
 
