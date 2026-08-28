@@ -72,12 +72,12 @@ Below are QuadQR symbols generated with different error-correction profiles. The
 <table>
   <tr>
     <td align="center">
-      <img src="assets/quadqr-v2-L.png?raw=true" alt="QuadQR example using ECC profile L" width="320"><br>
-      <sub><strong>ECC L</strong> · Higher payload capacity</sub>
+      <img src="assets/quadqr-normal.png?raw=true" alt="QuadQR example using ECC profile L" width="320"><br>
+      <sub><strong>QuadQR</strong> · Normal (v3)</sub>
     </td>
     <td align="center">
-      <img src="assets/quadqr-v2-M.png?raw=true" alt="QuadQR example using ECC profile M" width="320"><br>
-      <sub><strong>ECC M</strong> · More error-correction redundancy</sub>
+      <img src="assets/quadqr-high-density.png?raw=true" alt="QuadQR example using ECC profile M" width="320"><br>
+      <sub><strong>QuadQR</strong> · Higher Data Density (v2)</sub>
     </td>
   </tr>
 </table>
