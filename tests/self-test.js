@@ -1185,7 +1185,7 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
 
 // Compression 3.0 stays an internal detail around a normal payload.
 {
-  const text = "Payload compression compression compression ".repeat(8);
+  const text = "Payload compression compression compression structured JSON keys values ".repeat(20);
   const raw = new TextEncoder().encode(text);
 
   // Legacy portable LZ remains available and decodable for compatibility.
