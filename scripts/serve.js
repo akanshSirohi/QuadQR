@@ -23,7 +23,7 @@ const types = {
 const server = http.createServer((req, res) => {
   try {
     const rawPath = decodeURIComponent((req.url || "/").split("?")[0]);
-    const relative = rawPath === "/" ? (docsMode ? "/docs-site/" : "/demo/") : rawPath;
+    const relative = rawPath === "/" ? (docsMode ? "/documentation/" : "/demo/") : rawPath;
     let target = path.resolve(root, "." + relative);
 
     if (!target.startsWith(root)) {
@@ -56,5 +56,5 @@ const server = http.createServer((req, res) => {
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`Demo: http://localhost:${port}/demo/`);
-  console.log(`Docs: http://localhost:${port}/docs-site/`);
+  console.log(`Documentation: http://localhost:${port}/documentation/`);
 });

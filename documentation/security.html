@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format.">
+  <meta name="color-scheme" content="light dark">
+  <title>Secure Payloads | QuadQR Documentation</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body data-page="security">
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="icon-button mobile-menu" type="button" aria-label="Open navigation" data-menu-button>☰</button>
+      <a class="brand" href="index.html" aria-label="QuadQR documentation home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
+      </a>
+    </div>
+    <div class="top-actions">
+      <button class="search-button" type="button" data-search-open><span>Search documentation</span><kbd>/</kbd></button>
+      <a href="../demo/">Demo</a>
+      <a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
+      <a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
+      <button class="icon-button" type="button" aria-label="Toggle theme" data-theme-toggle>◐</button>
+    </div>
+  </header>
+
+  <div class="mobile-backdrop" data-mobile-backdrop></div>
+  <div class="docs-shell">
+    <aside class="sidebar" data-sidebar>
+      <div class="sidebar-inner">
+        <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a class="active" href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
+        <div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>Secure Payloads</h1></header>
+        <p>QuadQR Secure Payload v1 is an optional authenticated-encryption layer above the matrix codec and Spectrum ECC.</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">plaintext
+  -&gt; encryption + authentication
+  -&gt; secure envelope
+  -&gt; QuadQR framing
+  -&gt; Spectrum ECC
+  -&gt; RGBW matrix
+</code></pre></div>
+<p>Normal QuadQR symbols are unencrypted by default. Secure Payload is used only when explicitly requested.</p>
+<h2 id="which-mode-should-i-use">Which mode should I use?<a class="heading-anchor" href="#which-mode-should-i-use" aria-label="Link to Which mode should I use?">#</a></h2>
+<div class="table-wrap"><table><thead>
+<tr>
+  <th>Mode</th>
+  <th>Use it when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>Password</td>
+  <td>A person will enter or share a secret password to unlock the payload</td>
+</tr>
+<tr>
+  <td>Raw 256-bit key</td>
+  <td>Your application, service, device, or scanner already manages cryptographic keys</td>
+</tr>
+</tbody>
+</table></div>
+<p>Both modes use AES-256-GCM for confidentiality and authenticated integrity.</p>
+<h2 id="password-mode">Password mode<a class="heading-anchor" href="#password-mode" aria-label="Link to Password mode">#</a></h2>
+<p>Password mode uses:</p>
+<ul>
+<li>PBKDF2-HMAC-SHA-256</li>
+<li>random 16-byte salt</li>
+<li>configurable iteration count, default 600,000</li>
+<li>AES-256-GCM</li>
+<li>random 12-byte nonce</li>
+<li>authenticated envelope metadata</li>
+</ul>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { encodeSecureText } from &quot;quadqr-js&quot;;
+
+const code = await encodeSecureText(&quot;private&quot;, {
+  security: {
+    mode: &quot;password&quot;,
+    password: &quot;long unique password&quot;
+  }
+});
+</code></pre></div>
+<p>The password is never stored in the QuadQR symbol.</p>
+<h2 id="raw-256-bit-key-mode">Raw 256-bit key mode<a class="heading-anchor" href="#raw-256-bit-key-mode" aria-label="Link to Raw 256-bit key mode">#</a></h2>
+<p>Raw-key mode accepts exactly 32 secret bytes, either as bytes or a 64-character hexadecimal string.</p>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import {
+  encodeSecureText,
+  generateRaw256Key
+} from &quot;quadqr-js&quot;;
+
+const key = generateRaw256Key();
+
+const code = await encodeSecureText(&quot;machine secret&quot;, {
+  security: {
+    mode: &quot;raw-key&quot;,
+    key
+  }
+});
+</code></pre></div>
+<p>By default, the secure envelope can include a short SHA-256 key fingerprint/key ID. This is a non-secret routing hint that can help an application choose the correct key. The actual secret key is never embedded in the symbol.</p>
+<h2 id="scanning-secure-quadqr">Scanning secure QuadQR<a class="heading-anchor" href="#scanning-secure-quadqr" aria-label="Link to Scanning secure QuadQR">#</a></h2>
+<p>Scanning does not automatically reveal protected plaintext. The scanner first returns a locked result:</p>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const locked = await scanFile(file);
+
+console.log(locked.secure);              // true
+console.log(locked.requiresDecryption);  // true
+console.log(locked.security.mode);       // password | raw-key
+console.log(locked.text);                // null
+</code></pre></div>
+<p>Then unlock it with the correct credential:</p>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const unlocked = await decryptDecoded(locked, {
+  password: &quot;long unique password&quot;
+});
+
+console.log(unlocked.text);
+</code></pre></div>
+<p>For raw-key mode:</p>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const unlocked = await decryptDecoded(locked, { key });
+</code></pre></div>
+<p>Image upload, camera, matrix, RGBA, and Node.js scan results all use the same secure-result model.</p>
+<h2 id="authentication-behavior">Authentication behavior<a class="heading-anchor" href="#authentication-behavior" aria-label="Link to Authentication behavior">#</a></h2>
+<p>AES-GCM authentication rejects:</p>
+<ul>
+<li>an incorrect password;</li>
+<li>an incorrect raw key;</li>
+<li>modified ciphertext;</li>
+<li>modified authenticated secure-envelope metadata.</li>
+</ul>
+<p>QuadQR's CRC and Spectrum ECC still handle matrix/image corruption before decryption is attempted. Cryptographic authentication is a separate final security check.</p>
+<h2 id="key-management-guidance">Key management guidance<a class="heading-anchor" href="#key-management-guidance" aria-label="Link to Key management guidance">#</a></h2>
+<ul>
+<li>Use long, unique passwords for password mode.</li>
+<li>Generate raw keys with <code>generateRaw256Key()</code> or another cryptographically secure random source.</li>
+<li>Store long-lived raw keys in an appropriate secret manager, operating-system key store, HSM, or equivalent secure storage for your application.</li>
+<li>Do not put the secret password or raw key inside the same QuadQR symbol.</li>
+<li>Do not hard-code a long-lived raw key in public client-side JavaScript if it is intended to remain secret.</li>
+</ul>
+<h2 id="security-boundaries">Security boundaries<a class="heading-anchor" href="#security-boundaries" aria-label="Link to Security boundaries">#</a></h2>
+<p>Secure Payload protects payload confidentiality and integrity, but it does not solve every application-security problem:</p>
+<ul>
+<li>It does not hide the fact that a QuadQR symbol exists.</li>
+<li>A photographed symbol can still be copied.</li>
+<li>Encryption by itself is not replay protection.</li>
+<li>Ticket/access systems should use server-side state, nonces, expiry, signatures, or another replay-control mechanism appropriate to the application.</li>
+<li>Decoded plaintext is still untrusted application input and should be validated before use.</li>
+</ul>
+
+        <nav class="page-pager" aria-label="Documentation pagination"><a class="prev" href="compression.html"><span>Previous</span><strong>← Compression</strong></a><a class="next" href="high-density.html"><span>Next</span><strong>High Density Mode →</strong></a></nav>
+        <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
+      </article>
+      <aside class="toc"><div class="toc-title">On this page</div><a href="#which-mode-should-i-use">Which mode should I use?</a><a href="#password-mode">Password mode</a><a href="#raw-256-bit-key-mode">Raw 256-bit key mode</a><a href="#scanning-secure-quadqr">Scanning secure QuadQR</a><a href="#authentication-behavior">Authentication behavior</a><a href="#key-management-guidance">Key management guidance</a><a href="#security-boundaries">Security boundaries</a></aside>
+    </main>
+  </div>
+
+  <div class="search-modal" data-search-modal aria-hidden="true">
+    <div class="search-backdrop" data-search-close></div>
+    <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search QuadQR documentation">
+      <div class="search-input-wrap"><span>⌕</span><input type="search" placeholder="Search documentation…" autocomplete="off" data-search-input><kbd>Esc</kbd></div>
+      <div class="search-results" data-search-results><div class="search-empty">Type to search pages and sections.</div></div>
+    </div>
+  </div>
+
+  <script src="./search-index.js"></script>
+  <script src="../dist/quadqr.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

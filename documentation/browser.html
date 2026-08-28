@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format.">
+  <meta name="color-scheme" content="light dark">
+  <title>Browser &amp; CDN | QuadQR Documentation</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body data-page="browser">
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="icon-button mobile-menu" type="button" aria-label="Open navigation" data-menu-button>☰</button>
+      <a class="brand" href="index.html" aria-label="QuadQR documentation home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
+      </a>
+    </div>
+    <div class="top-actions">
+      <button class="search-button" type="button" data-search-open><span>Search documentation</span><kbd>/</kbd></button>
+      <a href="../demo/">Demo</a>
+      <a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
+      <a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
+      <button class="icon-button" type="button" aria-label="Toggle theme" data-theme-toggle>◐</button>
+    </div>
+  </header>
+
+  <div class="mobile-backdrop" data-mobile-backdrop></div>
+  <div class="docs-shell">
+    <aside class="sidebar" data-sidebar>
+      <div class="sidebar-inner">
+        <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a class="active" href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
+        <div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>Browser &amp; CDN</h1></header>
+        <h2 id="browser-esm">Browser ESM<a class="heading-anchor" href="#browser-esm" aria-label="Link to Browser ESM">#</a></h2>
+<p>With Vite, webpack, Rollup, Next.js client code, or another browser bundler:</p>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import {
+  encodeText,
+  renderToCanvas,
+  renderToSVG,
+  scanFile,
+  startCameraScanner
+} from &quot;quadqr-js/browser&quot;;
+</code></pre></div>
+<p>The main <code>quadqr-js</code> entry also works in modern browser bundlers for runtime-neutral APIs.</p>
+<h2 id="render-to-canvas">Render to canvas<a class="heading-anchor" href="#render-to-canvas" aria-label="Link to Render to canvas">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const code = encodeText(&quot;Hello browser&quot;);
+
+renderToCanvas(code, document.querySelector(&quot;#qr&quot;), {
+  imageSize: 720,
+  quietZone: 4,
+  style: &quot;classic&quot;
+});
+
+const svg = renderToSVG(code, {
+  imageSize: 720,
+  quietZone: 4
+});
+</code></pre></div>
+<p><code>imageSize</code> controls the exact square output size. If neither <code>imageSize</code> nor <code>moduleSize</code> is supplied, the renderer defaults to 720 × 720 px.</p>
+<p>Available styles are <code>classic</code>, <code>depth</code>, <code>soft</code>, and <code>inset</code>.</p>
+<h2 id="compressed-signed-and-print-safe-output">Compressed, signed, and print-safe output<a class="heading-anchor" href="#compressed-signed-and-print-safe-output" aria-label="Link to Compressed, signed, and print-safe output">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import {
+  assessScanability,
+  decodeMatrix,
+  encodeText,
+  encodeSignedText,
+  generateSigningKeyPair,
+  renderToCanvas,
+  verifyDecodedSignature
+} from &quot;quadqr-js/browser&quot;;
+
+const compressed = encodeText(&quot;repeat repeat repeat repeat&quot;, {
+  compression: &quot;auto&quot;
+});
+
+const smallest = encodeText(&quot;structured payload &quot;.repeat(500), {
+  compression: &quot;smart&quot;
+});
+
+const keys = await generateSigningKeyPair();
+const signed = await encodeSignedText(&quot;ticket&quot;, {
+  compression: &quot;auto&quot;,
+  privateKey: keys.privateKey,
+  keyId: keys.keyId
+});
+
+const checked = await verifyDecodedSignature(decodeMatrix(signed.matrix), {
+  publicKey: keys.publicKey
+});
+console.log(checked.signatureVerified, checked.signatureTrusted);
+
+const canvas = document.querySelector(&quot;#qr&quot;);
+renderToCanvas(compressed, canvas, { mode: &quot;print&quot;, imageSize: 720 });
+const report = assessScanability(compressed, { imageSize: 480 });
+console.log(report.score, report.rating);
+</code></pre></div>
+<p>Compression uses bundled synchronous Brotli/DEFLATE/LZ implementations with explicit codec levels, fast Auto, and CPU-heavy Smart modes and signing uses internal metadata only when required. The repository demo keeps heavy encoding, verification, stress testing, perspective sweeps, image scanning, and benchmarks off the UI thread with module Web Workers, while the public library API itself remains synchronous where documented. There is no public content-type mode to configure. The private key signs, while the public verification key stays outside the QuadQR by default. Use the stored <code>keyId</code> to select an application-trusted public key. Scanability testing is deterministic synthetic regression testing and should be supplemented with real devices and print samples.</p>
+<h2 id="scan-an-uploaded-image">Scan an uploaded image<a class="heading-anchor" href="#scan-an-uploaded-image" aria-label="Link to Scan an uploaded image">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const input = document.querySelector(&quot;#image&quot;);
+const result = await scanFile(input.files[0]);
+
+console.log(result.text);
+</code></pre></div>
+<p>If the symbol uses Secure Payload, the scan result has <code>secure: true</code> and <code>requiresDecryption: true</code> until it is successfully unlocked.</p>
+<h2 id="live-camera-scanning">Live camera scanning<a class="heading-anchor" href="#live-camera-scanning" aria-label="Link to Live camera scanning">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const video = document.querySelector(&quot;#camera&quot;);
+
+const scanner = await startCameraScanner(video, {
+  scanInterval: 120,
+  cameraFinderRecoveryEvery: 2,
+  async onResult(result) {
+    console.log(result);
+    scanner.stop();
+  },
+  onScanMiss() {
+    // Keep searching.
+  },
+  onDiagnostic(event) {
+    // Useful for live finder overlays and scanner debug logs.
+    console.log(event.method, event.finderMethod, event.finderCount, event.geometry?.version);
+  }
+});
+</code></pre></div>
+<p>Camera access requires HTTPS or localhost. QuadQR scans the part of an <code>object-fit: cover</code> video that is actually visible to the user. The fast finder pass uses the RGB value channel (<code>max(R,G,B)</code>) so saturated data colors are less likely to be mistaken for structural black. After misses, throttled recovery frames can try alternate finder thresholds before stronger color correction. <code>onDiagnostic</code> exposes the finder method and geometry work already performed by the scanner.</p>
+<h2 id="decrypt-a-secure-scan">Decrypt a secure scan<a class="heading-anchor" href="#decrypt-a-secure-scan" aria-label="Link to Decrypt a secure scan">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { decryptDecoded } from &quot;quadqr-js/browser&quot;;
+
+const locked = await scanFile(file);
+
+if (locked.secure) {
+  const unlocked = await decryptDecoded(locked, {
+    password: &quot;my-password&quot;
+  });
+
+  console.log(unlocked.text);
+}
+</code></pre></div>
+<p>Raw-key mode uses <code>{ key }</code> instead of <code>{ password }</code>.</p>
+<h2 id="classic-script-tag">Classic script tag<a class="heading-anchor" href="#classic-script-tag" aria-label="Link to Classic script tag">#</a></h2>
+<p>The global browser build exposes <code>window.QuadQR</code> / <code>globalThis.QuadQR</code>.</p>
+<div class="code-block"><div class="code-toolbar"><span>HTML</span><button type="button" data-copy>Copy</button></div><pre><code class="language-html">&lt;canvas id=&quot;qr&quot;&gt;&lt;/canvas&gt;
+&lt;script src=&quot;https://cdn.jsdelivr.net/npm/quadqr-js@1.4.1/dist/quadqr.min.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+  const code = QuadQR.encodeText(&quot;Hello CDN&quot;);
+
+  QuadQR.renderToCanvas(code, document.querySelector(&quot;#qr&quot;), {
+    imageSize: 720,
+    quietZone: 4
+  });
+&lt;/script&gt;
+</code></pre></div>
+<h2 id="unpkg">unpkg<a class="heading-anchor" href="#unpkg" aria-label="Link to unpkg">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>HTML</span><button type="button" data-copy>Copy</button></div><pre><code class="language-html">&lt;script src=&quot;https://unpkg.com/quadqr-js@1.4.1/dist/quadqr.min.js&quot;&gt;&lt;/script&gt;
+</code></pre></div>
+<h2 id="direct-cdn-esm">Direct CDN ESM<a class="heading-anchor" href="#direct-cdn-esm" aria-label="Link to Direct CDN ESM">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>HTML</span><button type="button" data-copy>Copy</button></div><pre><code class="language-html">&lt;script type=&quot;module&quot;&gt;
+  import {
+    encodeText,
+    renderToCanvas
+  } from &quot;https://cdn.jsdelivr.net/npm/quadqr-js@1.4.1/dist/browser.js&quot;;
+
+  const code = encodeText(&quot;ES module CDN&quot;);
+  renderToCanvas(code, document.querySelector(&quot;#qr&quot;));
+&lt;/script&gt;
+</code></pre></div>
+<h2 id="optional-wasm-from-a-cdn">Optional WASM from a CDN<a class="heading-anchor" href="#optional-wasm-from-a-cdn" aria-label="Link to Optional WASM from a CDN">#</a></h2>
+<p>The classic global build can resolve the bundled WASM asset relative to its own script URL:</p>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">await QuadQR.initWasm();
+</code></pre></div>
+<p>You can also provide a custom URL:</p>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">await QuadQR.initWasm({
+  url: &quot;https://example.com/assets/quadqr-core.wasm&quot;
+});
+</code></pre></div>
+<p>WASM is optional. The normal JavaScript implementation remains available if it cannot load.</p>
+<h2 id="production-recommendation">Production recommendation<a class="heading-anchor" href="#production-recommendation" aria-label="Link to Production recommendation">#</a></h2>
+<p>Pin a concrete package version such as <code>@1.4.1</code> in CDN URLs so an existing site does not silently change when a newer package version becomes available.</p>
+
+        <nav class="page-pager" aria-label="Documentation pagination"><a class="prev" href="getting-started.html"><span>Previous</span><strong>← Getting Started</strong></a><a class="next" href="node.html"><span>Next</span><strong>Node.js →</strong></a></nav>
+        <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
+      </article>
+      <aside class="toc"><div class="toc-title">On this page</div><a href="#browser-esm">Browser ESM</a><a href="#render-to-canvas">Render to canvas</a><a href="#compressed-signed-and-print-safe-output">Compressed, signed, and print-safe output</a><a href="#scan-an-uploaded-image">Scan an uploaded image</a><a href="#live-camera-scanning">Live camera scanning</a><a href="#decrypt-a-secure-scan">Decrypt a secure scan</a><a href="#classic-script-tag">Classic script tag</a><a href="#unpkg">unpkg</a><a href="#direct-cdn-esm">Direct CDN ESM</a><a href="#optional-wasm-from-a-cdn">Optional WASM from a CDN</a><a href="#production-recommendation">Production recommendation</a></aside>
+    </main>
+  </div>
+
+  <div class="search-modal" data-search-modal aria-hidden="true">
+    <div class="search-backdrop" data-search-close></div>
+    <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search QuadQR documentation">
+      <div class="search-input-wrap"><span>⌕</span><input type="search" placeholder="Search documentation…" autocomplete="off" data-search-input><kbd>Esc</kbd></div>
+      <div class="search-results" data-search-results><div class="search-empty">Type to search pages and sections.</div></div>
+    </div>
+  </div>
+
+  <script src="./search-index.js"></script>
+  <script src="../dist/quadqr.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

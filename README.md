@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://akanshsirohi.github.io/QuadQR/demo/"><strong>Try the Live Demo</strong></a>
   ·
-  <a href="https://akanshsirohi.github.io/QuadQR/docs-site/"><strong>Documentation Site</strong></a>
+  <a href="https://akanshsirohi.github.io/QuadQR/documentation/"><strong>Documentation Site</strong></a>
   ·
   <a href="https://www.npmjs.com/package/quadqr-js">npm</a>
   ·
@@ -19,11 +19,9 @@
   ·
   <a href="#getting-started">Use the Library</a>
   ·
-  <a href="docs/README.md">Markdown Docs</a>
+  <a href="https://akanshsirohi.github.io/QuadQR/documentation/format.html">Format Reference</a>
   ·
-  <a href="FORMAT.md">Matrix Format</a>
-  ·
-  <a href="SPECIFICATION.md">Technical Specification</a>
+  <a href="https://akanshsirohi.github.io/QuadQR/documentation/specification.html">Technical Specification</a>
 </p>
 
 **QuadQR** is an experimental open-source 2D matrix code that uses RGBW color states instead of the two states used by a traditional black-and-white QR module. Normal mode stores **2 bits per RGBW data cell**. This experimental branch also includes an optional **High Density Mode**, implemented with Triangle16 split cells, that stores **4 raw bits per body cell**. High Density Mode is disabled by default.
@@ -59,7 +57,7 @@ const code = encodeText("High-density QuadQR", {
 
 Image and camera scanning automatically detect High Density Mode, so a separate scanner mode is not required. High Density Mode is experimental and should be stress-tested at the intended physical size and camera distance.
 
-See [`docs/HIGH_DENSITY_MODE.md`](docs/HIGH_DENSITY_MODE.md) for the physical cell mapping, protected-header strategy, scanner sampling rules, and reliability caveats.
+See the [High Density Mode documentation](https://akanshsirohi.github.io/QuadQR/documentation/high-density.html) for the physical cell mapping, protected-header strategy, scanner sampling rules, and reliability caveats.
 
 QuadQR keeps the parts that make QR-like codes practical, such as a square matrix, finder patterns, timing structures, error correction, masking, perspective recovery, and camera scanning, while experimenting with a higher-density color-based data layer.
 
@@ -256,7 +254,7 @@ console.log(verified.signatureVerified); // true
 console.log(verified.signatureTrusted);  // true
 ```
 
-Compression modes are `none`, `auto`, `smart`, `brotli`, `deflate`, and `lz`. `auto` is the fast default: it compares LZ level 6, DEFLATE level 6, and Brotli quality 6 once, including envelope overhead, and keeps the smallest final representation. `smart` is an opt-in CPU-heavy mode. It starts with the same balanced pass, checks the resulting QuadQR version, and only escalates to DEFLATE 8 / Brotli 9 and then DEFLATE 9 / Brotli 11 when a smaller physical version is realistically reachable; LZ stays at its default level in Auto/Smart. Explicit `lz` accepts `compressionLevel: 1..9` with default 6, explicit `deflate` accepts `1..9` with default 6, and explicit `brotli` accepts `0..11` with default 11. Compression level is an encoder-only setting and is not stored in the symbol because the decoder does not need it. All codecs are synchronous and bundled with QuadQR, so the same compression path works in browsers and server-side Node.js without `node:zlib`, `CompressionStream`, or a runtime dependency. The demo keeps these CPU-heavy operations in module Web Workers so the browser UI remains responsive. See [`docs/COMPRESSION.md`](./docs/COMPRESSION.md) for the exact Smart escalation policy and level API. Ed25519 signing stores the signature plus an optional compact `keyId`; the public verification key stays outside the QuadQR by default. Applications do not need to choose or maintain content types.
+Compression modes are `none`, `auto`, `smart`, `brotli`, `deflate`, and `lz`. `auto` is the fast default: it compares LZ level 6, DEFLATE level 6, and Brotli quality 6 once, including envelope overhead, and keeps the smallest final representation. `smart` is an opt-in CPU-heavy mode. It starts with the same balanced pass, checks the resulting QuadQR version, and only escalates to DEFLATE 8 / Brotli 9 and then DEFLATE 9 / Brotli 11 when a smaller physical version is realistically reachable; LZ stays at its default level in Auto/Smart. Explicit `lz` accepts `compressionLevel: 1..9` with default 6, explicit `deflate` accepts `1..9` with default 6, and explicit `brotli` accepts `0..11` with default 11. Compression level is an encoder-only setting and is not stored in the symbol because the decoder does not need it. All codecs are synchronous and bundled with QuadQR, so the same compression path works in browsers and server-side Node.js without `node:zlib`, `CompressionStream`, or a runtime dependency. The demo keeps these CPU-heavy operations in module Web Workers so the browser UI remains responsive. See the [compression documentation](https://akanshsirohi.github.io/QuadQR/documentation/compression.html) for the exact Smart escalation policy and level API. Ed25519 signing stores the signature plus an optional compact `keyId`; the public verification key stays outside the QuadQR by default. Applications do not need to choose or maintain content types.
 
 Signing can also be composed with Secure Payload. QuadQR compresses if requested, signs the normal payload with the private key, then encrypts the protected bytes with AES-256-GCM. A verifier supplies the trusted public key separately, or resolves it from `keyId`.
 
@@ -268,7 +266,7 @@ Scanner results include normalized diagnostics such as `confidence`, `geometryCo
 
 For regression and demo testing, `runImageStressTest()` / `assessScanability()` apply deterministic blur, brightness, exposure, shadow, contrast, perspective, JPEG-like artifacts, and downscaling. The browser demo exposes the same tools as an interactive stress-test lab and shows an overall scanability rating.
 
-The interoperability details are documented in [`SPECIFICATION.md`](./SPECIFICATION.md).
+The interoperability details are covered in the [technical specification](https://akanshsirohi.github.io/QuadQR/documentation/specification.html).
 
 ---
 
@@ -784,7 +782,7 @@ console.log(result.text);
 The `quadqr-js` package can be loaded directly from npm-backed CDNs:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.1.0/dist/quadqr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.4.1/dist/quadqr.min.js"></script>
 <script>
   const code = QuadQR.encodeText("Hello from a script tag");
 </script>
@@ -818,7 +816,7 @@ npx quadqr-js encode "Private data" --password "my-password" -o secure.png
 npx quadqr-js decode secure.png --password "my-password"
 ```
 
-See [`docs/CLI.md`](docs/CLI.md) for all CLI options, including compression, raw 256-bit key mode, signing, print mode, and scanner diagnostics.
+See the [CLI reference](https://akanshsirohi.github.io/QuadQR/documentation/cli.html) for all CLI options, including compression, raw 256-bit key mode, signing, print mode, and scanner diagnostics.
 
 ### Run from source
 
@@ -920,20 +918,24 @@ demo/
   compute-worker.js  Background encode/scan/reliability/benchmark tasks
   styles.css
 
-docs-site/
-  index.html         Standalone documentation website
-  app.js
-  styles.css
-
-docs/
-  README.md          Markdown documentation index
-  GETTING_STARTED.md
-  API.md
-  BROWSER_CDN.md
-  NODE.md
-  SECURITY.md
-  CLI.md
-  WASM.md
+documentation/
+  index.html         Documentation home
+  getting-started.html
+  browser.html
+  node.html
+  scanning.html
+  compression.html
+  security.html
+  high-density.html
+  reliability.html
+  api.html
+  cli.html
+  wasm.html
+  format.html
+  specification.html
+  app.js             Navigation, search, copy, and theme behavior
+  search-index.js    Client-side documentation search index
+  styles.css         Responsive documentation UI
 
 bin/                 `quadqr` CLI (`npx quadqr-js`)
 scripts/             Build, benchmark, and local server scripts

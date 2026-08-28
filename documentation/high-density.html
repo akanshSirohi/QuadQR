@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format.">
+  <meta name="color-scheme" content="light dark">
+  <title>High Density Mode | QuadQR Documentation</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body data-page="high-density">
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="icon-button mobile-menu" type="button" aria-label="Open navigation" data-menu-button>☰</button>
+      <a class="brand" href="index.html" aria-label="QuadQR documentation home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
+      </a>
+    </div>
+    <div class="top-actions">
+      <button class="search-button" type="button" data-search-open><span>Search documentation</span><kbd>/</kbd></button>
+      <a href="../demo/">Demo</a>
+      <a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
+      <a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
+      <button class="icon-button" type="button" aria-label="Toggle theme" data-theme-toggle>◐</button>
+    </div>
+  </header>
+
+  <div class="mobile-backdrop" data-mobile-backdrop></div>
+  <div class="docs-shell">
+    <aside class="sidebar" data-sidebar>
+      <div class="sidebar-inner">
+        <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a class="active" href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
+        <div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>High Density Mode</h1></header>
+        <p>High Density Mode is an experimental QuadQR option implemented with the Triangle16 cell layout. It keeps the existing QuadQR geometry, finder patterns, timing pattern, alignment patterns, calibration, Spectrum ECC, CRC, security envelope, compression, and signing behavior, but changes how payload data cells are represented.</p>
+<h2 id="physical-cell">Physical cell<a class="heading-anchor" href="#physical-cell" aria-label="Link to Physical cell">#</a></h2>
+<p>A Triangle16 payload cell is split by one fixed <code>/</code> diagonal:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">+---------+
+| AAAAAA /|
+| AAAAA /B|
+| AAAA /BB|
+| AAA /BBB|
+| AA /BBBB|
+| A /BBBBB|
+| /BBBBBBB|
++---------+
+</code></pre></div>
+<p><code>A</code> is the upper-left triangle and <code>B</code> is the lower-right triangle. Each triangle independently uses the existing RGBW alphabet:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">R = 00
+G = 01
+B = 10
+W = 11
+</code></pre></div>
+<p>The pair therefore has 16 states:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">R/R  R/G  R/B  R/W
+G/R  G/G  G/B  G/W
+B/R  B/G  B/B  B/W
+W/R  W/G  W/B  W/W
+</code></pre></div>
+<p>The first triangle carries the high 2 bits and the second triangle carries the low 2 bits. One Triangle16 body cell therefore carries 4 raw bits, so one byte occupies two body cells instead of four RGBW cells.</p>
+<h2 id="protected-header-stays-solid">Protected header stays solid<a class="heading-anchor" href="#protected-header-stays-solid" aria-label="Link to Protected header stays solid">#</a></h2>
+<p>The protected bootstrap/header intentionally does not use mixed-color triangles. Its normal RGBW header cells are represented as same-color pairs such as <code>R/R</code>, <code>G/G</code>, <code>B/B</code>, and <code>W/W</code>.</p>
+<p>This uses four cells per protected header byte, exactly like RGBW, but makes it much easier for the decoder to recover the mode flag when the image is blurred, skewed, resized, or color-shifted. Header flag bit 6 declares Triangle16 for the ECC-protected body.</p>
+<h2 id="scanner-sampling">Scanner sampling<a class="heading-anchor" href="#scanner-sampling" aria-label="Link to Scanner sampling">#</a></h2>
+<p>The scanner does not sample the diagonal or the exact module center. Each triangle now uses a small <strong>three-anchor sampling cluster</strong> positioned safely inside its region. The cluster is robustly aggregated, and the variation between the three anchors is retained as a spatial-stability signal. This is less sensitive to blur, resampling, small homography offsets, and diagonal color bleed than relying on one point per triangle.</p>
+<p>Each triangle is classified independently against the calibrated RGBW palette. The cell confidence combines the weaker color-classification confidence with the measured within-triangle sample stability. The scanner also retains the most plausible alternate Triangle16 state by changing the less reliable of the two regions first. Those confidence and alternate-state signals feed Spectrum ECC 2.0 for erasure and bounded soft-decision recovery.</p>
+<p>The normal image and camera scanner automatically detects High Density Mode and attempts Triangle16 dual-region sampling when needed. No separate scan mode is required. If ordinary finder/alignment geometry is good enough to locate the symbol but not precise enough to decode the half-cell regions, the scanner performs one bounded <strong>precise-alignment recovery</strong> pass. That pass uses denser alignment-pattern probes and a finer sub-module search, then retries the same dual-triangle classifier.</p>
+<h2 id="rendering-rules">Rendering rules<a class="heading-anchor" href="#rendering-rules" aria-label="Link to Rendering rules">#</a></h2>
+<p>High Density Mode uses exact hard-edged Triangle16 payload cells. Decorative payload styles are intentionally bypassed in this experimental mode because rounded, inset, soft, or depth effects can reduce the usable sampling area or contaminate the diagonal boundary. Structural modules keep the normal QuadQR rendering behavior.</p>
+<p>PNG/ImageData, Canvas, SVG, browser, and Node rendering all support Triangle16.</p>
+<h2 id="api">API<a class="heading-anchor" href="#api" aria-label="Link to API">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { encodeText } from &quot;quadqr-js&quot;;
+
+const code = encodeText(&quot;High-density QuadQR&quot;, {
+  ecc: &quot;M&quot;,
+  highDensity: true
+});
+</code></pre></div>
+<p>High Density Mode is disabled by default. Existing callers remain on normal RGBW mode unless <code>highDensity: true</code> is explicitly supplied.</p>
+<h2 id="capacity">Capacity<a class="heading-anchor" href="#capacity" aria-label="Link to Capacity">#</a></h2>
+<p>Raw body density is:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">RGBW       4 states   2 bits/body cell
+Triangle16 16 states  4 bits/body cell
+</code></pre></div>
+<p>The protected header remains RGBW-equivalent, and ECC/CRC overhead is unchanged at the byte level, so usable payload capacity is close to but not exactly 2x for a fixed matrix version.</p>
+<p>Use <code>getVersionInfo(version, { ecc, highDensity: true })</code> or the demo capacity calculator for the exact value.</p>
+<h2 id="reliability-caveat">Reliability caveat<a class="heading-anchor" href="#reliability-caveat" aria-label="Link to Reliability caveat">#</a></h2>
+<p>Triangle16 doubles raw body bits per cell, but it also halves the spatial area available to each independently classified color. Its meaningful real-world metric is not only bits per matrix cell. It is reliable payload bytes at a fixed physical size, camera distance, angle, lighting condition, resize/compression pipeline, and print quality.</p>
+<p>The branch should therefore be stress-tested before treating High Density Mode as stable. Important cases include:</p>
+<ul>
+<li>perspective and partial finder degradation;</li>
+<li>defocus and motion blur;</li>
+<li>low camera pixel coverage per module;</li>
+<li>JPEG compression and repeated image resizing;</li>
+<li>shadows, glare, white-balance shifts, and saturation changes;</li>
+<li>cheap printing, ink spread, paper tint, and camera recapture.</li>
+</ul>
+<p>If full 16-state reliability becomes the limiting factor, a restricted triangle alphabet can be explored later without changing the basic physical-cell experiment.</p>
+
+        <nav class="page-pager" aria-label="Documentation pagination"><a class="prev" href="security.html"><span>Previous</span><strong>← Secure Payloads</strong></a><a class="next" href="reliability.html"><span>Next</span><strong>Reliability Lab →</strong></a></nav>
+        <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
+      </article>
+      <aside class="toc"><div class="toc-title">On this page</div><a href="#physical-cell">Physical cell</a><a href="#protected-header-stays-solid">Protected header stays solid</a><a href="#scanner-sampling">Scanner sampling</a><a href="#rendering-rules">Rendering rules</a><a href="#api">API</a><a href="#capacity">Capacity</a><a href="#reliability-caveat">Reliability caveat</a></aside>
+    </main>
+  </div>
+
+  <div class="search-modal" data-search-modal aria-hidden="true">
+    <div class="search-backdrop" data-search-close></div>
+    <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search QuadQR documentation">
+      <div class="search-input-wrap"><span>⌕</span><input type="search" placeholder="Search documentation…" autocomplete="off" data-search-input><kbd>Esc</kbd></div>
+      <div class="search-results" data-search-results><div class="search-empty">Type to search pages and sections.</div></div>
+    </div>
+  </div>
+
+  <script src="./search-index.js"></script>
+  <script src="../dist/quadqr.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -80,9 +80,9 @@ npm-test/
 .local-test/
 
 # Documentation site generated output
-docs-site/node_modules/
-docs-site/.cache/
-docs-site/.vite/
+documentation/node_modules/
+documentation/.cache/
+documentation/.vite/
 
 # Demo dependencies/cache if added later
 demo/node_modules/

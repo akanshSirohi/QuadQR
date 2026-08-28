@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format.">
+  <meta name="color-scheme" content="light dark">
+  <title>Technical Specification | QuadQR Documentation</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body data-page="specification">
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="icon-button mobile-menu" type="button" aria-label="Open navigation" data-menu-button>☰</button>
+      <a class="brand" href="index.html" aria-label="QuadQR documentation home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
+      </a>
+    </div>
+    <div class="top-actions">
+      <button class="search-button" type="button" data-search-open><span>Search documentation</span><kbd>/</kbd></button>
+      <a href="../demo/">Demo</a>
+      <a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
+      <a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
+      <button class="icon-button" type="button" aria-label="Toggle theme" data-theme-toggle>◐</button>
+    </div>
+  </header>
+
+  <div class="mobile-backdrop" data-mobile-backdrop></div>
+  <div class="docs-shell">
+    <aside class="sidebar" data-sidebar>
+      <div class="sidebar-inner">
+        <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a class="active" href="specification.html">Technical Specification</a></div>
+        <div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>Technical Specification</h1></header>
+        <h2 id="status">Status<a class="heading-anchor" href="#status" aria-label="Link to Status">#</a></h2>
+<p>QuadQR is an experimental RGBW matrix symbology. Normal mode uses 4-state RGBW cells, while the optional <strong>High Density Mode</strong> is experimental and uses the 16-state Triangle16 physical layout. It is not ISO/IEC QR Code and is not intended to be decoded by standard QR readers.</p>
+<p>The physical matrix format remains <strong>QuadQR Format v5</strong>. Normal application data is always treated simply as UTF-8 text or arbitrary bytes. Compression, signatures, encryption, rendering, and diagnostics are optional features layered around that stable matrix codec.</p>
+<p>For exact matrix geometry and Reed-Solomon framing, see <a href="format.html">format reference</a>.</p>
+<h2 id="1-layer-model">1. Layer model<a class="heading-anchor" href="#1-layer-model" aria-label="Link to 1. Layer model">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">Application bytes / UTF-8 text
+        │
+        ├─ optional compression metadata (internal)
+        ├─ optional Ed25519 signature metadata (internal)
+        ├─ optional Secure Payload v1 (AES-256-GCM)
+        │
+        └─ QuadQR Format v5
+             ├─ protected header
+             ├─ CRC-32
+             ├─ GF(256) Reed-Solomon Spectrum ECC
+             ├─ spectral-spatial interleaving
+             └─ normal RGBW or High Density Triangle16 matrix
+</code></pre></div>
+<p>There is deliberately <strong>no public payload-type registry</strong>. Applications do not select URL, JSON, contact, Wi-Fi, or other semantic types. They encode text or bytes and interpret that data themselves.</p>
+<h2 id="2-physical-cell-alphabet">2. Physical cell alphabet<a class="heading-anchor" href="#2-physical-cell-alphabet" aria-label="Link to 2. Physical cell alphabet">#</a></h2>
+<p>Data modules use exactly four states:</p>
+<div class="table-wrap"><table><thead>
+<tr>
+  <th>State</th>
+  <th>Bits</th>
+  <th style="text-align:right">Internal value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>Red</td>
+  <td><code>00</code></td>
+  <td style="text-align:right">0</td>
+</tr>
+<tr>
+  <td>Green</td>
+  <td><code>01</code></td>
+  <td style="text-align:right">1</td>
+</tr>
+<tr>
+  <td>Blue</td>
+  <td><code>10</code></td>
+  <td style="text-align:right">2</td>
+</tr>
+<tr>
+  <td>White</td>
+  <td><code>11</code></td>
+  <td style="text-align:right">3</td>
+</tr>
+</tbody>
+</table></div>
+<p>Structural black is separate from the data alphabet. One encoded byte maps to exactly four RGBW data cells.</p>
+<h3 id="high-density-mode">High Density Mode<a class="heading-anchor" href="#high-density-mode" aria-label="Link to High Density Mode">#</a></h3>
+<p>When <code>highDensity: true</code> is selected, each payload module has a fixed <code>/</code> diagonal and two independently classified RGBW regions. This creates 16 states and 4 raw bits per body cell. The protected header stays solid-color at 2 bits per cell for robust bootstrap recovery, then header flag bit 6 tells the decoder that the ECC/body stream uses Triangle16 packing. Scanner sampling uses three interior anchors per triangle, robust aggregation, and a spatial-instability penalty while excluding the diagonal boundary.</p>
+<h2 id="3-matrix-sizing">3. Matrix sizing<a class="heading-anchor" href="#3-matrix-sizing" aria-label="Link to 3. Matrix sizing">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">size = 21 + 4 × (version - 1)
+version = 1..40
+</code></pre></div>
+<p>Three 7×7 finder patterns are always present. Version 1 has the legacy QuadQR 5×5 bottom-right alignment marker. Versions 2–40 use the distributed alignment schedule defined in <a href="format.html">format reference</a>.</p>
+<h2 id="4-format-v5-header-flags">4. Format v5 header flags<a class="heading-anchor" href="#4-format-v5-header-flags" aria-label="Link to 4. Format v5 header flags">#</a></h2>
+<p>The protected Format v5 header uses:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">bit 0      UTF-8 text flag
+bits 1..2  ECC profile id
+bit 3      Secure Payload v1 envelope
+bit 4      internal payload-extension metadata present
+bit 5      signed-payload hint
+bit 6      High Density Mode flag
+bit 7      reserved
+</code></pre></div>
+<p>Bit 4 is an implementation/interoperability hint used only when compression or signing requires metadata. It is not a user-selectable payload mode.</p>
+<h2 id="5-spectrum-ecc">5. Spectrum ECC<a class="heading-anchor" href="#5-spectrum-ecc" aria-label="Link to 5. Spectrum ECC">#</a></h2>
+<p>The field remains:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">GF(2^8) = GF(256)
+primitive polynomial = 0x11d
+</code></pre></div>
+<p>Version 2+ parity profiles:</p>
+<div class="table-wrap"><table><thead>
+<tr>
+  <th>Profile</th>
+  <th style="text-align:right">Parity bytes/block</th>
+  <th style="text-align:right">Correctable unknown byte errors/block</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>L</td>
+  <td style="text-align:right">12</td>
+  <td style="text-align:right">6</td>
+</tr>
+<tr>
+  <td>M</td>
+  <td style="text-align:right">24</td>
+  <td style="text-align:right">12</td>
+</tr>
+<tr>
+  <td>Q</td>
+  <td style="text-align:right">36</td>
+  <td style="text-align:right">18</td>
+</tr>
+<tr>
+  <td>H</td>
+  <td style="text-align:right">48</td>
+  <td style="text-align:right">24</td>
+</tr>
+</tbody>
+</table></div>
+<p>The decoder retains per-cell color confidence and one bounded alternate hypothesis from image/camera classification. Low-confidence bytes can first be promoted to known erasures, allowing Reed-Solomon recovery to use the existing parity budget more efficiently. If hard and error/erasure decoding still fail, Spectrum ECC 2.0 may try the alternate state for a bounded set of the least-confident cells. Candidate search is limited to single substitutions and a small pair set by default, and every successful path must still satisfy Reed-Solomon verification and CRC-32.</p>
+<h2 id="6-internal-payload-extension-envelope">6. Internal payload extension envelope<a class="heading-anchor" href="#6-internal-payload-extension-envelope" aria-label="Link to 6. Internal payload extension envelope">#</a></h2>
+<p>Compression and signing require a small amount of metadata. QuadQR stores that metadata in an <strong>internal extension envelope</strong> only when needed. Applications should normally use <code>encodeText()</code>, <code>encodeBytes()</code>, <code>encodeSignedText()</code>, or <code>encodeSignedBytes()</code> and never construct this envelope themselves.</p>
+<p>Current envelope magic:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">QPX1
+</code></pre></div>
+<p>Fixed header size: <strong>16 bytes</strong>.</p>
+<div class="table-wrap"><table><thead>
+<tr>
+  <th style="text-align:right">Offset</th>
+  <th style="text-align:right">Size</th>
+  <th>Field</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td style="text-align:right">0</td>
+  <td style="text-align:right">4</td>
+  <td>ASCII magic <code>QPX1</code></td>
+</tr>
+<tr>
+  <td style="text-align:right">4</td>
+  <td style="text-align:right">1</td>
+  <td>Extension version (<code>3</code>; decoder also accepts legacy <code>1</code> and <code>2</code>)</td>
+</tr>
+<tr>
+  <td style="text-align:right">5</td>
+  <td style="text-align:right">1</td>
+  <td>Flags</td>
+</tr>
+<tr>
+  <td style="text-align:right">6</td>
+  <td style="text-align:right">1</td>
+  <td>Compression ID</td>
+</tr>
+<tr>
+  <td style="text-align:right">7</td>
+  <td style="text-align:right">1</td>
+  <td>Signature algorithm ID</td>
+</tr>
+<tr>
+  <td style="text-align:right">8</td>
+  <td style="text-align:right">4</td>
+  <td>Original application payload length, big-endian</td>
+</tr>
+<tr>
+  <td style="text-align:right">12</td>
+  <td style="text-align:right">1</td>
+  <td>Signing key-ID length (v2+); legacy signer-label length in v1</td>
+</tr>
+<tr>
+  <td style="text-align:right">13</td>
+  <td style="text-align:right">1</td>
+  <td>Optional embedded public-key length</td>
+</tr>
+<tr>
+  <td style="text-align:right">14</td>
+  <td style="text-align:right">1</td>
+  <td>Signature length</td>
+</tr>
+<tr>
+  <td style="text-align:right">15</td>
+  <td style="text-align:right">1</td>
+  <td>Reserved (<code>0</code>)</td>
+</tr>
+</tbody>
+</table></div>
+<p>Variable bytes follow as:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">keyId || optionalPublicKey || signature || storedPayload
+</code></pre></div>
+<p>Envelope flags currently use:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">bit 0  signed
+bit 1  compressed
+bit 2  public key embedded
+</code></pre></div>
+<p>The envelope contains no semantic content type. The Format v5 text flag still determines whether the recovered application payload should be decoded as UTF-8 text.</p>
+<h2 id="7-compression">7. Compression<a class="heading-anchor" href="#7-compression" aria-label="Link to 7. Compression">#</a></h2>
+<p>Compression IDs:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">0 = none
+1 = QuadQR portable LZ (legacy)
+2 = QuadQR portable raw DEFLATE
+3 = bundled Brotli
+</code></pre></div>
+<p>Compression ID <code>1</code> is the original LZSS-style stream with groups of up to eight tokens. Each group begins with one flag byte. A flag bit of <code>0</code> means a one-byte literal. A flag bit of <code>1</code> means a two-byte back-reference:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">12-bit offset: 1..4095 bytes
+4-bit length: stored value + 3, therefore 3..18 bytes
+</code></pre></div>
+<p>Compression ID <code>1</code> keeps the original QuadQR LZSS-style stream. Encoder levels <code>1..9</code> control candidate-history depth and bounded lazy-match effort; level 6 preserves the historical 32-candidate search depth. The 4095-byte window, 3..18 byte back-reference format, and decoder remain unchanged, and the level is not serialized.</p>
+<p>Compression ID <code>2</code> is a raw RFC 1951 DEFLATE stream. QuadQR's portable encoder uses a deterministic fixed-Huffman block, a 32 KiB LZ77 window, distances up to 32768 bytes, and matches up to 258 bytes. Encoder levels <code>1..9</code> control candidate-chain depth and lazy-match effort; the level is not serialized and does not change decoder behavior. The QuadQR decoder accepts the stored/fixed block forms emitted by the library.</p>
+<p>Compression ID <code>3</code> is a standard Brotli stream produced and decoded by QuadQR's bundled synchronous JavaScript codec. It uses no Node <code>zlib</code>, browser <code>CompressionStream</code>, DOM API, native addon, or network-loaded codec at runtime. Brotli is especially effective for repetitive text and structured payloads, while DEFLATE and legacy LZ remain available for deterministic selection and backward compatibility.</p>
+<p>Public compression modes are:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">none
+auto
+smart
+brotli
+deflate
+lz
+</code></pre></div>
+<p><code>compression: &quot;auto&quot;</code> is the fast balanced policy. It evaluates LZ level 6, DEFLATE level 6, and Brotli quality 6 exactly once and chooses the smallest complete stored representation. For unsigned payloads that comparison includes the 16-byte extension-envelope cost, so Auto remains zero-overhead when compression is not useful.</p>
+<p><code>compression: &quot;smart&quot;</code> is the opt-in CPU-heavy policy. It begins with the Auto candidates, computes the resulting Format v5 QuadQR version using the selected ECC/profile/version bounds, and only escalates when the next smaller matrix is plausibly reachable. The strong stage tests DEFLATE 8 and Brotli 9. If the symbol remains close to a smaller-version boundary, the maximum stage tests DEFLATE 9 and Brotli 11. With an explicitly requested fixed version, Smart does not chase a smaller matrix, but it may escalate when the balanced result does not fit and stronger compression can plausibly make that requested version fit. Signed and secure pipelines include their fixed envelope overhead when evaluating those version boundaries.</p>
+<p>Explicit <code>compression: &quot;lz&quot;</code> and <code>compression: &quot;deflate&quot;</code> accept <code>compressionLevel</code> <code>1..9</code> and default to 6. Explicit <code>compression: &quot;brotli&quot;</code> accepts <code>compressionLevel</code> <code>0..11</code> and defaults to 11. Compression levels are encoder-only parameters and are intentionally not stored in the extension envelope because LZ, RFC 1951, and Brotli decoders do not require them. Auto and Smart use LZ level 6; Smart's staged escalation remains focused on DEFLATE/Brotli.</p>
+<p>Compression occurs before signing, encryption, and Format v5 ECC.</p>
+<h2 id="8-signed-quadqr">8. Signed QuadQR<a class="heading-anchor" href="#8-signed-quadqr" aria-label="Link to 8. Signed QuadQR">#</a></h2>
+<p>Signature algorithm ID <code>1</code> is <strong>Ed25519</strong>.</p>
+<p>Signed payloads in extension v2/v3 store:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">optional compact key ID
+64-byte Ed25519 signature
+optional 32-byte raw Ed25519 public key only when explicitly requested
+</code></pre></div>
+<p>The normal production profile does <strong>not</strong> embed the public key. The signature covers:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">16-byte extension header
+|| key ID
+|| optional embedded public key
+|| stored payload bytes
+</code></pre></div>
+<p>The signature field itself is excluded from the signed message.</p>
+<p>The private Ed25519 key is used only by the issuer to create signatures and must never be embedded in a QuadQR. Verification uses a trusted public key supplied externally by the application, server, certificate, or trusted-key registry. The optional key ID is only an identifier that helps the verifier select the correct trusted public key.</p>
+<p>For compatibility or self-contained integrity checks, implementations may set <code>embedPublicKey: true</code>. A signature verified only against a key embedded in the same QuadQR proves integrity and key possession, but does not establish a trusted signer identity. Such verification should be reported separately from verification against an external trust anchor.</p>
+<p>Legacy extension v1 symbols used a signer label and embedded public key. Decoders may continue to read and verify those symbols for backward compatibility.</p>
+<h2 id="9-secure-signed-composition">9. Secure + signed composition<a class="heading-anchor" href="#9-secure-signed-composition" aria-label="Link to 9. Secure + signed composition">#</a></h2>
+<p>When compression, signing, and encryption are combined, QuadQR uses:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">application payload
+→ optional compression
+→ optional Ed25519 signature metadata
+→ AES-256-GCM Secure Payload v1
+→ Format v5 ECC/matrix
+</code></pre></div>
+<p>After scanning:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">Format v5 decode
+→ AES-GCM authentication/decryption
+→ internal compression/signature metadata processing
+→ application payload
+→ optional Ed25519 signature verification
+</code></pre></div>
+<p>This keeps signature metadata confidential when encryption is enabled while preserving offline verification after decryption.</p>
+<h2 id="10-text-and-binary-apis">10. Text and binary APIs<a class="heading-anchor" href="#10-text-and-binary-apis" aria-label="Link to 10. Text and binary APIs">#</a></h2>
+<p>Text and bytes are first-class without semantic payload types:</p>
+<ul>
+<li><code>encodeText()</code> / <code>decodeMatrix().text</code> for UTF-8 text;</li>
+<li><code>encodeBytes()</code> for arbitrary bytes;</li>
+<li><code>encodeUint8Array()</code> / <code>decodeUint8Array()</code> as explicit byte-oriented convenience APIs.</li>
+</ul>
+<p>Compression works on both text and byte payloads through the same <code>compression</code> option.</p>
+<h2 id="11-rendering-profiles">11. Rendering profiles<a class="heading-anchor" href="#11-rendering-profiles" aria-label="Link to 11. Rendering profiles">#</a></h2>
+<p>Rendering does not modify the encoded matrix.</p>
+<h3 id="screen-mode">Screen mode<a class="heading-anchor" href="#screen-mode" aria-label="Link to Screen mode">#</a></h3>
+<p>Uses the normal RGBW palette and permits:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">classic
+soft
+depth
+inset
+</code></pre></div>
+<h3 id="print-mode">Print mode<a class="heading-anchor" href="#print-mode" aria-label="Link to Print mode">#</a></h3>
+<p><code>mode: &quot;print&quot;</code> applies conservative defaults:</p>
+<ul>
+<li>minimum quiet zone of 4 modules unless explicitly overridden;</li>
+<li>print-safe darker RGB primaries;</li>
+<li>Classic solid-module rendering by default;</li>
+<li>physical-size guidance through <code>getPrintGuidance()</code>.</li>
+</ul>
+<p>Recommended general-purpose starting module size is <strong>0.40 mm/module</strong>. Real printer, paper, ink/toner, lamination, lighting, and camera validation remains necessary for production deployments.</p>
+<h2 id="12-logo-safety">12. Logo safety<a class="heading-anchor" href="#12-logo-safety" aria-label="Link to 12. Logo safety">#</a></h2>
+<p>Logos are rendering overlays and never modify Format v5 data structures.</p>
+<p><code>size: &quot;auto&quot;</code> estimates a conservative logo ratio from:</p>
+<ul>
+<li>ECC profile;</li>
+<li>encoded utilization;</li>
+<li>version 1 compact-profile penalty;</li>
+<li>clear-background usage;</li>
+<li>screen vs print mode.</li>
+</ul>
+<p><code>findMaxSafeLogoSize()</code> can empirically search the largest decodable logo size when an ImageData-like logo is available. Generated symbols should still be verified after final rendering.</p>
+<h2 id="13-scanner-diagnostics">13. Scanner diagnostics<a class="heading-anchor" href="#13-scanner-diagnostics" aria-label="Link to 13. Scanner diagnostics">#</a></h2>
+<p>Successful image scans expose normalized diagnostic fields including:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">confidence
+geometryConfidence
+calibrationConfidence
+structureConfidence
+eccUtilization
+correctedErrors
+erasureSymbols
+</code></pre></div>
+<p>With <code>debug: true</code>, the scanner can also report stage state, geometry candidates, finder/vision passes, latest sampled matrix, confidence matrix, color-normalization method, and the failed stage when decoding does not complete.</p>
+<p>Debug output is diagnostic evidence, not a cryptographic assurance score.</p>
+<h2 id="14-scanability-score-and-torture-testing">14. Scanability score and torture testing<a class="heading-anchor" href="#14-scanability-score-and-torture-testing" aria-label="Link to 14. Scanability score and torture testing">#</a></h2>
+<p><code>runImageStressTest()</code> and <code>assessScanability()</code> use deterministic synthetic distortions to estimate robustness against:</p>
+<ul>
+<li>blur;</li>
+<li>low brightness;</li>
+<li>high exposure;</li>
+<li>uneven shadow;</li>
+<li>contrast loss;</li>
+<li>perspective distortion;</li>
+<li>JPEG-like quantization/block artifacts;</li>
+<li>downscaling.</li>
+</ul>
+<p>Current rating bands:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">90–100  Excellent
+75–89   Good
+50–74   Risky
+0–49    Likely unscannable
+</code></pre></div>
+<p>These scores are regression/testing aids. They do not replace validation with real phone cameras, printers, displays, paper stocks, lighting conditions, and physical damage.</p>
+<h2 id="15-capacity-planning">15. Capacity planning<a class="heading-anchor" href="#15-capacity-planning" aria-label="Link to 15. Capacity planning">#</a></h2>
+<p>Capacity is determined from the actual Format v5 layout, protected header, CRC, and Spectrum ECC plan. Compression can reduce stored payload bytes, while signatures and encryption add metadata bytes before the matrix codec.</p>
+<p>The benchmark helper can report:</p>
+<ul>
+<li>minimum QuadQR version;</li>
+<li>encoded bytes;</li>
+<li>remaining capacity;</li>
+<li>utilization;</li>
+<li>approximate same-letter standard QR byte-mode version.</li>
+</ul>
+<p>When only a payload byte count is known, <code>compression: &quot;auto&quot;</code> cannot predict the gain because compressibility depends on the actual bytes.</p>
+<p>Standard QR comparisons use the same <strong>nominal ECC letter only</strong>. QuadQR and ISO QR recovery strengths are not equivalent and should not be presented as such.</p>
+<h2 id="16-compatibility-principles">16. Compatibility principles<a class="heading-anchor" href="#16-compatibility-principles" aria-label="Link to 16. Compatibility principles">#</a></h2>
+<p>Implementations should follow these rules:</p>
+<ol>
+<li>Keep RGBW mapping exactly <code>R=00, G=01, B=10, W=11</code>.</li>
+<li>Keep GF(256) Spectrum ECC and its errors+erasures behavior.</li>
+<li>Preserve Format v5 decoding for normal and Secure Payload symbols.</li>
+<li>Keep application semantics outside the QuadQR codec. Do not require a growing content-type registry.</li>
+<li>Treat compression/signature metadata as internal transport metadata, not a separate user payload mode.</li>
+<li>Treat <code>keyId</code> only as an identifier. Signer trust comes from an external trusted public-key binding.</li>
+<li>Keep rendering effects out of structural finder/timing/alignment/calibration modules.</li>
+<li>Validate public format changes with both matrix and rendered-image scanner tests.</li>
+</ol>
+<h2 id="17-reference-implementation">17. Reference implementation<a class="heading-anchor" href="#17-reference-implementation" aria-label="Link to 17. Reference implementation">#</a></h2>
+<p>The JavaScript implementation in this repository is the current reference implementation. Public entry points are covered throughout this documentation and exercised by <code>tests/self-test.js</code> and <code>tests/package-test.js</code>.</p>
+
+        <nav class="page-pager" aria-label="Documentation pagination"><a class="prev" href="format.html"><span>Previous</span><strong>← Format Reference</strong></a></nav>
+        <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
+      </article>
+      <aside class="toc"><div class="toc-title">On this page</div><a href="#status">Status</a><a href="#1-layer-model">1. Layer model</a><a href="#2-physical-cell-alphabet">2. Physical cell alphabet</a><a class="toc-sub" href="#high-density-mode">High Density Mode</a><a href="#3-matrix-sizing">3. Matrix sizing</a><a href="#4-format-v5-header-flags">4. Format v5 header flags</a><a href="#5-spectrum-ecc">5. Spectrum ECC</a><a href="#6-internal-payload-extension-envelope">6. Internal payload extension envelope</a><a href="#7-compression">7. Compression</a><a href="#8-signed-quadqr">8. Signed QuadQR</a><a href="#9-secure-signed-composition">9. Secure + signed composition</a><a href="#10-text-and-binary-apis">10. Text and binary APIs</a><a href="#11-rendering-profiles">11. Rendering profiles</a><a class="toc-sub" href="#screen-mode">Screen mode</a><a class="toc-sub" href="#print-mode">Print mode</a><a href="#12-logo-safety">12. Logo safety</a><a href="#13-scanner-diagnostics">13. Scanner diagnostics</a><a href="#14-scanability-score-and-torture-testing">14. Scanability score and torture testing</a><a href="#15-capacity-planning">15. Capacity planning</a><a href="#16-compatibility-principles">16. Compatibility principles</a><a href="#17-reference-implementation">17. Reference implementation</a></aside>
+    </main>
+  </div>
+
+  <div class="search-modal" data-search-modal aria-hidden="true">
+    <div class="search-backdrop" data-search-close></div>
+    <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search QuadQR documentation">
+      <div class="search-input-wrap"><span>⌕</span><input type="search" placeholder="Search documentation…" autocomplete="off" data-search-input><kbd>Esc</kbd></div>
+      <div class="search-results" data-search-results><div class="search-empty">Type to search pages and sections.</div></div>
+    </div>
+  </div>
+
+  <script src="./search-index.js"></script>
+  <script src="../dist/quadqr.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

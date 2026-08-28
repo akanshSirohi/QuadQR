@@ -4,7 +4,7 @@
 
 ## Language
 
-- QuadQR is JavaScript-only. Keep runtime, tests, CLI, demo, docs-site, scripts, package entry points, and source declarations in JavaScript unless a different language is explicitly requested.
+- QuadQR is JavaScript-only. Keep runtime, tests, CLI, demo, documentation, scripts, package entry points, and source declarations in JavaScript unless a different language is explicitly requested.
 
 Develop and experimentally validate the QuadQR custom 2D code.
 
@@ -211,7 +211,7 @@ Package tests must cover ESM, CommonJS, CDN/global loading, WASM initialization,
 
 Keep both documentation surfaces updated when public APIs change:
 
-- `docs-site/`: standalone static documentation website;
+- `documentation/`: standalone self-contained static documentation website;
 - `docs/`: Markdown documentation for repositories, npm consumers, and offline reading.
 
 The interactive product demo remains under `demo/`; do not merge it into the documentation site. Keep `demo/compute-worker.js` as the background execution boundary for CPU-heavy demo-only work, and keep UI rendering/orchestration in `demo/app.js`.

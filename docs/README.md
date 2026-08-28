@@ -4,7 +4,7 @@ QuadQR is an experimental RGBW matrix symbology. Default RGBW cells carry two bi
 
 ## Live links
 
-- [Documentation Site](https://akanshsirohi.github.io/QuadQR/docs-site/)
+- [Documentation Site](https://akanshsirohi.github.io/QuadQR/documentation/)
 - [Interactive Demo](https://akanshsirohi.github.io/QuadQR/demo/)
 - [quadqr-js on npm](https://www.npmjs.com/package/quadqr-js)
 - [GitHub Repository](https://github.com/akanshsirohi/QuadQR)
