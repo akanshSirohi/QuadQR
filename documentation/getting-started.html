@@ -1,71 +1,70 @@
-<!doctype html>
-<html lang="en" data-theme="light">
+<!DOCTYPE html>
+
+<html data-theme="light" lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format.">
-  <meta name="color-scheme" content="light dark">
-  <title>Getting Started | QuadQR Documentation</title>
-  <link rel="stylesheet" href="./styles.css">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format." name="description"/>
+<meta content="light dark" name="color-scheme"/>
+<title>Getting Started | QuadQR Documentation</title>
+<link href="./styles.css" rel="stylesheet"/>
 </head>
 <body data-page="getting-started">
-  <header class="topbar">
-    <div class="topbar-left">
-      <button class="icon-button mobile-menu" type="button" aria-label="Open navigation" data-menu-button>☰</button>
-      <a class="brand" href="index.html" aria-label="QuadQR documentation home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
-      </a>
-    </div>
-    <div class="top-actions">
-      <button class="search-button" type="button" data-search-open><span>Search documentation</span><kbd>/</kbd></button>
-      <a href="../demo/">Demo</a>
-      <a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
-      <a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
-      <button class="icon-button" type="button" aria-label="Toggle theme" data-theme-toggle>◐</button>
-    </div>
-  </header>
-
-  <div class="mobile-backdrop" data-mobile-backdrop></div>
-  <div class="docs-shell">
-    <aside class="sidebar" data-sidebar>
-      <div class="sidebar-inner">
-        <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a class="active" href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
-        <div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
-      </div>
-    </aside>
-
-    <main class="main-content">
-      <article class="doc-article">
-        <header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>Getting Started</h1></header>
-        <h2 id="install">Install<a class="heading-anchor" href="#install" aria-label="Link to Install">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npm install quadqr-js
+<header class="topbar">
+<div class="topbar-left">
+<button aria-label="Open navigation" class="icon-button mobile-menu" data-menu-button="" type="button">☰</button>
+<a aria-label="QuadQR documentation home" class="brand" href="index.html">
+<span aria-hidden="true" class="brand-mark"><i></i><i></i><i></i><i></i></span>
+<span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
+</a>
+</div>
+<div class="top-actions">
+<button class="search-button" data-search-open="" type="button"><span>Search documentation</span><kbd>/</kbd></button>
+<a href="../demo/">Demo</a>
+<a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
+<a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
+<button aria-label="Toggle theme" class="icon-button" data-theme-toggle="" type="button">◐</button>
+</div>
+</header>
+<div class="mobile-backdrop" data-mobile-backdrop=""></div>
+<div class="docs-shell">
+<aside class="sidebar" data-sidebar="">
+<div class="sidebar-inner">
+<div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a class="active" href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
+<div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+</div>
+</aside>
+<main class="main-content">
+<article class="doc-article">
+<header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>Getting Started</h1></header><div class="callout info"><strong>Complete option definitions</strong><p>The quick examples use safe defaults. When you need to tune any encoder, renderer, scanner, camera, security, or compression field, use the <a href="options.html">Configuration Reference</a> for accepted values and defaults.</p></div>
+<h2 id="install">Install<a aria-label="Link to Install" class="heading-anchor" href="#install">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npm install quadqr-js
 </code></pre></div>
 <p>Node.js usage targets Node.js 20.19 or newer. Browser use works through a bundler, direct ESM, or the prebuilt CDN/global bundle.</p>
-<h2 id="encode-and-decode-text">Encode and decode text<a class="heading-anchor" href="#encode-and-decode-text" aria-label="Link to Encode and decode text">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { encodeText, decodeMatrix } from &quot;quadqr-js&quot;;
+<h2 id="encode-and-decode-text">Encode and decode text<a aria-label="Link to Encode and decode text" class="heading-anchor" href="#encode-and-decode-text">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { encodeText, decodeMatrix } from "quadqr-js";
 
-const code = encodeText(&quot;Hello from QuadQR&quot;, {
-  ecc: &quot;M&quot;
+const code = encodeText("Hello from QuadQR", {
+  ecc: "M"
 });
 
 const result = decodeMatrix(code.matrix);
 console.log(result.text);
 </code></pre></div>
 <p>If no version is supplied, QuadQR automatically chooses the smallest version that fits the payload.</p>
-<h2 id="render-in-the-browser">Render in the browser<a class="heading-anchor" href="#render-in-the-browser" aria-label="Link to Render in the browser">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import {
+<h2 id="render-in-the-browser">Render in the browser<a aria-label="Link to Render in the browser" class="heading-anchor" href="#render-in-the-browser">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import {
   encodeText,
   renderToCanvas,
   renderToSVG
-} from &quot;quadqr-js/browser&quot;;
+} from "quadqr-js/browser";
 
-const code = encodeText(&quot;Rendered in the browser&quot;);
+const code = encodeText("Rendered in the browser");
 
-renderToCanvas(code, document.querySelector(&quot;#qr&quot;), {
+renderToCanvas(code, document.querySelector("#qr"), {
   imageSize: 720,
   quietZone: 4,
-  style: &quot;classic&quot;
+  style: "classic"
 });
 
 const svg = renderToSVG(code, {
@@ -76,20 +75,20 @@ const svg = renderToSVG(code, {
 <p>Available presentation styles are <code>classic</code>, <code>depth</code>, <code>soft</code>, and <code>inset</code>. Styling does not change the encoded matrix.</p>
 <p><code>imageSize</code> is the exact square output dimension in pixels. If you omit both <code>imageSize</code> and <code>moduleSize</code>, the renderer defaults to 720 × 720 px. <code>moduleSize</code> is still available for low-level pixels-per-module sizing.</p>
 <p>To add a centered logo, load it as an <code>Image</code> and pass it as <code>logo.source</code>. Transparent logo pixels remain transparent. Use <code>clearBackground: true</code> when you want a padded white area behind the logo. <code>quietZone</code> is measured in modules and defaults to <code>4</code>.</p>
-<h2 id="scan-an-uploaded-image">Scan an uploaded image<a class="heading-anchor" href="#scan-an-uploaded-image" aria-label="Link to Scan an uploaded image">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { scanFile } from &quot;quadqr-js/browser&quot;;
+<h2 id="scan-an-uploaded-image">Scan an uploaded image<a aria-label="Link to Scan an uploaded image" class="heading-anchor" href="#scan-an-uploaded-image">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { scanFile } from "quadqr-js/browser";
 
-const file = document.querySelector(&quot;#image&quot;).files[0];
+const file = document.querySelector("#image").files[0];
 const result = await scanFile(file);
 
 console.log(result.text);
 </code></pre></div>
-<h2 id="scan-from-the-camera">Scan from the camera<a class="heading-anchor" href="#scan-from-the-camera" aria-label="Link to Scan from the camera">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { startCameraScanner } from &quot;quadqr-js/browser&quot;;
+<h2 id="scan-from-the-camera">Scan from the camera<a aria-label="Link to Scan from the camera" class="heading-anchor" href="#scan-from-the-camera">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { startCameraScanner } from "quadqr-js/browser";
 
 let scanner;
 scanner = await startCameraScanner(
-  document.querySelector(&quot;#video&quot;),
+  document.querySelector("#video"),
   {
     cameraFinderRecoveryEvery: 2,
     onResult(result) {
@@ -100,108 +99,108 @@ scanner = await startCameraScanner(
 );
 </code></pre></div>
 <p>Camera access requires HTTPS or localhost. Finder detection uses a QuadQR-specific RGB value pass first, then throttled threshold recovery when the fast pass cannot lock onto all three finder patterns.</p>
-<h2 id="secure-password-mode">Secure password mode<a class="heading-anchor" href="#secure-password-mode" aria-label="Link to Secure password mode">#</a></h2>
+<h2 id="secure-password-mode">Secure password mode<a aria-label="Link to Secure password mode" class="heading-anchor" href="#secure-password-mode">#</a></h2>
 <p>Secure payloads are optional. Password mode is the simplest choice when a person will provide the secret during decryption.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import {
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import {
   encodeSecureText,
   decodeMatrix,
   decryptDecoded
-} from &quot;quadqr-js&quot;;
+} from "quadqr-js";
 
-const code = await encodeSecureText(&quot;Private payload&quot;, {
-  ecc: &quot;M&quot;,
+const code = await encodeSecureText("Private payload", {
+  ecc: "M",
   security: {
-    mode: &quot;password&quot;,
-    password: &quot;correct horse battery staple&quot;
+    mode: "password",
+    password: "correct horse battery staple"
   }
 });
 
 const locked = decodeMatrix(code.matrix);
 
 const unlocked = await decryptDecoded(locked, {
-  password: &quot;correct horse battery staple&quot;
+  password: "correct horse battery staple"
 });
 
 console.log(unlocked.text);
 </code></pre></div>
 <p>A secure image or camera scan follows the same pattern: scanning returns a locked result, then <code>decryptDecoded()</code> reveals plaintext only after successful authentication.</p>
-<h2 id="secure-raw-key-mode">Secure raw-key mode<a class="heading-anchor" href="#secure-raw-key-mode" aria-label="Link to Secure raw-key mode">#</a></h2>
+<h2 id="secure-raw-key-mode">Secure raw-key mode<a aria-label="Link to Secure raw-key mode" class="heading-anchor" href="#secure-raw-key-mode">#</a></h2>
 <p>Use raw-key mode when an application already manages its own cryptographic keys.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import {
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import {
   encodeSecureText,
   generateRaw256Key
-} from &quot;quadqr-js&quot;;
+} from "quadqr-js";
 
 const key = generateRaw256Key();
 
-const code = await encodeSecureText(&quot;Application-managed secret&quot;, {
+const code = await encodeSecureText("Application-managed secret", {
   security: {
-    mode: &quot;raw-key&quot;,
+    mode: "raw-key",
     key
   }
 });
 </code></pre></div>
 <p>The key must be exactly 32 bytes. Never embed the secret key inside the same QuadQR payload.</p>
-<h2 id="generate-png-and-svg-files-in-nodejs">Generate PNG and SVG files in Node.js<a class="heading-anchor" href="#generate-png-and-svg-files-in-nodejs" aria-label="Link to Generate PNG and SVG files in Node.js">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { encodeText } from &quot;quadqr-js&quot;;
-import { savePNG, saveSVG, scanFile } from &quot;quadqr-js/node&quot;;
+<h2 id="generate-png-and-svg-files-in-nodejs">Generate PNG and SVG files in Node.js<a aria-label="Link to Generate PNG and SVG files in Node.js" class="heading-anchor" href="#generate-png-and-svg-files-in-nodejs">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { encodeText } from "quadqr-js";
+import { savePNG, saveSVG, scanFile } from "quadqr-js/node";
 
-const code = encodeText(&quot;Generated on Node.js&quot;);
+const code = encodeText("Generated on Node.js");
 
-await savePNG(code, &quot;quadqr.png&quot;, {
+await savePNG(code, "quadqr.png", {
   imageSize: 720,
   quietZone: 4
 });
 
-await saveSVG(code, &quot;quadqr.svg&quot;, {
+await saveSVG(code, "quadqr.svg", {
   imageSize: 720,
   quietZone: 4
 });
 
-const result = await scanFile(&quot;quadqr.png&quot;);
+const result = await scanFile("quadqr.png");
 console.log(result.text);
 </code></pre></div>
 <p>PNG generation/decoding and SVG generation are built into the Node.js adapter.</p>
-<h2 id="use-a-script-tag">Use a script tag<a class="heading-anchor" href="#use-a-script-tag" aria-label="Link to Use a script tag">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>HTML</span><button type="button" data-copy>Copy</button></div><pre><code class="language-html">&lt;canvas id=&quot;qr&quot;&gt;&lt;/canvas&gt;
-&lt;script src=&quot;https://cdn.jsdelivr.net/npm/quadqr-js@1.4.1/dist/quadqr.min.js&quot;&gt;&lt;/script&gt;
+<h2 id="use-a-script-tag">Use a script tag<a aria-label="Link to Use a script tag" class="heading-anchor" href="#use-a-script-tag">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>HTML</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-html">&lt;canvas id="qr"&gt;&lt;/canvas&gt;
+&lt;script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.4.1/dist/quadqr.min.js"&gt;&lt;/script&gt;
 &lt;script&gt;
-  const code = QuadQR.encodeText(&quot;No build step&quot;);
-  QuadQR.renderToCanvas(code, document.querySelector(&quot;#qr&quot;));
+  const code = QuadQR.encodeText("No build step");
+  QuadQR.renderToCanvas(code, document.querySelector("#qr"));
 &lt;/script&gt;
 </code></pre></div>
 <p>Pin an exact package version in production.</p>
-<h2 id="use-the-cli">Use the CLI<a class="heading-anchor" href="#use-the-cli" aria-label="Link to Use the CLI">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js encode &quot;Hello QuadQR&quot; -o hello.png
+<h2 id="use-the-cli">Use the CLI<a aria-label="Link to Use the CLI" class="heading-anchor" href="#use-the-cli">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "Hello QuadQR" -o hello.png
 npx quadqr-js decode hello.png
 </code></pre></div>
 <p>Password-protected CLI workflow:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js encode &quot;Private data&quot; --password &quot;my-password&quot; -o secure.png
-npx quadqr-js decode secure.png --password &quot;my-password&quot;
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "Private data" --password "my-password" -o secure.png
+npx quadqr-js decode secure.png --password "my-password"
 </code></pre></div>
 <p>See <a href="cli.html">CLI reference</a> for the full command reference.</p>
-<h2 id="compression-and-signed-payloads">Compression and signed payloads<a class="heading-anchor" href="#compression-and-signed-payloads" aria-label="Link to Compression and signed payloads">#</a></h2>
+<h2 id="compression-and-signed-payloads">Compression and signed payloads<a aria-label="Link to Compression and signed payloads" class="heading-anchor" href="#compression-and-signed-payloads">#</a></h2>
 <p>Compression is available directly on the normal encode APIs. You do not need to select a payload type or use a separate payload mode:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { encodeText } from &quot;quadqr-js&quot;;
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { encodeText } from "quadqr-js";
 
-const code = encodeText(&quot;repeat repeat repeat repeat&quot;, {
-  compression: &quot;auto&quot;,
-  ecc: &quot;Q&quot;
+const code = encodeText("repeat repeat repeat repeat", {
+  compression: "auto",
+  ecc: "Q"
 });
 </code></pre></div>
 <p><code>auto</code> is the fast default: it compares LZ level 6, DEFLATE level 6, and Brotli quality 6 once, then keeps the smallest complete representation. <code>smart</code> is the CPU-heavy option; it starts with the same pass and only tries DEFLATE 8/9 and Brotli 9/11 when stronger compression can realistically reduce the QuadQR version.</p>
 <p>When you explicitly choose a codec, <code>compressionLevel</code> controls encoder effort:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">encodeText(text, { compression: &quot;lz&quot;, compressionLevel: 9 }); // 1..9
-encodeText(text, { compression: &quot;deflate&quot;, compressionLevel: 9 }); // 1..9
-encodeText(text, { compression: &quot;brotli&quot;, compressionLevel: 11 }); // 0..11
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">encodeText(text, { compression: "lz", compressionLevel: 9 }); // 1..9
+encodeText(text, { compression: "deflate", compressionLevel: 9 }); // 1..9
+encodeText(text, { compression: "brotli", compressionLevel: 11 }); // 0..11
 </code></pre></div>
 <p>LZ defaults to level 6, DEFLATE defaults to level 6, and Brotli defaults to quality 11. The level is not stored in the symbol because decoding does not depend on it.</p>
 <p>For offline integrity verification:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { generateSigningKeyPair, encodeSignedText, decodeMatrix, verifyDecodedSignature } from &quot;quadqr-js&quot;;
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { generateSigningKeyPair, encodeSignedText, decodeMatrix, verifyDecodedSignature } from "quadqr-js";
 
 const keys = await generateSigningKeyPair();
-const signed = await encodeSignedText(&quot;ticket data&quot;, {
-  compression: &quot;auto&quot;,
+const signed = await encodeSignedText("ticket data", {
+  compression: "auto",
   privateKey: keys.privateKey,
   keyId: keys.keyId
 });
@@ -212,39 +211,36 @@ const result = await verifyDecodedSignature(decodeMatrix(signed.matrix), {
 console.log(result.signatureVerified, result.signatureTrusted);
 </code></pre></div>
 <p>Signing metadata is internal. The private key signs; the trusted public key verifies and remains outside the QuadQR by default. The optional <code>keyId</code> lets applications select the correct trusted public key without embedding it in every symbol.</p>
-<h2 id="print-mode">Print mode<a class="heading-anchor" href="#print-mode" aria-label="Link to Print mode">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">renderToCanvas(code, canvas, {
+<h2 id="print-mode">Print mode<a aria-label="Link to Print mode" class="heading-anchor" href="#print-mode">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">renderToCanvas(code, canvas, {
   imageSize: 1200,
-  mode: &quot;print&quot;,
+  mode: "print",
   quietZone: 4
 });
 </code></pre></div>
 <p>Print mode uses safer defaults but should still be tested with the actual printer, paper, physical size, and target phones.</p>
-<h2 id="scanability-testing">Scanability testing<a class="heading-anchor" href="#scanability-testing" aria-label="Link to Scanability testing">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { assessScanability } from &quot;quadqr-js&quot;;
+<h2 id="scanability-testing">Scanability testing<a aria-label="Link to Scanability testing" class="heading-anchor" href="#scanability-testing">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { assessScanability } from "quadqr-js";
 
 const report = assessScanability(code, { imageSize: 480 });
 console.log(report.score, report.rating);
 </code></pre></div>
 <p>The browser demo includes an interactive stress lab for testing one distortion at a time or running the full suite.</p>
-
-        <nav class="page-pager" aria-label="Documentation pagination"><a class="prev" href="index.html"><span>Previous</span><strong>← Overview</strong></a><a class="next" href="browser.html"><span>Next</span><strong>Browser &amp; CDN →</strong></a></nav>
-        <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
-      </article>
-      <aside class="toc"><div class="toc-title">On this page</div><a href="#install">Install</a><a href="#encode-and-decode-text">Encode and decode text</a><a href="#render-in-the-browser">Render in the browser</a><a href="#scan-an-uploaded-image">Scan an uploaded image</a><a href="#scan-from-the-camera">Scan from the camera</a><a href="#secure-password-mode">Secure password mode</a><a href="#secure-raw-key-mode">Secure raw-key mode</a><a href="#generate-png-and-svg-files-in-nodejs">Generate PNG and SVG files in Node.js</a><a href="#use-a-script-tag">Use a script tag</a><a href="#use-the-cli">Use the CLI</a><a href="#compression-and-signed-payloads">Compression and signed payloads</a><a href="#print-mode">Print mode</a><a href="#scanability-testing">Scanability testing</a></aside>
-    </main>
-  </div>
-
-  <div class="search-modal" data-search-modal aria-hidden="true">
-    <div class="search-backdrop" data-search-close></div>
-    <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search QuadQR documentation">
-      <div class="search-input-wrap"><span>⌕</span><input type="search" placeholder="Search documentation…" autocomplete="off" data-search-input><kbd>Esc</kbd></div>
-      <div class="search-results" data-search-results><div class="search-empty">Type to search pages and sections.</div></div>
-    </div>
-  </div>
-
-  <script src="./search-index.js"></script>
-  <script src="../dist/quadqr.min.js"></script>
-  <script src="./app.js"></script>
+<nav aria-label="Documentation pagination" class="page-pager"><a class="prev" href="index.html"><span>Previous</span><strong>← Overview</strong></a><a class="next" href="browser.html"><span>Next</span><strong>Browser &amp; CDN →</strong></a></nav>
+<footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
+</article>
+<aside class="toc"><div class="toc-title">On this page</div><a href="#install">Install</a><a href="#encode-and-decode-text">Encode and decode text</a><a href="#render-in-the-browser">Render in the browser</a><a href="#scan-an-uploaded-image">Scan an uploaded image</a><a href="#scan-from-the-camera">Scan from the camera</a><a href="#secure-password-mode">Secure password mode</a><a href="#secure-raw-key-mode">Secure raw-key mode</a><a href="#generate-png-and-svg-files-in-nodejs">Generate PNG and SVG files in Node.js</a><a href="#use-a-script-tag">Use a script tag</a><a href="#use-the-cli">Use the CLI</a><a href="#compression-and-signed-payloads">Compression and signed payloads</a><a href="#print-mode">Print mode</a><a href="#scanability-testing">Scanability testing</a></aside>
+</main>
+</div>
+<div aria-hidden="true" class="search-modal" data-search-modal="">
+<div class="search-backdrop" data-search-close=""></div>
+<div aria-label="Search QuadQR documentation" aria-modal="true" class="search-panel" role="dialog">
+<div class="search-input-wrap"><span>⌕</span><input autocomplete="off" data-search-input="" placeholder="Search documentation…" type="search"/><kbd>Esc</kbd></div>
+<div class="search-results" data-search-results=""><div class="search-empty">Type to search pages and sections.</div></div>
+</div>
+</div>
+<script src="./search-index.js"></script>
+<script src="../dist/quadqr.min.js"></script>
+<script src="./app.js"></script>
 </body>
 </html>

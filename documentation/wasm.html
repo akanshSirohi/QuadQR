@@ -1,100 +1,96 @@
-<!doctype html>
-<html lang="en" data-theme="light">
+<!DOCTYPE html>
+
+<html data-theme="light" lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format.">
-  <meta name="color-scheme" content="light dark">
-  <title>WebAssembly | QuadQR Documentation</title>
-  <link rel="stylesheet" href="./styles.css">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format." name="description"/>
+<meta content="light dark" name="color-scheme"/>
+<title>WebAssembly | QuadQR Documentation</title>
+<link href="./styles.css" rel="stylesheet"/>
 </head>
 <body data-page="wasm">
-  <header class="topbar">
-    <div class="topbar-left">
-      <button class="icon-button mobile-menu" type="button" aria-label="Open navigation" data-menu-button>☰</button>
-      <a class="brand" href="index.html" aria-label="QuadQR documentation home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
-      </a>
-    </div>
-    <div class="top-actions">
-      <button class="search-button" type="button" data-search-open><span>Search documentation</span><kbd>/</kbd></button>
-      <a href="../demo/">Demo</a>
-      <a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
-      <a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
-      <button class="icon-button" type="button" aria-label="Toggle theme" data-theme-toggle>◐</button>
-    </div>
-  </header>
-
-  <div class="mobile-backdrop" data-mobile-backdrop></div>
-  <div class="docs-shell">
-    <aside class="sidebar" data-sidebar>
-      <div class="sidebar-inner">
-        <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="cli.html">CLI Reference</a><a class="active" href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
-        <div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
-      </div>
-    </aside>
-
-    <main class="main-content">
-      <article class="doc-article">
-        <header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>WebAssembly</h1></header>
-        <p>QuadQR includes an optional prebuilt WebAssembly module at:</p>
-<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">dist/wasm/quadqr-core.wasm
+<header class="topbar">
+<div class="topbar-left">
+<button aria-label="Open navigation" class="icon-button mobile-menu" data-menu-button="" type="button">☰</button>
+<a aria-label="QuadQR documentation home" class="brand" href="index.html">
+<span aria-hidden="true" class="brand-mark"><i></i><i></i><i></i><i></i></span>
+<span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
+</a>
+</div>
+<div class="top-actions">
+<button class="search-button" data-search-open="" type="button"><span>Search documentation</span><kbd>/</kbd></button>
+<a href="../demo/">Demo</a>
+<a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
+<a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
+<button aria-label="Toggle theme" class="icon-button" data-theme-toggle="" type="button">◐</button>
+</div>
+</header>
+<div class="mobile-backdrop" data-mobile-backdrop=""></div>
+<div class="docs-shell">
+<aside class="sidebar" data-sidebar="">
+<div class="sidebar-inner">
+<div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a class="active" href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
+<div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+</div>
+</aside>
+<main class="main-content">
+<article class="doc-article">
+<header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>WebAssembly</h1></header>
+<p>QuadQR includes an optional prebuilt WebAssembly module at:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-text">dist/wasm/quadqr-core.wasm
 </code></pre></div>
 <p>The normal JavaScript implementation works without WASM. Applications can opt in when they want to use the bundled accelerator.</p>
-<h2 id="enable-wasm">Enable WASM<a class="heading-anchor" href="#enable-wasm" aria-label="Link to Enable WASM">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { initWasm } from &quot;quadqr-js&quot;;
+<h2 id="enable-wasm">Enable WASM<a aria-label="Link to Enable WASM" class="heading-anchor" href="#enable-wasm">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { initWasm } from "quadqr-js";
 
 const state = await initWasm();
 console.log(state);
 </code></pre></div>
 <p>In QuadQR 1.x, the WASM module accelerates CRC-32. Once initialized, normal encode/decode operations automatically use the installed accelerator.</p>
-<h2 id="check-the-current-state">Check the current state<a class="heading-anchor" href="#check-the-current-state" aria-label="Link to Check the current state">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { getWasmState } from &quot;quadqr-js&quot;;
+<h2 id="check-the-current-state">Check the current state<a aria-label="Link to Check the current state" class="heading-anchor" href="#check-the-current-state">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { getWasmState } from "quadqr-js";
 
 console.log(getWasmState());
 </code></pre></div>
 <p>Before initialization, or after disabling WASM, the result is <code>null</code>.</p>
-<h2 id="disable-wasm">Disable WASM<a class="heading-anchor" href="#disable-wasm" aria-label="Link to Disable WASM">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { disableWasm } from &quot;quadqr-js&quot;;
+<h2 id="disable-wasm">Disable WASM<a aria-label="Link to Disable WASM" class="heading-anchor" href="#disable-wasm">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { disableWasm } from "quadqr-js";
 
 disableWasm();
 </code></pre></div>
 <p>QuadQR immediately returns to the JavaScript implementation.</p>
-<h2 id="custom-wasm-url">Custom WASM URL<a class="heading-anchor" href="#custom-wasm-url" aria-label="Link to Custom WASM URL">#</a></h2>
+<h2 id="custom-wasm-url">Custom WASM URL<a aria-label="Link to Custom WASM URL" class="heading-anchor" href="#custom-wasm-url">#</a></h2>
 <p>Browser and CDN applications can override the asset location:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">await initWasm({
-  url: &quot;https://example.com/assets/quadqr-core.wasm&quot;
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">await initWasm({
+  url: "https://example.com/assets/quadqr-core.wasm"
 });
 </code></pre></div>
 <p>You can also provide WASM bytes directly through the <code>bytes</code> option.</p>
-<h2 id="cdn-behavior">CDN behavior<a class="heading-anchor" href="#cdn-behavior" aria-label="Link to CDN behavior">#</a></h2>
+<h2 id="cdn-behavior">CDN behavior<a aria-label="Link to CDN behavior" class="heading-anchor" href="#cdn-behavior">#</a></h2>
 <p>When the classic <code>quadqr.min.js</code> global build is loaded from a CDN, <code>QuadQR.initWasm()</code> resolves the bundled sibling WASM asset from the same package/version location.</p>
-<div class="code-block"><div class="code-toolbar"><span>HTML</span><button type="button" data-copy>Copy</button></div><pre><code class="language-html">&lt;script src=&quot;https://cdn.jsdelivr.net/npm/quadqr-js@1.4.1/dist/quadqr.min.js&quot;&gt;&lt;/script&gt;
+<div class="code-block"><div class="code-toolbar"><span>HTML</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-html">&lt;script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.4.1/dist/quadqr.min.js"&gt;&lt;/script&gt;
 &lt;script&gt;
   await QuadQR.initWasm();
 &lt;/script&gt;
 </code></pre></div>
-<h2 id="fallback-behavior">Fallback behavior<a class="heading-anchor" href="#fallback-behavior" aria-label="Link to Fallback behavior">#</a></h2>
+<h2 id="fallback-behavior">Fallback behavior<a aria-label="Link to Fallback behavior" class="heading-anchor" href="#fallback-behavior">#</a></h2>
 <p>WASM is never required for the QuadQR wire format. If your environment cannot load WebAssembly, simply do not call <code>initWasm()</code> and continue using the JavaScript implementation.</p>
-
-        <nav class="page-pager" aria-label="Documentation pagination"><a class="prev" href="cli.html"><span>Previous</span><strong>← CLI Reference</strong></a><a class="next" href="format.html"><span>Next</span><strong>Format Reference →</strong></a></nav>
-        <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
-      </article>
-      <aside class="toc"><div class="toc-title">On this page</div><a href="#enable-wasm">Enable WASM</a><a href="#check-the-current-state">Check the current state</a><a href="#disable-wasm">Disable WASM</a><a href="#custom-wasm-url">Custom WASM URL</a><a href="#cdn-behavior">CDN behavior</a><a href="#fallback-behavior">Fallback behavior</a></aside>
-    </main>
-  </div>
-
-  <div class="search-modal" data-search-modal aria-hidden="true">
-    <div class="search-backdrop" data-search-close></div>
-    <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search QuadQR documentation">
-      <div class="search-input-wrap"><span>⌕</span><input type="search" placeholder="Search documentation…" autocomplete="off" data-search-input><kbd>Esc</kbd></div>
-      <div class="search-results" data-search-results><div class="search-empty">Type to search pages and sections.</div></div>
-    </div>
-  </div>
-
-  <script src="./search-index.js"></script>
-  <script src="../dist/quadqr.min.js"></script>
-  <script src="./app.js"></script>
+<nav aria-label="Documentation pagination" class="page-pager"><a class="prev" href="cli.html"><span>Previous</span><strong>← CLI Reference</strong></a><a class="next" href="format.html"><span>Next</span><strong>Format Reference →</strong></a></nav>
+<footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
+</article>
+<aside class="toc"><div class="toc-title">On this page</div><a href="#enable-wasm">Enable WASM</a><a href="#check-the-current-state">Check the current state</a><a href="#disable-wasm">Disable WASM</a><a href="#custom-wasm-url">Custom WASM URL</a><a href="#cdn-behavior">CDN behavior</a><a href="#fallback-behavior">Fallback behavior</a></aside>
+</main>
+</div>
+<div aria-hidden="true" class="search-modal" data-search-modal="">
+<div class="search-backdrop" data-search-close=""></div>
+<div aria-label="Search QuadQR documentation" aria-modal="true" class="search-panel" role="dialog">
+<div class="search-input-wrap"><span>⌕</span><input autocomplete="off" data-search-input="" placeholder="Search documentation…" type="search"/><kbd>Esc</kbd></div>
+<div class="search-results" data-search-results=""><div class="search-empty">Type to search pages and sections.</div></div>
+</div>
+</div>
+<script src="./search-index.js"></script>
+<script src="../dist/quadqr.min.js"></script>
+<script src="./app.js"></script>
 </body>
 </html>

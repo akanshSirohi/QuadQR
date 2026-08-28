@@ -1,118 +1,117 @@
-<!doctype html>
-<html lang="en" data-theme="light">
+<!DOCTYPE html>
+
+<html data-theme="light" lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format.">
-  <meta name="color-scheme" content="light dark">
-  <title>API Reference | QuadQR Documentation</title>
-  <link rel="stylesheet" href="./styles.css">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format." name="description"/>
+<meta content="light dark" name="color-scheme"/>
+<title>API Reference | QuadQR Documentation</title>
+<link href="./styles.css" rel="stylesheet"/>
 </head>
 <body data-page="api">
-  <header class="topbar">
-    <div class="topbar-left">
-      <button class="icon-button mobile-menu" type="button" aria-label="Open navigation" data-menu-button>☰</button>
-      <a class="brand" href="index.html" aria-label="QuadQR documentation home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
-      </a>
-    </div>
-    <div class="top-actions">
-      <button class="search-button" type="button" data-search-open><span>Search documentation</span><kbd>/</kbd></button>
-      <a href="../demo/">Demo</a>
-      <a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
-      <a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
-      <button class="icon-button" type="button" aria-label="Toggle theme" data-theme-toggle>◐</button>
-    </div>
-  </header>
-
-  <div class="mobile-backdrop" data-mobile-backdrop></div>
-  <div class="docs-shell">
-    <aside class="sidebar" data-sidebar>
-      <div class="sidebar-inner">
-        <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a class="active" href="api.html">API Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
-        <div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
-      </div>
-    </aside>
-
-    <main class="main-content">
-      <article class="doc-article">
-        <header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>API Reference</h1></header>
-        <h2 id="core-encoding">Core encoding<a class="heading-anchor" href="#core-encoding" aria-label="Link to Core encoding">#</a></h2>
-<h3 id="encodetexttext-options"><code>encodeText(text, options?)</code><a class="heading-anchor" href="#encodetexttext-options" aria-label="Link to encodeText(text, options?)">#</a></h3>
+<header class="topbar">
+<div class="topbar-left">
+<button aria-label="Open navigation" class="icon-button mobile-menu" data-menu-button="" type="button">☰</button>
+<a aria-label="QuadQR documentation home" class="brand" href="index.html">
+<span aria-hidden="true" class="brand-mark"><i></i><i></i><i></i><i></i></span>
+<span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
+</a>
+</div>
+<div class="top-actions">
+<button class="search-button" data-search-open="" type="button"><span>Search documentation</span><kbd>/</kbd></button>
+<a href="../demo/">Demo</a>
+<a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
+<a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
+<button aria-label="Toggle theme" class="icon-button" data-theme-toggle="" type="button">◐</button>
+</div>
+</header>
+<div class="mobile-backdrop" data-mobile-backdrop=""></div>
+<div class="docs-shell">
+<aside class="sidebar" data-sidebar="">
+<div class="sidebar-inner">
+<div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a class="active" href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
+<div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+</div>
+</aside>
+<main class="main-content">
+<article class="doc-article">
+<header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>API Reference</h1></header><div class="callout info" id="configuration-reference"><strong>Every option is documented</strong><p>For accepted types, ranges, defaults, recovery cadence, callback fields, and result-object fields, use the <a href="options.html">Configuration Reference</a>. Function sections below focus on API purpose and examples.</p></div>
+<h2 id="core-encoding">Core encoding<a aria-label="Link to Core encoding" class="heading-anchor" href="#core-encoding">#</a></h2>
+<h3 id="encodetexttext-options"><code>encodeText(text, options?)</code><a aria-label="Link to encodeText(text, options?)" class="heading-anchor" href="#encodetexttext-options">#</a></h3>
 <p>Synchronously encodes UTF-8 text.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { encodeText } from &quot;quadqr-js&quot;;
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { encodeText } from "quadqr-js";
 
-const code = encodeText(&quot;Hello&quot;, {
-  ecc: &quot;M&quot;,
+const code = encodeText("Hello", {
+  ecc: "M",
   version: 5,
   highDensity: true // optional experimental 4-bit cells
 });
 </code></pre></div>
 <p>If <code>version</code> is omitted, QuadQR selects the smallest version that fits.</p>
 <p><code>highDensity</code> is a boolean. It defaults to <code>false</code>. Set <code>highDensity: true</code> to enable the experimental Triangle16 layout with two RGBW triangles, 16 states, and 4 raw bits per body cell. The protected header remains solid-color in High Density Mode. Image and camera scanners auto-detect it.</p>
-<h3 id="encodebytesbytes-options"><code>encodeBytes(bytes, options?)</code><a class="heading-anchor" href="#encodebytesbytes-options" aria-label="Link to encodeBytes(bytes, options?)">#</a></h3>
+<h3 id="encodebytesbytes-options"><code>encodeBytes(bytes, options?)</code><a aria-label="Link to encodeBytes(bytes, options?)" class="heading-anchor" href="#encodebytesbytes-options">#</a></h3>
 <p>Encodes arbitrary bytes.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const code = encodeBytes(
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const code = encodeBytes(
   new Uint8Array([1, 2, 3, 4]),
-  { ecc: &quot;Q&quot; }
+  { ecc: "Q" }
 );
 </code></pre></div>
-<h2 id="secure-encoding">Secure encoding<a class="heading-anchor" href="#secure-encoding" aria-label="Link to Secure encoding">#</a></h2>
-<h3 id="encodesecuretexttext-options"><code>encodeSecureText(text, options)</code><a class="heading-anchor" href="#encodesecuretexttext-options" aria-label="Link to encodeSecureText(text, options)">#</a></h3>
+<h2 id="secure-encoding">Secure encoding<a aria-label="Link to Secure encoding" class="heading-anchor" href="#secure-encoding">#</a></h2>
+<h3 id="encodesecuretexttext-options"><code>encodeSecureText(text, options)</code><a aria-label="Link to encodeSecureText(text, options)" class="heading-anchor" href="#encodesecuretexttext-options">#</a></h3>
 <p>Encrypts text using Secure Payload v1 and encodes the encrypted envelope.</p>
 <p>Password mode:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const code = await encodeSecureText(&quot;secret&quot;, {
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const code = await encodeSecureText("secret", {
   security: {
-    mode: &quot;password&quot;,
-    password: &quot;example-password&quot;
+    mode: "password",
+    password: "example-password"
   }
 });
 </code></pre></div>
 <p>Raw-key mode:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const code = await encodeSecureText(&quot;secret&quot;, {
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const code = await encodeSecureText("secret", {
   security: {
-    mode: &quot;raw-key&quot;,
+    mode: "raw-key",
     key
   }
 });
 </code></pre></div>
-<h3 id="encodesecurebytesbytes-options"><code>encodeSecureBytes(bytes, options)</code><a class="heading-anchor" href="#encodesecurebytesbytes-options" aria-label="Link to encodeSecureBytes(bytes, options)">#</a></h3>
+<h3 id="encodesecurebytesbytes-options"><code>encodeSecureBytes(bytes, options)</code><a aria-label="Link to encodeSecureBytes(bytes, options)" class="heading-anchor" href="#encodesecurebytesbytes-options">#</a></h3>
 <p>Byte-oriented equivalent of <code>encodeSecureText()</code>.</p>
-<h3 id="decryptdecodedresult-credentials"><code>decryptDecoded(result, credentials)</code><a class="heading-anchor" href="#decryptdecodedresult-credentials" aria-label="Link to decryptDecoded(result, credentials)">#</a></h3>
+<h3 id="decryptdecodedresult-credentials"><code>decryptDecoded(result, credentials)</code><a aria-label="Link to decryptDecoded(result, credentials)" class="heading-anchor" href="#decryptdecodedresult-credentials">#</a></h3>
 <p>Unlocks a secure result returned by matrix, image, camera, or Node.js scanning.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const unlocked = await decryptDecoded(locked, {
-  password: &quot;example-password&quot;
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const unlocked = await decryptDecoded(locked, {
+  password: "example-password"
 });
 </code></pre></div>
 <p>For raw-key mode:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const unlocked = await decryptDecoded(locked, { key });
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const unlocked = await decryptDecoded(locked, { key });
 </code></pre></div>
-<h2 id="matrix-decoding">Matrix decoding<a class="heading-anchor" href="#matrix-decoding" aria-label="Link to Matrix decoding">#</a></h2>
-<h3 id="decodematrixmatrix-options"><code>decodeMatrix(matrix, options?)</code><a class="heading-anchor" href="#decodematrixmatrix-options" aria-label="Link to decodeMatrix(matrix, options?)">#</a></h3>
+<h2 id="matrix-decoding">Matrix decoding<a aria-label="Link to Matrix decoding" class="heading-anchor" href="#matrix-decoding">#</a></h2>
+<h3 id="decodematrixmatrix-options"><code>decodeMatrix(matrix, options?)</code><a aria-label="Link to decodeMatrix(matrix, options?)" class="heading-anchor" href="#decodematrixmatrix-options">#</a></h3>
 <p>Decodes an already sampled QuadQR matrix.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const result = decodeMatrix(code.matrix);
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const result = decodeMatrix(code.matrix);
 console.log(result.text);
 </code></pre></div>
 <p>A secure result remains locked until it is decrypted:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">{
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">{
   secure: true,
   requiresDecryption: true,
   text: null,
   payload: Uint8Array(...),
   security: {
-    mode: &quot;password&quot;,
-    algorithm: &quot;AES-256-GCM&quot;
+    mode: "password",
+    algorithm: "AES-256-GCM"
   }
 }
 </code></pre></div>
-<h2 id="rendering">Rendering<a class="heading-anchor" href="#rendering" aria-label="Link to Rendering">#</a></h2>
-<h3 id="rendertocanvascodeormatrix-canvas-options"><code>renderToCanvas(codeOrMatrix, canvas, options?)</code><a class="heading-anchor" href="#rendertocanvascodeormatrix-canvas-options" aria-label="Link to renderToCanvas(codeOrMatrix, canvas, options?)">#</a></h3>
+<h2 id="rendering">Rendering<a aria-label="Link to Rendering" class="heading-anchor" href="#rendering">#</a></h2>
+<h3 id="rendertocanvascodeormatrix-canvas-options"><code>renderToCanvas(codeOrMatrix, canvas, options?)</code><a aria-label="Link to renderToCanvas(codeOrMatrix, canvas, options?)" class="heading-anchor" href="#rendertocanvascodeormatrix-canvas-options">#</a></h3>
 <p>Renders to an HTML canvas.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">renderToCanvas(code, canvas, {
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">renderToCanvas(code, canvas, {
   imageSize: 720,
   quietZone: 4,
-  style: &quot;classic&quot;,
+  style: "classic",
   logo: {
     source: loadedImage,
     size: 0.12,
@@ -140,48 +139,48 @@ console.log(result.text);
 <li><code>soft</code></li>
 <li><code>inset</code></li>
 </ul>
-<h3 id="rendertoimagedatacodeormatrix-options"><code>renderToImageData(codeOrMatrix, options?)</code><a class="heading-anchor" href="#rendertoimagedatacodeormatrix-options" aria-label="Link to renderToImageData(codeOrMatrix, options?)">#</a></h3>
+<h3 id="rendertoimagedatacodeormatrix-options"><code>renderToImageData(codeOrMatrix, options?)</code><a aria-label="Link to renderToImageData(codeOrMatrix, options?)" class="heading-anchor" href="#rendertoimagedatacodeormatrix-options">#</a></h3>
 <p>Returns runtime-neutral RGBA pixels:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">{
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">{
   width,
   height,
   data: Uint8ClampedArray
 }
 </code></pre></div>
-<h3 id="rendertosvgcodeormatrix-options"><code>renderToSVG(codeOrMatrix, options?)</code><a class="heading-anchor" href="#rendertosvgcodeormatrix-options" aria-label="Link to renderToSVG(codeOrMatrix, options?)">#</a></h3>
+<h3 id="rendertosvgcodeormatrix-options"><code>renderToSVG(codeOrMatrix, options?)</code><a aria-label="Link to renderToSVG(codeOrMatrix, options?)" class="heading-anchor" href="#rendertosvgcodeormatrix-options">#</a></h3>
 <p>Returns a standalone SVG string. It supports the same exact <code>imageSize</code>, palette, render style, quiet-zone, and logo geometry options as the browser canvas renderer. Because the preview/export is vector, it stays sharp when displayed above or below its nominal pixel size.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const svg = renderToSVG(code, {
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const svg = renderToSVG(code, {
   imageSize: 720,
   quietZone: 6,
-  style: &quot;soft&quot;,
+  style: "soft",
   logo: {
-    source: &quot;data:image/png;base64,...&quot;,
+    source: "data:image/png;base64,...",
     size: 0.12,
     clearBackground: true
   }
 });
 </code></pre></div>
-<h2 id="image-and-camera-scanning">Image and camera scanning<a class="heading-anchor" href="#image-and-camera-scanning" aria-label="Link to Image and camera scanning">#</a></h2>
-<h3 id="scanimagedataimagedata-options"><code>scanImageData(imageData, options?)</code><a class="heading-anchor" href="#scanimagedataimagedata-options" aria-label="Link to scanImageData(imageData, options?)">#</a></h3>
-<p>Scans an ImageData-like RGBA object. The scanner automatically attempts both normal RGBW center sampling and Triangle16 dual-region sampling when geometry is found. When normal projective geometry is locatable but too coarse for half-cell Triangle16 regions, one bounded precise-alignment recovery pass refines the alignment center at sub-module resolution. Clean frames use the normal observed-RGB path first. Difficult frames then get bounded fallback attempts using per-channel white balancing, spatial black/white normalization, tighter centre sampling, module-grid Auto Tone / Auto Contrast / Auto Color recovery, a rectified QR-region pixel enhancement pass, and sub-module geometry micro-refinement before the scan is rejected. Dense versions also use their distributed alignment markers to refine a noisy four-point projective solution when the initial alignment-grid score is plausible but imperfect. If exactly two strong finder patterns survive a steep angle, a bounded perspective-tolerant third-finder recovery pass is attempted before heavier color recovery.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const result = scanImageData({
+<h2 id="image-and-camera-scanning">Image and camera scanning<a aria-label="Link to Image and camera scanning" class="heading-anchor" href="#image-and-camera-scanning">#</a></h2>
+<h3 id="scanimagedataimagedata-options"><code>scanImageData(imageData, options?)</code><a aria-label="Link to scanImageData(imageData, options?)" class="heading-anchor" href="#scanimagedataimagedata-options">#</a></h3>
+<p>Scans an ImageData-like RGBA object. The scanner automatically attempts both normal RGBW center sampling and Triangle16 dual-region sampling when geometry is found. When normal projective geometry is locatable but too coarse for half-cell Triangle16 regions, one bounded precise-alignment recovery pass refines the alignment center at sub-module resolution. Clean frames use the normal observed-RGB path first. Difficult frames then get bounded fallback attempts using per-channel white balancing, spatial black/white normalization, tighter centre sampling, QuadQR module-grid Auto Tone / Auto Contrast / Auto Color recovery, a rectified QR-region pixel enhancement pass, and sub-module geometry micro-refinement before the scan is rejected. Dense versions also use their distributed alignment markers to refine a noisy four-point projective solution when the initial alignment-grid score is plausible but imperfect. If exactly two strong finder patterns survive a steep angle, a bounded perspective-tolerant third-finder recovery pass is attempted before heavier color recovery.</p>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const result = scanImageData({
   width,
   height,
   data
 });
 </code></pre></div>
 <p>Useful scanner options include <code>sampleRadius</code>, <code>robustSampleRadius</code>, <code>adaptiveSampling</code>, <code>spatialColorNormalization</code>, <code>autoEnhanceRecovery</code>, <code>rectifiedAutoEnhanceRecovery</code>, <code>rectifiedRecoveryModuleSize</code>, <code>geometryRefinement</code>, <code>alignmentRefinement</code>, <code>structureTolerance</code>, <code>maxErasureConfidence</code>, <code>softDecoding</code>, <code>softDecodeConfidence</code>, <code>softDecodeMaxCells</code>, and <code>softDecodePairCells</code>. Spectrum ECC 2.0 soft decoding is bounded and only runs after ordinary hard/error-erasure decoding fails.</p>
-<h3 id="browser-scanfilefile-options">Browser <code>scanFile(file, options?)</code><a class="heading-anchor" href="#browser-scanfilefile-options" aria-label="Link to Browser scanFile(file, options?)">#</a></h3>
+<h3 id="browser-scanfilefile-options">Browser <code>scanFile(file, options?)</code><a aria-label="Link to Browser scanFile(file, options?)" class="heading-anchor" href="#browser-scanfilefile-options">#</a></h3>
 <p>Available from <code>quadqr-js/browser</code> and the browser-compatible main entry. Accepts a browser <code>File</code> or <code>Blob</code>.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const result = await scanFile(file);
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const result = await scanFile(file);
 </code></pre></div>
-<h3 id="scanvideoframevideo-options"><code>scanVideoFrame(video, options?)</code><a class="heading-anchor" href="#scanvideoframevideo-options" aria-label="Link to scanVideoFrame(video, options?)">#</a></h3>
-<p>Scans the current frame from an HTML video element. With the default <code>videoCropMode: &quot;visible&quot;</code>, an <code>object-fit: cover</code> preview is mapped back to the matching source crop before scanning, so hidden sensor pixels do not shrink the code or skew enhancement statistics.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const result = scanVideoFrame(video);
+<h3 id="scanvideoframevideo-options"><code>scanVideoFrame(video, options?)</code><a aria-label="Link to scanVideoFrame(video, options?)" class="heading-anchor" href="#scanvideoframevideo-options">#</a></h3>
+<p>Scans the current frame from an HTML video element. With the default <code>videoCropMode: "visible"</code>, an <code>object-fit: cover</code> preview is mapped back to the matching source crop before scanning, so hidden sensor pixels do not shrink the code or skew enhancement statistics.</p>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const result = scanVideoFrame(video);
 </code></pre></div>
-<h3 id="startcamerascannervideo-options"><code>startCameraScanner(video, options?)</code><a class="heading-anchor" href="#startcamerascannervideo-options" aria-label="Link to startCameraScanner(video, options?)">#</a></h3>
-<p>Starts live camera scanning. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. It scans the CSS-visible preview region by default. Finder detection uses a QuadQR-specific RGB value channel (<code>max(R,G,B)</code>) on the fast pass so saturated blue/red/green data cells are not mistaken for structural black. If a miss still contains at least two strong finder patterns, the scanner can retry the visible ROI at up to 1600 px before heavier recovery, which preserves more pixels per module for dense versions. If that does not decode, the <strong>same captured frame</strong> is retried through code-centric Auto Color recovery. The default recovery sequence crops 8%, 16%, and 22% from the camera-frame edges, then falls back to the full frame. This prevents dark room pixels, browser UI, or monitor bezels outside the guide from controlling Auto Color and Otsu thresholds. Each crop uses the Photoshop-style per-channel shadow/highlight correction with a neutral mid-high highlight target (190 by default). Finder-only recovery also tries multiple center-weighted Auto Color histogram windows before raw threshold bracketing. The normal fast path is untouched; these extra passes run only after a miss. If geometry is found but color decoding fails, the captured ROI is retried with stronger color/geometry recovery, including affine cross-channel calibration. Consecutive failed frames can then be combined with tracked-symbol <strong>confidence fusion</strong>: cell evidence is weighted by source confidence, frame quality, and recency, and second hypotheses are carried forward into Spectrum ECC 2.0.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const scanner = await startCameraScanner(video, {
+<h3 id="startcamerascannervideo-options"><code>startCameraScanner(video, options?)</code><a aria-label="Link to startCameraScanner(video, options?)" class="heading-anchor" href="#startcamerascannervideo-options">#</a></h3>
+<p>Starts live camera scanning. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. It scans the CSS-visible preview region by default. Finder detection uses a QuadQR-specific RGB value channel (<code>max(R,G,B)</code>) on the fast pass so saturated blue/red/green data cells are not mistaken for structural black. If a miss still contains at least two strong finder patterns, the scanner can retry the visible ROI at up to 1600 px before heavier recovery, which preserves more pixels per module for dense versions. If that does not decode, the <strong>same captured frame</strong> is retried through QuadQR code-centric Auto Color recovery. The default recovery sequence crops 8%, 16%, and 22% from the camera-frame edges, then falls back to the full frame. This prevents dark room pixels, browser UI, or monitor bezels outside the guide from controlling QuadQR Auto Color and Otsu thresholds. Each crop uses the QuadQR-specific per-channel shadow/highlight correction with a neutral mid-high highlight target (190 by default). Finder-only recovery also tries multiple center-weighted QuadQR Auto Color histogram windows before raw threshold bracketing. The normal fast path is untouched; these extra passes run only after a miss. If geometry is found but color decoding fails, the captured ROI is retried with stronger color/geometry recovery, including affine cross-channel calibration. Consecutive failed frames can then be combined with tracked-symbol <strong>confidence fusion</strong>: cell evidence is weighted by source confidence, frame quality, and recency, and second hypotheses are carried forward into Spectrum ECC 2.0.</p>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const scanner = await startCameraScanner(video, {
   scanInterval: 120,
   multiFrame: true,
   multiFrameWindow: 4,
@@ -206,7 +205,7 @@ console.log(result.text);
   onDiagnostic(event) {
     // Finder positions are in the scanner frame coordinate space.
     // Use scanWidth/scanHeight to map them onto a video overlay.
-    if (event.type === &quot;frame&quot;) {
+    if (event.type === "frame") {
       console.log(event.method, event.finderCount, event.geometry?.version, event.elapsedMs);
     }
   }
@@ -215,44 +214,44 @@ console.log(result.text);
 scanner.stop();
 </code></pre></div>
 <p><code>onDiagnostic</code> is opt-in. It reports finder candidates, the locator method (<code>rgb-value-otsu</code>, threshold-bracket recovery, or luminance fallback), geometry data, and recovery state. Diagnostics reuse the scanner's existing passes and do not add a separate finder scan.</p>
-<h3 id="rectifydetectedcodeimagedata-options"><code>rectifyDetectedCode(imageData, options?)</code><a class="heading-anchor" href="#rectifydetectedcodeimagedata-options" aria-label="Link to rectifyDetectedCode(imageData, options?)">#</a></h3>
+<h3 id="rectifydetectedcodeimagedata-options"><code>rectifyDetectedCode(imageData, options?)</code><a aria-label="Link to rectifyDetectedCode(imageData, options?)" class="heading-anchor" href="#rectifydetectedcodeimagedata-options">#</a></h3>
 <p>Returns the perspective-corrected detected symbol image when detection succeeds.</p>
-<h3 id="rotatematrixmatrix-quarterturns"><code>rotateMatrix(matrix, quarterTurns?)</code><a class="heading-anchor" href="#rotatematrixmatrix-quarterturns" aria-label="Link to rotateMatrix(matrix, quarterTurns?)">#</a></h3>
+<h3 id="rotatematrixmatrix-quarterturns"><code>rotateMatrix(matrix, quarterTurns?)</code><a aria-label="Link to rotateMatrix(matrix, quarterTurns?)" class="heading-anchor" href="#rotatematrixmatrix-quarterturns">#</a></h3>
 <p>Rotates a matrix by 90-degree quarter turns.</p>
-<h2 id="nodejs-helpers">Node.js helpers<a class="heading-anchor" href="#nodejs-helpers" aria-label="Link to Node.js helpers">#</a></h2>
+<h2 id="nodejs-helpers">Node.js helpers<a aria-label="Link to Node.js helpers" class="heading-anchor" href="#nodejs-helpers">#</a></h2>
 <p>Import from <code>quadqr-js/node</code>.</p>
-<h3 id="topngcodeormatrix-options"><code>toPNG(codeOrMatrix, options?)</code><a class="heading-anchor" href="#topngcodeormatrix-options" aria-label="Link to toPNG(codeOrMatrix, options?)">#</a></h3>
+<h3 id="topngcodeormatrix-options"><code>toPNG(codeOrMatrix, options?)</code><a aria-label="Link to toPNG(codeOrMatrix, options?)" class="heading-anchor" href="#topngcodeormatrix-options">#</a></h3>
 <p>Returns a Node.js <code>Buffer</code> containing a PNG.</p>
-<h3 id="savepngcodeormatrix-filename-options"><code>savePNG(codeOrMatrix, filename, options?)</code><a class="heading-anchor" href="#savepngcodeormatrix-filename-options" aria-label="Link to savePNG(codeOrMatrix, filename, options?)">#</a></h3>
+<h3 id="savepngcodeormatrix-filename-options"><code>savePNG(codeOrMatrix, filename, options?)</code><a aria-label="Link to savePNG(codeOrMatrix, filename, options?)" class="heading-anchor" href="#savepngcodeormatrix-filename-options">#</a></h3>
 <p>Writes a PNG file.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">await savePNG(code, &quot;quadqr.png&quot;, {
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">await savePNG(code, "quadqr.png", {
   imageSize: 720,
   quietZone: 4
 });
 </code></pre></div>
-<h3 id="tosvgcodeormatrix-options"><code>toSVG(codeOrMatrix, options?)</code><a class="heading-anchor" href="#tosvgcodeormatrix-options" aria-label="Link to toSVG(codeOrMatrix, options?)">#</a></h3>
+<h3 id="tosvgcodeormatrix-options"><code>toSVG(codeOrMatrix, options?)</code><a aria-label="Link to toSVG(codeOrMatrix, options?)" class="heading-anchor" href="#tosvgcodeormatrix-options">#</a></h3>
 <p>Returns the standalone SVG string from the Node entry point.</p>
-<h3 id="savesvgcodeormatrix-filename-options"><code>saveSVG(codeOrMatrix, filename, options?)</code><a class="heading-anchor" href="#savesvgcodeormatrix-filename-options" aria-label="Link to saveSVG(codeOrMatrix, filename, options?)">#</a></h3>
+<h3 id="savesvgcodeormatrix-filename-options"><code>saveSVG(codeOrMatrix, filename, options?)</code><a aria-label="Link to saveSVG(codeOrMatrix, filename, options?)" class="heading-anchor" href="#savesvgcodeormatrix-filename-options">#</a></h3>
 <p>Writes SVG directly to disk.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">await saveSVG(code, &quot;quadqr.svg&quot;, {
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">await saveSVG(code, "quadqr.svg", {
   imageSize: 720,
   quietZone: 4
 });
 </code></pre></div>
-<h3 id="scanbufferbuffer-options"><code>scanBuffer(buffer, options?)</code><a class="heading-anchor" href="#scanbufferbuffer-options" aria-label="Link to scanBuffer(buffer, options?)">#</a></h3>
+<h3 id="scanbufferbuffer-options"><code>scanBuffer(buffer, options?)</code><a aria-label="Link to scanBuffer(buffer, options?)" class="heading-anchor" href="#scanbufferbuffer-options">#</a></h3>
 <p>Scans an image buffer. PNG is supported without dependencies. Other formats can use the host application's optional <code>sharp</code> installation.</p>
-<h3 id="node-scanfilefilename-options">Node <code>scanFile(filename, options?)</code><a class="heading-anchor" href="#node-scanfilefilename-options" aria-label="Link to Node scanFile(filename, options?)">#</a></h3>
+<h3 id="node-scanfilefilename-options">Node <code>scanFile(filename, options?)</code><a aria-label="Link to Node scanFile(filename, options?)" class="heading-anchor" href="#node-scanfilefilename-options">#</a></h3>
 <p>Reads and scans an image file.</p>
-<h3 id="decodepngbuffer"><code>decodePNG(buffer)</code><a class="heading-anchor" href="#decodepngbuffer" aria-label="Link to decodePNG(buffer)">#</a></h3>
+<h3 id="decodepngbuffer"><code>decodePNG(buffer)</code><a aria-label="Link to decodePNG(buffer)" class="heading-anchor" href="#decodepngbuffer">#</a></h3>
 <p>Decodes supported PNG data into RGBA pixels.</p>
-<h3 id="encodepngimagedata-options"><code>encodePNG(imageData, options?)</code><a class="heading-anchor" href="#encodepngimagedata-options" aria-label="Link to encodePNG(imageData, options?)">#</a></h3>
+<h3 id="encodepngimagedata-options"><code>encodePNG(imageData, options?)</code><a aria-label="Link to encodePNG(imageData, options?)" class="heading-anchor" href="#encodepngimagedata-options">#</a></h3>
 <p>Encodes RGBA pixels into a PNG <code>Buffer</code>.</p>
-<h2 id="security-utilities">Security utilities<a class="heading-anchor" href="#security-utilities" aria-label="Link to Security utilities">#</a></h2>
-<h3 id="generateraw256key"><code>generateRaw256Key()</code><a class="heading-anchor" href="#generateraw256key" aria-label="Link to generateRaw256Key()">#</a></h3>
+<h2 id="security-utilities">Security utilities<a aria-label="Link to Security utilities" class="heading-anchor" href="#security-utilities">#</a></h2>
+<h3 id="generateraw256key"><code>generateRaw256Key()</code><a aria-label="Link to generateRaw256Key()" class="heading-anchor" href="#generateraw256key">#</a></h3>
 <p>Generates a cryptographically random 32-byte key.</p>
-<h3 id="normalizeraw256keykey"><code>normalizeRaw256Key(key)</code><a class="heading-anchor" href="#normalizeraw256keykey" aria-label="Link to normalizeRaw256Key(key)">#</a></h3>
+<h3 id="normalizeraw256keykey"><code>normalizeRaw256Key(key)</code><a aria-label="Link to normalizeRaw256Key(key)" class="heading-anchor" href="#normalizeraw256keykey">#</a></h3>
 <p>Normalizes a 32-byte key supplied as bytes, ArrayBuffer, or 64-character hexadecimal text.</p>
-<h3 id="bytestohexbytes"><code>bytesToHex(bytes)</code><a class="heading-anchor" href="#bytestohexbytes" aria-label="Link to bytesToHex(bytes)">#</a></h3>
+<h3 id="bytestohexbytes"><code>bytesToHex(bytes)</code><a aria-label="Link to bytesToHex(bytes)" class="heading-anchor" href="#bytestohexbytes">#</a></h3>
 <p>Converts bytes to lowercase hexadecimal text.</p>
 <p>Security constants include:</p>
 <ul>
@@ -261,26 +260,26 @@ scanner.stop();
 <li><code>SECURE_PAYLOAD_VERSION</code></li>
 <li><code>DEFAULT_PBKDF2_ITERATIONS</code></li>
 </ul>
-<h2 id="wasm">WASM<a class="heading-anchor" href="#wasm" aria-label="Link to WASM">#</a></h2>
-<h3 id="initwasmoptions"><code>initWasm(options?)</code><a class="heading-anchor" href="#initwasmoptions" aria-label="Link to initWasm(options?)">#</a></h3>
+<h2 id="wasm">WASM<a aria-label="Link to WASM" class="heading-anchor" href="#wasm">#</a></h2>
+<h3 id="initwasmoptions"><code>initWasm(options?)</code><a aria-label="Link to initWasm(options?)" class="heading-anchor" href="#initwasmoptions">#</a></h3>
 <p>Loads and activates the optional bundled WASM accelerator.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { initWasm } from &quot;quadqr-js&quot;;
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { initWasm } from "quadqr-js";
 await initWasm();
 </code></pre></div>
 <p>An explicit URL or byte buffer can also be supplied.</p>
-<h3 id="getwasmstate"><code>getWasmState()</code><a class="heading-anchor" href="#getwasmstate" aria-label="Link to getWasmState()">#</a></h3>
+<h3 id="getwasmstate"><code>getWasmState()</code><a aria-label="Link to getWasmState()" class="heading-anchor" href="#getwasmstate">#</a></h3>
 <p>Returns the active WASM state or <code>null</code>.</p>
-<h3 id="disablewasm"><code>disableWasm()</code><a class="heading-anchor" href="#disablewasm" aria-label="Link to disableWasm()">#</a></h3>
+<h3 id="disablewasm"><code>disableWasm()</code><a aria-label="Link to disableWasm()" class="heading-anchor" href="#disablewasm">#</a></h3>
 <p>Returns the codec to the JavaScript implementation.</p>
-<h2 id="version-and-capacity">Version and capacity<a class="heading-anchor" href="#version-and-capacity" aria-label="Link to Version and capacity">#</a></h2>
-<h3 id="getversioninfoversion-options"><code>getVersionInfo(version, options?)</code><a class="heading-anchor" href="#getversioninfoversion-options" aria-label="Link to getVersionInfo(version, options?)">#</a></h3>
+<h2 id="version-and-capacity">Version and capacity<a aria-label="Link to Version and capacity" class="heading-anchor" href="#version-and-capacity">#</a></h2>
+<h3 id="getversioninfoversion-options"><code>getVersionInfo(version, options?)</code><a aria-label="Link to getVersionInfo(version, options?)" class="heading-anchor" href="#getversioninfoversion-options">#</a></h3>
 <p>Returns geometry and payload information for a specific QuadQR version/ECC profile.</p>
-<h2 id="crc-utilities">CRC utilities<a class="heading-anchor" href="#crc-utilities" aria-label="Link to CRC utilities">#</a></h2>
-<h3 id="crc32bytes"><code>crc32(bytes)</code><a class="heading-anchor" href="#crc32bytes" aria-label="Link to crc32(bytes)">#</a></h3>
+<h2 id="crc-utilities">CRC utilities<a aria-label="Link to CRC utilities" class="heading-anchor" href="#crc-utilities">#</a></h2>
+<h3 id="crc32bytes"><code>crc32(bytes)</code><a aria-label="Link to crc32(bytes)" class="heading-anchor" href="#crc32bytes">#</a></h3>
 <p>Calculates QuadQR's CRC-32 value for a byte array.</p>
-<h3 id="installcrc32acceleratoraccelerator"><code>installCrc32Accelerator(accelerator?)</code><a class="heading-anchor" href="#installcrc32acceleratoraccelerator" aria-label="Link to installCrc32Accelerator(accelerator?)">#</a></h3>
+<h3 id="installcrc32acceleratoraccelerator"><code>installCrc32Accelerator(accelerator?)</code><a aria-label="Link to installCrc32Accelerator(accelerator?)" class="heading-anchor" href="#installcrc32acceleratoraccelerator">#</a></h3>
 <p>Installs or removes a synchronous CRC-32 accelerator. Most applications should use <code>initWasm()</code> rather than calling this directly.</p>
-<h2 id="constants">Constants<a class="heading-anchor" href="#constants" aria-label="Link to Constants">#</a></h2>
+<h2 id="constants">Constants<a aria-label="Link to Constants" class="heading-anchor" href="#constants">#</a></h2>
 <p>Common exported constants include:</p>
 <ul>
 <li><code>FORMAT_VERSION</code></li>
@@ -296,23 +295,23 @@ await initWasm();
 <li><code>STRESS_PROFILES</code></li>
 <li><code>ECC_LEVELS</code></li>
 </ul>
-<h2 id="benchmark-entry">Benchmark entry<a class="heading-anchor" href="#benchmark-entry" aria-label="Link to Benchmark entry">#</a></h2>
+<h2 id="benchmark-entry">Benchmark entry<a aria-label="Link to Benchmark entry" class="heading-anchor" href="#benchmark-entry">#</a></h2>
 <p>Benchmark helpers are available from <code>quadqr-js/benchmark</code>:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import {
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import {
   buildCapacityComparison,
   benchmarkCodec,
   calculateCapacityPlan
-} from &quot;quadqr-js/benchmark&quot;;
+} from "quadqr-js/benchmark";
 </code></pre></div>
-<h3 id="calculatecapacityplanoptions"><code>calculateCapacityPlan(options)</code><a class="heading-anchor" href="#calculatecapacityplanoptions" aria-label="Link to calculateCapacityPlan(options)">#</a></h3>
+<h3 id="calculatecapacityplanoptions"><code>calculateCapacityPlan(options)</code><a aria-label="Link to calculateCapacityPlan(options)" class="heading-anchor" href="#calculatecapacityplanoptions">#</a></h3>
 <p>Estimates the smallest QuadQR version for a byte count or concrete payload and reports remaining capacity plus the standard QR byte-mode version at the same nominal ECC letter. When only a byte count is known, compression gain is intentionally not guessed.</p>
-<hr />
-<h2 id="compression">Compression<a class="heading-anchor" href="#compression" aria-label="Link to Compression">#</a></h2>
-<h3 id="encodetexttext-options-encodebytesinput-options"><code>encodeText(text, options?)</code> / <code>encodeBytes(input, options?)</code><a class="heading-anchor" href="#encodetexttext-options-encodebytesinput-options" aria-label="Link to encodeText(text, options?) / encodeBytes(input, options?)">#</a></h3>
+<hr/>
+<h2 id="compression">Compression<a aria-label="Link to Compression" class="heading-anchor" href="#compression">#</a></h2>
+<h3 id="encodetexttext-options-encodebytesinput-options"><code>encodeText(text, options?)</code> / <code>encodeBytes(input, options?)</code><a aria-label="Link to encodeText(text, options?) / encodeBytes(input, options?)" class="heading-anchor" href="#encodetexttext-options-encodebytesinput-options">#</a></h3>
 <p>Both normal encoding APIs accept an optional compression mode:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const code = QuadQR.encodeText(&quot;hello hello hello&quot;, {
-  compression: &quot;auto&quot;,
-  ecc: &quot;M&quot;
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const code = QuadQR.encodeText("hello hello hello", {
+  compression: "auto",
+  ecc: "M"
 });
 </code></pre></div>
 <p><code>compression</code> may be <code>none</code>, <code>auto</code>, <code>smart</code>, <code>brotli</code>, <code>deflate</code>, or <code>lz</code>.</p>
@@ -325,80 +324,80 @@ await initWasm();
 <li><code>lz</code> always stores the payload through the original portable LZSS-style compressor for backward compatibility.</li>
 </ul>
 <p>Explicit LZ, DEFLATE, and Brotli support <code>compressionLevel</code>:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">encodeText(text, { compression: &quot;lz&quot;, compressionLevel: 9 }); // 1..9, default 6
-encodeText(text, { compression: &quot;deflate&quot;, compressionLevel: 9 }); // 1..9, default 6
-encodeText(text, { compression: &quot;brotli&quot;, compressionLevel: 11 }); // 0..11, default 11
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">encodeText(text, { compression: "lz", compressionLevel: 9 }); // 1..9, default 6
+encodeText(text, { compression: "deflate", compressionLevel: 9 }); // 1..9, default 6
+encodeText(text, { compression: "brotli", compressionLevel: 11 }); // 0..11, default 11
 </code></pre></div>
 <p><code>lzLevel</code>, <code>deflateLevel</code>, and <code>brotliQuality</code> are accepted as algorithm-specific aliases. Levels affect encoder effort only and are not serialized because the decoder does not need them. Generated code objects expose <code>compressionLevel</code>, <code>compressionStrategy</code>, and Smart-mode diagnostics; scanned symbols only need the stored compression algorithm ID.</p>
 <p>There is no public content-type registry. Text remains text and byte arrays remain byte arrays.</p>
-<h3 id="compresspayloadinput-options-decompresspayloadinput-expectedlength"><code>compressPayload(input, options?)</code> / <code>decompressPayload(input, expectedLength?)</code><a class="heading-anchor" href="#compresspayloadinput-options-decompresspayloadinput-expectedlength" aria-label="Link to compressPayload(input, options?) / decompressPayload(input, expectedLength?)">#</a></h3>
+<h3 id="compresspayloadinput-options-decompresspayloadinput-expectedlength"><code>compressPayload(input, options?)</code> / <code>decompressPayload(input, expectedLength?)</code><a aria-label="Link to compressPayload(input, options?) / decompressPayload(input, expectedLength?)" class="heading-anchor" href="#compresspayloadinput-options-decompresspayloadinput-expectedlength">#</a></h3>
 <p>Legacy portable synchronous LZSS-style compression helpers. <code>options.level</code> accepts integers <code>1..9</code> and defaults to 6. Higher levels walk deeper candidate history and may use bounded lazy matching; level 6 preserves the historical QuadQR search depth. The LZ wire format and decoder are unchanged at every level.</p>
-<h3 id="compressdeflatepayloadinput-options-decompressdeflatepayloadinput-expectedlength"><code>compressDeflatePayload(input, options?)</code> / <code>decompressDeflatePayload(input, expectedLength?)</code><a class="heading-anchor" href="#compressdeflatepayloadinput-options-decompressdeflatepayloadinput-expectedlength" aria-label="Link to compressDeflatePayload(input, options?) / decompressDeflatePayload(input, expectedLength?)">#</a></h3>
+<h3 id="compressdeflatepayloadinput-options-decompressdeflatepayloadinput-expectedlength"><code>compressDeflatePayload(input, options?)</code> / <code>decompressDeflatePayload(input, expectedLength?)</code><a aria-label="Link to compressDeflatePayload(input, options?) / decompressDeflatePayload(input, expectedLength?)" class="heading-anchor" href="#compressdeflatepayloadinput-options-decompressdeflatepayloadinput-expectedlength">#</a></h3>
 <p>Raw-DEFLATE helpers. <code>options.level</code> accepts integers <code>1..9</code> and defaults to 6. Higher levels spend more CPU on deeper LZ77 candidate search and lazy matching. The compressor emits standard RFC 1951 fixed-Huffman blocks with a 32 KiB match window and matches up to 258 bytes. The implementation is pure JavaScript and synchronous, so the same core works in browsers, Node.js servers, workers, and other JavaScript runtimes without <code>node:zlib</code>, <code>CompressionStream</code>, DOM APIs, or native dependencies.</p>
-<h3 id="compressbrotlipayloadinput-options-decompressbrotlipayloadinput-expectedlength"><code>compressBrotliPayload(input, options?)</code> / <code>decompressBrotliPayload(input, expectedLength?)</code><a class="heading-anchor" href="#compressbrotlipayloadinput-options-decompressbrotlipayloadinput-expectedlength" aria-label="Link to compressBrotliPayload(input, options?) / decompressBrotliPayload(input, expectedLength?)">#</a></h3>
+<h3 id="compressbrotlipayloadinput-options-decompressbrotlipayloadinput-expectedlength"><code>compressBrotliPayload(input, options?)</code> / <code>decompressBrotliPayload(input, expectedLength?)</code><a aria-label="Link to compressBrotliPayload(input, options?) / decompressBrotliPayload(input, expectedLength?)" class="heading-anchor" href="#compressbrotlipayloadinput-options-decompressbrotlipayloadinput-expectedlength">#</a></h3>
 <p>Bundled synchronous Brotli helpers. <code>compressBrotliPayload()</code> accepts an optional <code>{ quality }</code> setting from 0 through 11 for direct codec use. The generated stream is standard Brotli and the decoder accepts standard Brotli streams. QuadQR does not require <code>node:zlib</code>, browser <code>CompressionStream</code>, DOM APIs, a native addon, or a runtime dependency for this path.</p>
-<h2 id="binary-convenience-apis">Binary convenience APIs<a class="heading-anchor" href="#binary-convenience-apis" aria-label="Link to Binary convenience APIs">#</a></h2>
-<h3 id="encodeuint8arrayinput-options"><code>encodeUint8Array(input, options?)</code><a class="heading-anchor" href="#encodeuint8arrayinput-options" aria-label="Link to encodeUint8Array(input, options?)">#</a></h3>
+<h2 id="binary-convenience-apis">Binary convenience APIs<a aria-label="Link to Binary convenience APIs" class="heading-anchor" href="#binary-convenience-apis">#</a></h2>
+<h3 id="encodeuint8arrayinput-options"><code>encodeUint8Array(input, options?)</code><a aria-label="Link to encodeUint8Array(input, options?)" class="heading-anchor" href="#encodeuint8arrayinput-options">#</a></h3>
 <p>Explicit byte-oriented alias of <code>encodeBytes()</code>. It supports the same optional <code>compression</code> setting.</p>
-<h3 id="decodeuint8arraymatrix-options"><code>decodeUint8Array(matrix, options?)</code><a class="heading-anchor" href="#decodeuint8arraymatrix-options" aria-label="Link to decodeUint8Array(matrix, options?)">#</a></h3>
+<h3 id="decodeuint8arraymatrix-options"><code>decodeUint8Array(matrix, options?)</code><a aria-label="Link to decodeUint8Array(matrix, options?)" class="heading-anchor" href="#decodeuint8arraymatrix-options">#</a></h3>
 <p>Decodes a matrix and returns only the application payload bytes.</p>
-<h2 id="signed-quadqr">Signed QuadQR<a class="heading-anchor" href="#signed-quadqr" aria-label="Link to Signed QuadQR">#</a></h2>
-<h3 id="generatesigningkeypair"><code>generateSigningKeyPair()</code><a class="heading-anchor" href="#generatesigningkeypair" aria-label="Link to generateSigningKeyPair()">#</a></h3>
+<h2 id="signed-quadqr">Signed QuadQR<a aria-label="Link to Signed QuadQR" class="heading-anchor" href="#signed-quadqr">#</a></h2>
+<h3 id="generatesigningkeypair"><code>generateSigningKeyPair()</code><a aria-label="Link to generateSigningKeyPair()" class="heading-anchor" href="#generatesigningkeypair">#</a></h3>
 <p>Generates an extractable Ed25519 key pair using Web Crypto and returns the CryptoKeys, raw public-key bytes, PKCS#8 private-key bytes, and a compact SHA-256-derived <code>keyId</code>.</p>
-<h3 id="encodesignedtexttext-options-encodesignedbytesinput-options"><code>encodeSignedText(text, options)</code> / <code>encodeSignedBytes(input, options)</code><a class="heading-anchor" href="#encodesignedtexttext-options-encodesignedbytesinput-options" aria-label="Link to encodeSignedText(text, options) / encodeSignedBytes(input, options)">#</a></h3>
+<h3 id="encodesignedtexttext-options-encodesignedbytesinput-options"><code>encodeSignedText(text, options)</code> / <code>encodeSignedBytes(input, options)</code><a aria-label="Link to encodeSignedText(text, options) / encodeSignedBytes(input, options)" class="heading-anchor" href="#encodesignedtexttext-options-encodesignedbytesinput-options">#</a></h3>
 <p>Signs the normal application payload with Ed25519. Any required signature and compression metadata is handled internally.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const pair = await QuadQR.generateSigningKeyPair();
-const code = await QuadQR.encodeSignedText(&quot;certificate payload&quot;, {
-  ecc: &quot;Q&quot;,
-  compression: &quot;auto&quot;,
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const pair = await QuadQR.generateSigningKeyPair();
+const code = await QuadQR.encodeSignedText("certificate payload", {
+  ecc: "Q",
+  compression: "auto",
   privateKey: pair.privateKey,
   keyId: pair.keyId
 });
 </code></pre></div>
 <p>Only the private key is required for signing. <code>publicKey</code> is accepted only for the explicit <code>embedPublicKey: true</code> compatibility mode.</p>
-<h3 id="verifydecodedsignatureresult-options"><code>verifyDecodedSignature(result, options?)</code><a class="heading-anchor" href="#verifydecodedsignatureresult-options" aria-label="Link to verifyDecodedSignature(result, options?)">#</a></h3>
+<h3 id="verifydecodedsignatureresult-options"><code>verifyDecodedSignature(result, options?)</code><a aria-label="Link to verifyDecodedSignature(result, options?)" class="heading-anchor" href="#verifydecodedsignatureresult-options">#</a></h3>
 <p>Verifies a signed decode result against a trusted external Ed25519 public key.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const decoded = QuadQR.decodeMatrix(code.matrix);
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const decoded = QuadQR.decodeMatrix(code.matrix);
 const verified = await QuadQR.verifyDecodedSignature(decoded, {
   publicKey: knownPublicKey
 });
 </code></pre></div>
 <p>For multiple issuers, pass a <code>trustedKeys</code> object or <code>Map</code> keyed by the embedded <code>keyId</code>:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const verified = await QuadQR.verifyDecodedSignature(decoded, {
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const verified = await QuadQR.verifyDecodedSignature(decoded, {
   trustedKeys: {
     [decoded.signingKeyId]: knownPublicKey
   }
 });
 </code></pre></div>
 <p><code>signatureVerified: true</code> means the signature is mathematically valid. <code>signatureTrusted: true</code> means it was checked using an external trusted key. <code>allowEmbeddedKey: true</code> may be used for compatibility/self-contained integrity checks, but such a result is not considered a trusted signer.</p>
-<h3 id="signing-encryption">Signing + encryption<a class="heading-anchor" href="#signing-encryption" aria-label="Link to Signing + encryption">#</a></h3>
+<h3 id="signing-encryption">Signing + encryption<a aria-label="Link to Signing + encryption" class="heading-anchor" href="#signing-encryption">#</a></h3>
 <p><code>encodeSecureText()</code> and <code>encodeSecureBytes()</code> accept an optional <code>signing</code> object alongside <code>security</code> and <code>compression</code>. The internal pipeline is compression → signing → AES-256-GCM → Spectrum ECC.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const code = await QuadQR.encodeSecureText(&quot;private signed payload&quot;, {
-  compression: &quot;auto&quot;,
-  security: { mode: &quot;password&quot;, password: &quot;secret&quot; },
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const code = await QuadQR.encodeSecureText("private signed payload", {
+  compression: "auto",
+  security: { mode: "password", password: "secret" },
   signing: {
     privateKey: pair.privateKey,
     keyId: pair.keyId
   }
 });
 </code></pre></div>
-<h2 id="print-rendering">Print rendering<a class="heading-anchor" href="#print-rendering" aria-label="Link to Print rendering">#</a></h2>
+<h2 id="print-rendering">Print rendering<a aria-label="Link to Print rendering" class="heading-anchor" href="#print-rendering">#</a></h2>
 <p>All render APIs accept:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">{ mode: &quot;screen&quot; | &quot;print&quot; }
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">{ mode: "screen" | "print" }
 </code></pre></div>
 <p>Print mode uses a darker print-safe palette, forces Classic modules by default, and enforces a minimum 4-module quiet zone unless <code>allowUnsafePrintQuietZone: true</code> is explicitly set.</p>
-<h3 id="getprintguidancecodeormatrix-options"><code>getPrintGuidance(codeOrMatrix, options?)</code><a class="heading-anchor" href="#getprintguidancecodeormatrix-options" aria-label="Link to getPrintGuidance(codeOrMatrix, options?)">#</a></h3>
+<h3 id="getprintguidancecodeormatrix-options"><code>getPrintGuidance(codeOrMatrix, options?)</code><a aria-label="Link to getPrintGuidance(codeOrMatrix, options?)" class="heading-anchor" href="#getprintguidancecodeormatrix-options">#</a></h3>
 <p>Returns physical module size, pixels/module at a DPI, recommended minimum physical size, and print recommendations.</p>
-<h2 id="automatic-logo-safety">Automatic logo safety<a class="heading-anchor" href="#automatic-logo-safety" aria-label="Link to Automatic logo safety">#</a></h2>
+<h2 id="automatic-logo-safety">Automatic logo safety<a aria-label="Link to Automatic logo safety" class="heading-anchor" href="#automatic-logo-safety">#</a></h2>
 <p>A logo can use:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">logo: {
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">logo: {
   source: logo,
-  size: &quot;auto&quot;,
+  size: "auto",
   clearBackground: true
 }
 </code></pre></div>
 <p><code>estimateSafeLogoSize()</code> exposes the conservative ratio used by auto mode. <code>findMaxSafeLogoSize()</code> performs an empirical binary search when the logo source is ImageData-like.</p>
-<h2 id="scanner-confidence-and-debug-mode">Scanner confidence and debug mode<a class="heading-anchor" href="#scanner-confidence-and-debug-mode" aria-label="Link to Scanner confidence and debug mode">#</a></h2>
+<h2 id="scanner-confidence-and-debug-mode">Scanner confidence and debug mode<a aria-label="Link to Scanner confidence and debug mode" class="heading-anchor" href="#scanner-confidence-and-debug-mode">#</a></h2>
 <p>Normal successful scans now include:</p>
 <ul>
 <li><code>confidence</code></li>
@@ -410,36 +409,33 @@ const verified = await QuadQR.verifyDecodedSignature(decoded, {
 <li><code>diagnostics</code></li>
 </ul>
 <p>Use <code>scanImageData(image, { debug: true })</code> for detailed geometry/sampling information. <code>debugScanImageData()</code> is a non-throwing helper that returns <code>{ ok, result, debug }</code> or <code>{ ok: false, error, debug }</code>.</p>
-<h2 id="scanability-and-stress-testing">Scanability and stress testing<a class="heading-anchor" href="#scanability-and-stress-testing" aria-label="Link to Scanability and stress testing">#</a></h2>
-<h3 id="applystressdistortionimagedata-type-severity-options"><code>applyStressDistortion(imageData, type, severity?, options?)</code><a class="heading-anchor" href="#applystressdistortionimagedata-type-severity-options" aria-label="Link to applyStressDistortion(imageData, type, severity?, options?)">#</a></h3>
+<h2 id="scanability-and-stress-testing">Scanability and stress testing<a aria-label="Link to Scanability and stress testing" class="heading-anchor" href="#scanability-and-stress-testing">#</a></h2>
+<h3 id="applystressdistortionimagedata-type-severity-options"><code>applyStressDistortion(imageData, type, severity?, options?)</code><a aria-label="Link to applyStressDistortion(imageData, type, severity?, options?)" class="heading-anchor" href="#applystressdistortionimagedata-type-severity-options">#</a></h3>
 <p>Deterministically applies a selected synthetic distortion. In addition to the original blur/exposure/shadow/resampling profiles, <code>perspective-3d</code> accepts <code>pitchDegrees</code>, <code>yawDegrees</code>, and <code>rollDegrees</code> for camera-angle testing.</p>
-<h3 id="runimagestresstestimagedata-expected-options"><code>runImageStressTest(imageData, expected?, options?)</code><a class="heading-anchor" href="#runimagestresstestimagedata-expected-options" aria-label="Link to runImageStressTest(imageData, expected?, options?)">#</a></h3>
+<h3 id="runimagestresstestimagedata-expected-options"><code>runImageStressTest(imageData, expected?, options?)</code><a aria-label="Link to runImageStressTest(imageData, expected?, options?)" class="heading-anchor" href="#runimagestresstestimagedata-expected-options">#</a></h3>
 <p>Runs the standard torture profiles and returns a 0–100 score plus per-scenario decode results.</p>
-<h3 id="assessscanabilitycode-renderoptions-options"><code>assessScanability(code, renderOptions?, options?)</code><a class="heading-anchor" href="#assessscanabilitycode-renderoptions-options" aria-label="Link to assessScanability(code, renderOptions?, options?)">#</a></h3>
+<h3 id="assessscanabilitycode-renderoptions-options"><code>assessScanability(code, renderOptions?, options?)</code><a aria-label="Link to assessScanability(code, renderOptions?, options?)" class="heading-anchor" href="#assessscanabilitycode-renderoptions-options">#</a></h3>
 <p>Renders a code and runs the standard test suite. It returns <code>Excellent</code>, <code>Good</code>, <code>Risky</code>, or <code>Likely unscannable</code> together with recommendations.</p>
-<h3 id="runreliabilitylabimagedata-expected-options"><code>runReliabilityLab(imageData, expected?, options?)</code><a class="heading-anchor" href="#runreliabilitylabimagedata-expected-options" aria-label="Link to runReliabilityLab(imageData, expected?, options?)">#</a></h3>
+<h3 id="runreliabilitylabimagedata-expected-options"><code>runReliabilityLab(imageData, expected?, options?)</code><a aria-label="Link to runReliabilityLab(imageData, expected?, options?)" class="heading-anchor" href="#runreliabilitylabimagedata-expected-options">#</a></h3>
 <p>Runs the broader Reliability Lab suite. <code>options.suite</code> can be <code>quick</code>, <code>full</code>, or <code>extreme</code>. Results include overall score, per-scenario CRC verification, category scores, confidence, RS corrections, and timing.</p>
-<h3 id="runperspectivesweepimagedata-expected-options"><code>runPerspectiveSweep(imageData, expected?, options?)</code><a class="heading-anchor" href="#runperspectivesweepimagedata-expected-options" aria-label="Link to runPerspectiveSweep(imageData, expected?, options?)">#</a></h3>
+<h3 id="runperspectivesweepimagedata-expected-options"><code>runPerspectiveSweep(imageData, expected?, options?)</code><a aria-label="Link to runPerspectiveSweep(imageData, expected?, options?)" class="heading-anchor" href="#runperspectivesweepimagedata-expected-options">#</a></h3>
 <p>Sweeps <code>yaw</code>, <code>pitch</code>, or <code>roll</code>/Z rotation across a list of angles and reports the largest tested angle that decoded successfully.</p>
 <p>Synthetic scores are regression aids and do not replace physical camera/print testing. See <a href="reliability.html">Reliability Lab</a>.</p>
-
-        <nav class="page-pager" aria-label="Documentation pagination"><a class="prev" href="reliability.html"><span>Previous</span><strong>← Reliability Lab</strong></a><a class="next" href="cli.html"><span>Next</span><strong>CLI Reference →</strong></a></nav>
-        <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
-      </article>
-      <aside class="toc"><div class="toc-title">On this page</div><a href="#core-encoding">Core encoding</a><a class="toc-sub" href="#encodetexttext-options">encodeText(text, options?)</a><a class="toc-sub" href="#encodebytesbytes-options">encodeBytes(bytes, options?)</a><a href="#secure-encoding">Secure encoding</a><a class="toc-sub" href="#encodesecuretexttext-options">encodeSecureText(text, options)</a><a class="toc-sub" href="#encodesecurebytesbytes-options">encodeSecureBytes(bytes, options)</a><a class="toc-sub" href="#decryptdecodedresult-credentials">decryptDecoded(result, credentials)</a><a href="#matrix-decoding">Matrix decoding</a><a class="toc-sub" href="#decodematrixmatrix-options">decodeMatrix(matrix, options?)</a><a href="#rendering">Rendering</a><a class="toc-sub" href="#rendertocanvascodeormatrix-canvas-options">renderToCanvas(codeOrMatrix, canvas, options?)</a><a class="toc-sub" href="#rendertoimagedatacodeormatrix-options">renderToImageData(codeOrMatrix, options?)</a><a class="toc-sub" href="#rendertosvgcodeormatrix-options">renderToSVG(codeOrMatrix, options?)</a><a href="#image-and-camera-scanning">Image and camera scanning</a><a class="toc-sub" href="#scanimagedataimagedata-options">scanImageData(imageData, options?)</a><a class="toc-sub" href="#browser-scanfilefile-options">Browser scanFile(file, options?)</a><a class="toc-sub" href="#scanvideoframevideo-options">scanVideoFrame(video, options?)</a><a class="toc-sub" href="#startcamerascannervideo-options">startCameraScanner(video, options?)</a><a class="toc-sub" href="#rectifydetectedcodeimagedata-options">rectifyDetectedCode(imageData, options?)</a><a class="toc-sub" href="#rotatematrixmatrix-quarterturns">rotateMatrix(matrix, quarterTurns?)</a><a href="#nodejs-helpers">Node.js helpers</a><a class="toc-sub" href="#topngcodeormatrix-options">toPNG(codeOrMatrix, options?)</a><a class="toc-sub" href="#savepngcodeormatrix-filename-options">savePNG(codeOrMatrix, filename, options?)</a><a class="toc-sub" href="#tosvgcodeormatrix-options">toSVG(codeOrMatrix, options?)</a><a class="toc-sub" href="#savesvgcodeormatrix-filename-options">saveSVG(codeOrMatrix, filename, options?)</a><a class="toc-sub" href="#scanbufferbuffer-options">scanBuffer(buffer, options?)</a><a class="toc-sub" href="#node-scanfilefilename-options">Node scanFile(filename, options?)</a><a class="toc-sub" href="#decodepngbuffer">decodePNG(buffer)</a><a class="toc-sub" href="#encodepngimagedata-options">encodePNG(imageData, options?)</a><a href="#security-utilities">Security utilities</a><a class="toc-sub" href="#generateraw256key">generateRaw256Key()</a><a class="toc-sub" href="#normalizeraw256keykey">normalizeRaw256Key(key)</a><a class="toc-sub" href="#bytestohexbytes">bytesToHex(bytes)</a><a href="#wasm">WASM</a><a class="toc-sub" href="#initwasmoptions">initWasm(options?)</a><a class="toc-sub" href="#getwasmstate">getWasmState()</a><a class="toc-sub" href="#disablewasm">disableWasm()</a><a href="#version-and-capacity">Version and capacity</a><a class="toc-sub" href="#getversioninfoversion-options">getVersionInfo(version, options?)</a><a href="#crc-utilities">CRC utilities</a><a class="toc-sub" href="#crc32bytes">crc32(bytes)</a><a class="toc-sub" href="#installcrc32acceleratoraccelerator">installCrc32Accelerator(accelerator?)</a><a href="#constants">Constants</a><a href="#benchmark-entry">Benchmark entry</a><a class="toc-sub" href="#calculatecapacityplanoptions">calculateCapacityPlan(options)</a><a href="#compression">Compression</a><a class="toc-sub" href="#encodetexttext-options-encodebytesinput-options">encodeText(text, options?) / encodeBytes(input, options?)</a><a class="toc-sub" href="#compresspayloadinput-options-decompresspayloadinput-expectedlength">compressPayload(input, options?) / decompressPayload(input, expectedLength?)</a><a class="toc-sub" href="#compressdeflatepayloadinput-options-decompressdeflatepayloadinput-expectedlength">compressDeflatePayload(input, options?) / decompressDeflatePayload(input, expectedLength?)</a><a class="toc-sub" href="#compressbrotlipayloadinput-options-decompressbrotlipayloadinput-expectedlength">compressBrotliPayload(input, options?) / decompressBrotliPayload(input, expectedLength?)</a><a href="#binary-convenience-apis">Binary convenience APIs</a><a class="toc-sub" href="#encodeuint8arrayinput-options">encodeUint8Array(input, options?)</a><a class="toc-sub" href="#decodeuint8arraymatrix-options">decodeUint8Array(matrix, options?)</a><a href="#signed-quadqr">Signed QuadQR</a><a class="toc-sub" href="#generatesigningkeypair">generateSigningKeyPair()</a><a class="toc-sub" href="#encodesignedtexttext-options-encodesignedbytesinput-options">encodeSignedText(text, options) / encodeSignedBytes(input, options)</a><a class="toc-sub" href="#verifydecodedsignatureresult-options">verifyDecodedSignature(result, options?)</a><a class="toc-sub" href="#signing-encryption">Signing + encryption</a><a href="#print-rendering">Print rendering</a><a class="toc-sub" href="#getprintguidancecodeormatrix-options">getPrintGuidance(codeOrMatrix, options?)</a><a href="#automatic-logo-safety">Automatic logo safety</a><a href="#scanner-confidence-and-debug-mode">Scanner confidence and debug mode</a><a href="#scanability-and-stress-testing">Scanability and stress testing</a><a class="toc-sub" href="#applystressdistortionimagedata-type-severity-options">applyStressDistortion(imageData, type, severity?, options?)</a><a class="toc-sub" href="#runimagestresstestimagedata-expected-options">runImageStressTest(imageData, expected?, options?)</a><a class="toc-sub" href="#assessscanabilitycode-renderoptions-options">assessScanability(code, renderOptions?, options?)</a><a class="toc-sub" href="#runreliabilitylabimagedata-expected-options">runReliabilityLab(imageData, expected?, options?)</a><a class="toc-sub" href="#runperspectivesweepimagedata-expected-options">runPerspectiveSweep(imageData, expected?, options?)</a></aside>
-    </main>
-  </div>
-
-  <div class="search-modal" data-search-modal aria-hidden="true">
-    <div class="search-backdrop" data-search-close></div>
-    <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search QuadQR documentation">
-      <div class="search-input-wrap"><span>⌕</span><input type="search" placeholder="Search documentation…" autocomplete="off" data-search-input><kbd>Esc</kbd></div>
-      <div class="search-results" data-search-results><div class="search-empty">Type to search pages and sections.</div></div>
-    </div>
-  </div>
-
-  <script src="./search-index.js"></script>
-  <script src="../dist/quadqr.min.js"></script>
-  <script src="./app.js"></script>
+<h2 id="signing-key-identifiers">Signing key identifiers<a aria-label="Link to Signing key identifiers" class="heading-anchor" href="#signing-key-identifiers">#</a></h2><h3 id="derivesigningkeyid"><code>deriveSigningKeyId(publicKey, bytes?)</code><a aria-label="Link to deriveSigningKeyId(publicKey, bytes?)" class="heading-anchor" href="#derivesigningkeyid">#</a></h3><p>Derives a lowercase hexadecimal key ID from SHA-256 of the raw Ed25519 public key. <code>bytes</code> defaults to <code>8</code> and is clamped to <code>4..16</code>; the returned string therefore contains 8..32 hex characters.</p><h2 id="public-export-catalog">Complete public export catalog<a aria-label="Link to Complete public export catalog" class="heading-anchor" href="#public-export-catalog">#</a></h2><p>This catalog is intentionally exhaustive for the supported package entry points. Option objects referenced here are defined field-by-field in the <a href="options.html">Configuration Reference</a>. Browser scanner tuning is also duplicated on <a href="scanning.html">Scanning &amp; Camera</a>.</p><h3 id="core-export-catalog">Core functions<a aria-label="Link to Core functions" class="heading-anchor" href="#core-export-catalog">#</a></h3><div class="table-wrap"><table><thead><tr><th>Export / signature</th><th>Returns</th><th>Purpose</th></tr></thead><tbody><tr><td><code>compressPayload(input, options?)</code></td><td><code>Uint8Array</code></td><td>Legacy LZ compressor. Use <code>options.level</code> 1..9; default 6.</td></tr><tr><td><code>decompressPayload(input, expectedLength?)</code></td><td><code>Uint8Array</code></td><td>Decompresses data produced by <code>compressPayload</code>. Optional expected length is an integrity/shape check.</td></tr><tr><td><code>compressDeflatePayload(input, options?)</code></td><td><code>Uint8Array</code></td><td>Dependency-free raw fixed-Huffman DEFLATE compressor. <code>options.level</code> is 1..9, default 6.</td></tr><tr><td><code>decompressDeflatePayload(input, expectedLength?)</code></td><td><code>Uint8Array</code></td><td>Inflates QuadQR raw-DEFLATE payload bytes.</td></tr><tr><td><code>compressBrotliPayload(input, options?)</code></td><td><code>Uint8Array</code></td><td>Pure-JavaScript Brotli compressor. <code>options.quality</code> is 0..11, explicit default 11.</td></tr><tr><td><code>decompressBrotliPayload(input, expectedLength?)</code></td><td><code>Uint8Array</code></td><td>Decompresses Brotli payload bytes created by QuadQR.</td></tr><tr><td><code>deriveSigningKeyId(publicKey, bytes?)</code></td><td><code>Promise&lt;string&gt;</code></td><td>SHA-256-derived lowercase hex identifier for an Ed25519 public key; bytes defaults to 8 and is clamped 4..16.</td></tr><tr><td><code>generateSigningKeyPair()</code></td><td><code>Promise&lt;CryptoKeyPair&gt;</code></td><td>Generates a WebCrypto Ed25519 signing/verification key pair.</td></tr><tr><td><code>installCrc32Accelerator(accelerator?)</code></td><td>previous accelerator or <code>null</code></td><td>Installs/removes an optional CRC32 accelerator. Passing <code>null</code> restores the built-in JavaScript implementation.</td></tr><tr><td><code>crc32(bytes)</code></td><td>unsigned 32-bit integer</td><td>Computes the CRC-32 value used by QuadQR payload framing.</td></tr><tr><td><code>getVersionInfo(version, options?)</code></td><td>object</td><td>Returns matrix size, capacity, data-cell count, ECC plan, and High Density information for one version.</td></tr><tr><td><code>encodeText(text, options?)</code></td><td>encoded code object</td><td>Encodes UTF-8 text into a QuadQR matrix. Encoding, ECC, version, compression, and High Density options are documented in Configuration Reference.</td></tr><tr><td><code>encodeBytes(input, options?)</code></td><td>encoded code object</td><td>Encodes arbitrary bytes into a QuadQR matrix.</td></tr><tr><td><code>encodeUint8Array(input, options?)</code></td><td>encoded code object</td><td>Strict <code>Uint8Array</code> convenience alias around byte encoding.</td></tr><tr><td><code>encodeSignedBytes(input, options)</code></td><td><code>Promise&lt;encoded code object&gt;</code></td><td>Creates an Ed25519-signed binary payload envelope, with optional internal compression.</td></tr><tr><td><code>encodeSignedText(text, options)</code></td><td><code>Promise&lt;encoded code object&gt;</code></td><td>Text counterpart of <code>encodeSignedBytes</code>.</td></tr><tr><td><code>encodeSecureText(text, options)</code></td><td><code>Promise&lt;encoded code object&gt;</code></td><td>Encrypts text using Secure Payload v1 password or raw-key mode, then encodes the protected bytes.</td></tr><tr><td><code>encodeSecureBytes(input, options)</code></td><td><code>Promise&lt;encoded code object&gt;</code></td><td>Binary counterpart of <code>encodeSecureText</code>.</td></tr><tr><td><code>decryptDecoded(result, security?)</code></td><td><code>Promise&lt;decode result&gt;</code></td><td>Decrypts a locked secure decode result and restores text/binary, compression, and signing metadata.</td></tr><tr><td><code>decodeMatrix(matrix, options?)</code></td><td>decode result</td><td>Decodes an already sampled QuadQR cell matrix, including Spectrum ECC error/erasure and optional soft decoding.</td></tr><tr><td><code>decodeUint8Array(matrix, options?)</code></td><td><code>Uint8Array</code></td><td>Convenience API returning only decoded application bytes.</td></tr><tr><td><code>verifyDecodedSignature(result, options?)</code></td><td><code>Promise&lt;decode result&gt;</code></td><td>Verifies an Ed25519 signature using a trusted key, trusted-key map, or optionally an embedded public key.</td></tr><tr><td><code>estimateSafeLogoSize(codeOrMatrix, options?)</code></td><td>number ratio</td><td>Fast ECC-budget estimate for a conservative centered logo size.</td></tr><tr><td><code>findMaxSafeLogoSize(code, options?)</code></td><td>object</td><td>Renders/tests candidate clear-background logo sizes and binary-searches for the largest size that still self-decodes.</td></tr><tr><td><code>getPrintGuidance(codeOrMatrix, options?)</code></td><td>object</td><td>Returns recommended quiet zone, physical dimensions, module size, and DPI guidance for printing.</td></tr><tr><td><code>renderToCanvas(codeOrMatrix, canvas, options?)</code></td><td>canvas</td><td>Renders to an existing browser canvas and returns that canvas.</td></tr><tr><td><code>renderToImageData(codeOrMatrix, options?)</code></td><td>ImageData-like object</td><td>Renders to RGBA pixel data, usable in browser or Node workflows.</td></tr><tr><td><code>renderToSVG(codeOrMatrix, options?)</code></td><td>string</td><td>Returns standalone SVG markup.</td></tr><tr><td><code>applyStressDistortion(imageData, type, severity?, options?)</code></td><td>ImageData-like object</td><td>Applies one deterministic Reliability Lab distortion such as blur, perspective, shadow, color cast, noise, glare, or downscale.</td></tr><tr><td><code>runImageStressTest(imageData, expected?, options?)</code></td><td>report object</td><td>Runs the compact legacy stress profile set against one source image.</td></tr><tr><td><code>runReliabilityLab(imageData, expected?, options?)</code></td><td>report object</td><td>Runs quick/full/extreme real-world distortion suites and returns per-case plus aggregate reliability results.</td></tr><tr><td><code>runPerspectiveSweep(imageData, expected?, options?)</code></td><td>report object</td><td>Sweeps yaw, pitch, or roll angles and reports decode success/confidence by angle.</td></tr><tr><td><code>assessScanability(code, renderOptions?, options?)</code></td><td>report object</td><td>Renders an encoded code and evaluates scanability across configured stress profiles.</td></tr><tr><td><code>debugScanImageData(imageData, options?)</code></td><td>diagnostic object</td><td>Runs scanner analysis for debugging and returns finder/geometry/pass information rather than only throwing on failure.</td></tr><tr><td><code>scanImageData(imageData, options?)</code></td><td>decode result</td><td>Main synchronous image scanner with geometry detection, calibration, recovery, Spectrum ECC, and optional diagnostics.</td></tr><tr><td><code>scanFile(file, options?)</code></td><td><code>Promise&lt;decode result&gt;</code></td><td>Browser <code>File</code>/<code>Blob</code> image scanner. Node has a filename-based override in <code>quadqr-js/node</code>.</td></tr><tr><td><code>scanVideoFrame(video, options?)</code></td><td>decode result</td><td>Captures one visible video frame/ROI and runs the image scanner.</td></tr><tr><td><code>startCameraScanner(video, options?)</code></td><td><code>Promise&lt;{ stream, stop, scanNow, video }&gt;</code></td><td>Starts progressive live-camera scanning. Recovery cadence, multi-frame fusion, crop, and callback fields are fully defined on Scanning &amp; Camera.</td></tr><tr><td><code>rectifyDetectedCode(imageData, options?)</code></td><td><code>{ geometry, imageData }</code></td><td>Finds the best symbol geometry and returns a perspective-rectified square image; <code>moduleSize</code> defaults to 8.</td></tr><tr><td><code>rotateMatrix(matrix, quarterTurns?)</code></td><td>2D cell matrix</td><td>Returns a copied matrix rotated clockwise by 90° increments; negative values are normalized modulo four.</td></tr></tbody></table></div><h3 id="constant-export-catalog">Core constants<a aria-label="Link to Core constants" class="heading-anchor" href="#constant-export-catalog">#</a></h3><div class="table-wrap"><table><thead><tr><th>Export</th><th>Value / type</th><th>Meaning</th></tr></thead><tbody><tr><td><code>FORMAT_VERSION</code></td><td><code>5</code></td><td>Current QuadQR matrix-format version written/read by this release.</td></tr><tr><td><code>MIN_VERSION</code> / <code>MAX_VERSION</code></td><td><code>1</code> / <code>40</code></td><td>Supported matrix version bounds.</td></tr><tr><td><code>DEFAULT_ECC_LEVEL</code></td><td><code>"M"</code></td><td>Default Spectrum ECC profile for library encoding.</td></tr><tr><td><code>ECC_LEVELS</code></td><td>frozen object</td><td>Nominal L/M/Q/H definitions with IDs and Reed-Solomon parity/correctable-symbol counts.</td></tr><tr><td><code>CELL</code></td><td>frozen object</td><td>Cell numeric values: BLACK=-1, RED=0, GREEN=1, BLUE=2, WHITE=3.</td></tr><tr><td><code>CELL_ENCODINGS</code></td><td>frozen object</td><td>Physical encoding identifiers <code>rgbw</code> and experimental <code>triangle16</code>.</td></tr><tr><td><code>DEFAULT_PALETTE</code></td><td>frozen object</td><td>Screen RGBW/black hex colors used when no palette override is provided.</td></tr><tr><td><code>PRINT_PALETTE</code></td><td>frozen object</td><td>Darker print-safe RGB primaries plus true black/white.</td></tr><tr><td><code>RENDER_STYLES</code></td><td>frozen object</td><td><code>classic</code>, <code>depth</code>, <code>soft</code>, and <code>inset</code> style names.</td></tr><tr><td><code>RENDER_MODES</code></td><td>frozen object</td><td><code>screen</code> and <code>print</code> renderer modes.</td></tr><tr><td><code>COMPRESSION_MODES</code></td><td>frozen object</td><td><code>none</code>, <code>auto</code>, <code>smart</code>, <code>lz</code>, <code>deflate</code>, and <code>brotli</code> identifiers.</td></tr><tr><td><code>LZ_LEVEL_MIN</code> / <code>LZ_LEVEL_MAX</code> / <code>DEFAULT_LZ_LEVEL</code></td><td><code>1</code> / <code>9</code> / <code>6</code></td><td>Supported/default legacy LZ search level.</td></tr><tr><td><code>COMPRESSION_LEVELS</code></td><td>frozen object</td><td>Programmatic level metadata for LZ, DEFLATE, Brotli, Auto, and Smart compression stages.</td></tr><tr><td><code>SIGNATURE_ALGORITHMS</code></td><td>frozen object</td><td>Currently exposes <code>ED25519: "Ed25519"</code>.</td></tr><tr><td><code>SECURITY_MODES</code></td><td>frozen object</td><td>Secure Payload credential mode identifiers: password and raw-key.</td></tr><tr><td><code>SECURITY_ALGORITHMS</code></td><td>frozen object</td><td>Algorithm identifiers used by Secure Payload v1, including AES-256-GCM and PBKDF2-HMAC-SHA-256.</td></tr><tr><td><code>SECURE_PAYLOAD_VERSION</code></td><td>integer</td><td>Current encrypted secure-envelope format version.</td></tr><tr><td><code>DEFAULT_PBKDF2_ITERATIONS</code></td><td><code>600000</code></td><td>Default password KDF work factor.</td></tr><tr><td><code>STRESS_PROFILES</code></td><td>frozen array</td><td>Compact predefined scanability stress cases used by <code>runImageStressTest</code>/<code>assessScanability</code>.</td></tr><tr><td><code>RELIABILITY_PROFILES</code></td><td>frozen array</td><td>Full categorized quick/full/extreme Reliability Lab profile definitions.</td></tr><tr><td><code>internals</code></td><td>frozen object, unsupported</td><td>Implementation/testing helpers. Exported for project diagnostics, not a stable application API; do not build production integrations against these members.</td></tr></tbody></table></div><h3 id="node-export-catalog">Node entry point: quadqr-js/node<a aria-label="Link to Node entry point: quadqr-js/node" class="heading-anchor" href="#node-export-catalog">#</a></h3><div class="table-wrap"><table><thead><tr><th>Export / signature</th><th>Returns</th><th>Purpose</th></tr></thead><tbody><tr><td><code>decodePNG(input)</code></td><td>ImageData-like object</td><td>Dependency-free decoder for supported non-interlaced PNG buffers.</td></tr><tr><td><code>encodePNG(imageData, options?)</code></td><td><code>Uint8Array</code></td><td>Dependency-free PNG encoder; <code>compressionLevel</code> is 0..9, default 9, and affects PNG file size only.</td></tr><tr><td><code>toPNG(codeOrMatrix, options?)</code></td><td><code>Uint8Array</code></td><td>Renders and PNG-encodes a code/matrix in memory.</td></tr><tr><td><code>savePNG(codeOrMatrix, filename, options?)</code></td><td><code>Promise&lt;void&gt;</code></td><td>Writes rendered PNG bytes to disk.</td></tr><tr><td><code>toSVG(codeOrMatrix, options?)</code></td><td>string</td><td>Node convenience wrapper returning SVG markup.</td></tr><tr><td><code>saveSVG(codeOrMatrix, filename, options?)</code></td><td><code>Promise&lt;void&gt;</code></td><td>Writes SVG markup to disk.</td></tr><tr><td><code>scanBuffer(input, options?)</code></td><td><code>Promise&lt;decode result&gt;</code></td><td>Scans encoded image bytes. PNG works dependency-free; other formats can use host-installed Sharp.</td></tr><tr><td><code>scanFile(filename, options?)</code></td><td><code>Promise&lt;decode result&gt;</code></td><td>Reads and scans an image path in Node.</td></tr><tr><td><code>initWasm(options?)</code></td><td><code>Promise&lt;state&gt;</code></td><td>Loads the optional CRC32 WebAssembly accelerator from a URL or supplied bytes.</td></tr><tr><td><code>getWasmState()</code></td><td>state object</td><td>Reports whether WASM is loaded/active and any relevant state.</td></tr><tr><td><code>disableWasm()</code></td><td>state object</td><td>Disables the installed WASM accelerator and restores JavaScript CRC32.</td></tr></tbody></table></div><h3 id="benchmark-export-catalog">Benchmark entry point: quadqr-js/benchmark<a aria-label="Link to Benchmark entry point: quadqr-js/benchmark" class="heading-anchor" href="#benchmark-export-catalog">#</a></h3><div class="table-wrap"><table><thead><tr><th>Export / signature</th><th>Returns</th><th>Purpose</th></tr></thead><tbody><tr><td><code>STANDARD_QR_BYTE_CAPACITY</code></td><td>frozen object</td><td>Reference ISO QR byte-mode capacities for versions 1..40 at L/M/Q/H, used only for same-size comparison. QuadQR ECC letters are not recovery-equivalent.</td></tr><tr><td><code>getStandardQrByteCapacity(version, ecc?)</code></td><td>integer bytes</td><td>Returns the reference standard-QR byte capacity for one version and nominal ECC letter.</td></tr><tr><td><code>compareCapacity(version, ecc?, options?)</code></td><td>comparison object</td><td>Compares one QuadQR version with same-size standard QR byte capacity, including bytes, ratio, gain percent, and matrix-cell efficiency.</td></tr><tr><td><code>calculateCapacityPlan(options?)</code></td><td>capacity-plan object</td><td>Finds the smallest QuadQR/standard-QR versions for a concrete payload or byte count and can account for compression/signing overhead.</td></tr><tr><td><code>buildCapacityComparison(options?)</code></td><td>array of comparison rows</td><td>Builds capacity-comparison rows across a requested version range.</td></tr><tr><td><code>benchmarkCodec(options?)</code></td><td>benchmark object</td><td>Measures encode/decode/compression timing for configured payload sizes, iterations, ECC, and High Density settings.</td></tr><tr><td><code>benchmarkReport(options?)</code></td><td><code>Promise&lt;report object&gt;</code></td><td>Runs capacity and codec benchmarks and returns one combined machine-readable report.</td></tr></tbody></table></div><nav aria-label="Documentation pagination" class="page-pager"><a class="prev" href="reliability.html"><span>Previous</span><strong>← Reliability Lab</strong></a><a class="next" href="options.html"><span>Next</span><strong>Configuration Reference →</strong></a></nav>
+<footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
+</article>
+<aside class="toc"><div class="toc-title">On this page</div><a href="#core-encoding">Core encoding</a><a class="toc-sub" href="#encodetexttext-options">encodeText(text, options?)</a><a class="toc-sub" href="#encodebytesbytes-options">encodeBytes(bytes, options?)</a><a href="#secure-encoding">Secure encoding</a><a class="toc-sub" href="#encodesecuretexttext-options">encodeSecureText(text, options)</a><a class="toc-sub" href="#encodesecurebytesbytes-options">encodeSecureBytes(bytes, options)</a><a class="toc-sub" href="#decryptdecodedresult-credentials">decryptDecoded(result, credentials)</a><a href="#matrix-decoding">Matrix decoding</a><a class="toc-sub" href="#decodematrixmatrix-options">decodeMatrix(matrix, options?)</a><a href="#rendering">Rendering</a><a class="toc-sub" href="#rendertocanvascodeormatrix-canvas-options">renderToCanvas(codeOrMatrix, canvas, options?)</a><a class="toc-sub" href="#rendertoimagedatacodeormatrix-options">renderToImageData(codeOrMatrix, options?)</a><a class="toc-sub" href="#rendertosvgcodeormatrix-options">renderToSVG(codeOrMatrix, options?)</a><a href="#image-and-camera-scanning">Image and camera scanning</a><a class="toc-sub" href="#scanimagedataimagedata-options">scanImageData(imageData, options?)</a><a class="toc-sub" href="#browser-scanfilefile-options">Browser scanFile(file, options?)</a><a class="toc-sub" href="#scanvideoframevideo-options">scanVideoFrame(video, options?)</a><a class="toc-sub" href="#startcamerascannervideo-options">startCameraScanner(video, options?)</a><a class="toc-sub" href="#rectifydetectedcodeimagedata-options">rectifyDetectedCode(imageData, options?)</a><a class="toc-sub" href="#rotatematrixmatrix-quarterturns">rotateMatrix(matrix, quarterTurns?)</a><a href="#nodejs-helpers">Node.js helpers</a><a class="toc-sub" href="#topngcodeormatrix-options">toPNG(codeOrMatrix, options?)</a><a class="toc-sub" href="#savepngcodeormatrix-filename-options">savePNG(codeOrMatrix, filename, options?)</a><a class="toc-sub" href="#tosvgcodeormatrix-options">toSVG(codeOrMatrix, options?)</a><a class="toc-sub" href="#savesvgcodeormatrix-filename-options">saveSVG(codeOrMatrix, filename, options?)</a><a class="toc-sub" href="#scanbufferbuffer-options">scanBuffer(buffer, options?)</a><a class="toc-sub" href="#node-scanfilefilename-options">Node scanFile(filename, options?)</a><a class="toc-sub" href="#decodepngbuffer">decodePNG(buffer)</a><a class="toc-sub" href="#encodepngimagedata-options">encodePNG(imageData, options?)</a><a href="#security-utilities">Security utilities</a><a class="toc-sub" href="#generateraw256key">generateRaw256Key()</a><a class="toc-sub" href="#normalizeraw256keykey">normalizeRaw256Key(key)</a><a class="toc-sub" href="#bytestohexbytes">bytesToHex(bytes)</a><a href="#wasm">WASM</a><a class="toc-sub" href="#initwasmoptions">initWasm(options?)</a><a class="toc-sub" href="#getwasmstate">getWasmState()</a><a class="toc-sub" href="#disablewasm">disableWasm()</a><a href="#version-and-capacity">Version and capacity</a><a class="toc-sub" href="#getversioninfoversion-options">getVersionInfo(version, options?)</a><a href="#crc-utilities">CRC utilities</a><a class="toc-sub" href="#crc32bytes">crc32(bytes)</a><a class="toc-sub" href="#installcrc32acceleratoraccelerator">installCrc32Accelerator(accelerator?)</a><a href="#constants">Constants</a><a href="#benchmark-entry">Benchmark entry</a><a class="toc-sub" href="#calculatecapacityplanoptions">calculateCapacityPlan(options)</a><a href="#compression">Compression</a><a class="toc-sub" href="#encodetexttext-options-encodebytesinput-options">encodeText(text, options?) / encodeBytes(input, options?)</a><a class="toc-sub" href="#compresspayloadinput-options-decompresspayloadinput-expectedlength">compressPayload(input, options?) / decompressPayload(input, expectedLength?)</a><a class="toc-sub" href="#compressdeflatepayloadinput-options-decompressdeflatepayloadinput-expectedlength">compressDeflatePayload(input, options?) / decompressDeflatePayload(input, expectedLength?)</a><a class="toc-sub" href="#compressbrotlipayloadinput-options-decompressbrotlipayloadinput-expectedlength">compressBrotliPayload(input, options?) / decompressBrotliPayload(input, expectedLength?)</a><a href="#binary-convenience-apis">Binary convenience APIs</a><a class="toc-sub" href="#encodeuint8arrayinput-options">encodeUint8Array(input, options?)</a><a class="toc-sub" href="#decodeuint8arraymatrix-options">decodeUint8Array(matrix, options?)</a><a href="#signed-quadqr">Signed QuadQR</a><a class="toc-sub" href="#generatesigningkeypair">generateSigningKeyPair()</a><a class="toc-sub" href="#encodesignedtexttext-options-encodesignedbytesinput-options">encodeSignedText(text, options) / encodeSignedBytes(input, options)</a><a class="toc-sub" href="#verifydecodedsignatureresult-options">verifyDecodedSignature(result, options?)</a><a class="toc-sub" href="#signing-encryption">Signing + encryption</a><a href="#print-rendering">Print rendering</a><a class="toc-sub" href="#getprintguidancecodeormatrix-options">getPrintGuidance(codeOrMatrix, options?)</a><a href="#automatic-logo-safety">Automatic logo safety</a><a href="#scanner-confidence-and-debug-mode">Scanner confidence and debug mode</a><a href="#scanability-and-stress-testing">Scanability and stress testing</a><a class="toc-sub" href="#applystressdistortionimagedata-type-severity-options">applyStressDistortion(imageData, type, severity?, options?)</a><a class="toc-sub" href="#runimagestresstestimagedata-expected-options">runImageStressTest(imageData, expected?, options?)</a><a class="toc-sub" href="#assessscanabilitycode-renderoptions-options">assessScanability(code, renderOptions?, options?)</a><a class="toc-sub" href="#runreliabilitylabimagedata-expected-options">runReliabilityLab(imageData, expected?, options?)</a><a class="toc-sub" href="#runperspectivesweepimagedata-expected-options">runPerspectiveSweep(imageData, expected?, options?)</a></aside>
+</main>
+</div>
+<div aria-hidden="true" class="search-modal" data-search-modal="">
+<div class="search-backdrop" data-search-close=""></div>
+<div aria-label="Search QuadQR documentation" aria-modal="true" class="search-panel" role="dialog">
+<div class="search-input-wrap"><span>⌕</span><input autocomplete="off" data-search-input="" placeholder="Search documentation…" type="search"/><kbd>Esc</kbd></div>
+<div class="search-results" data-search-results=""><div class="search-empty">Type to search pages and sections.</div></div>
+</div>
+</div>
+<script src="./search-index.js"></script>
+<script src="../dist/quadqr.min.js"></script>
+<script src="./app.js"></script>
 </body>
 </html>

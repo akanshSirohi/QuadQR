@@ -3893,9 +3893,9 @@ function tryPerspectiveScan(imageData, options) {
         }
       }
 
-      // Very cheap Photoshop-like recovery on the already-sampled module grid.
-      // Normal camera frames never reach this path. The transform approximates
-      // Auto Color + Auto Tone + Auto Contrast and costs only O(moduleCount).
+      // Lightweight QuadQR color recovery on the already-sampled module grid.
+      // Normal camera frames never reach this path. The transform combines
+      // QuadQR Auto Color + Auto Tone + Auto Contrast and costs only O(moduleCount).
       if (!geometryDecoded && options.autoEnhanceRecovery !== false) {
         try {
           const enhancedGrid = autoToneContrastColorRgbGrid(sampled.rgbGrid, {
@@ -3923,7 +3923,7 @@ function tryPerspectiveScan(imageData, options) {
         }
       }
 
-      // Camera-specific Photoshop-style fallback. Enhancing the whole camera
+      // Camera-specific QuadQR color-recovery fallback. Enhancing the whole camera
       // frame is often ineffective because dark surroundings, browser/UI
       // reflections and unrelated objects skew the histograms. Once finder
       // geometry is known, rectify only the QuadQR region, run Auto Tone /
@@ -5764,10 +5764,9 @@ export async function startCameraScanner(video, options = {}) {
           }
         }
 
-        // The user's real phone-camera case is dominated by color cast before
-        // finder detection: Photoshop Auto Color alone makes the same live QR
-        // immediately detectable. Retry the exact captured frame with a cheap
-        // per-channel Auto Color levels correction before any geometry-dependent
+        // Strong color casts can hide finder structure before normal geometry
+        // recovery begins. QuadQR Auto Color retries the exact captured frame with a cheap
+        // per-channel QuadQR Auto Color levels correction before any geometry-dependent
         // recovery. This runs only after the normal fast scan fails, and by
         // default only on every other missed frame after the first one.
         const shouldTryCameraAutoColor = options.cameraAutoColorRecovery !== false &&
@@ -5790,7 +5789,7 @@ export async function startCameraScanner(video, options = {}) {
             type: "method",
             state: "trying",
             method: "camera-auto-color",
-            message: `Fast scan failed · Auto Color recovery inside camera guide (${cropInsets.map((v) => v ? `${Math.round(v * 100)}% crop` : "full frame").join(" → ")})`,
+            message: `Fast scan failed · QuadQR Auto Color recovery inside camera guide (${cropInsets.map((v) => v ? `${Math.round(v * 100)}% crop` : "full frame").join(" → ")})`,
             ...frameDiagnostics
           });
 
@@ -5817,9 +5816,9 @@ export async function startCameraScanner(video, options = {}) {
                 // This is intentionally performed on a centered recovery crop.
                 // A live preview can contain large dark borders, browser UI, a
                 // monitor bezel or room background. Those pixels completely
-                // change global Auto Color/Otsu statistics even though the QR
-                // itself looks identical to a saved crop. Photoshop succeeded
-                // because the user's edited image was effectively QR-centric.
+                // change global QuadQR Auto Color/Otsu statistics even though the QR
+                // itself looks identical to a saved crop. QuadQR recovery stays
+                // QR-centric so surrounding scene pixels do not dominate the correction.
                 blackClip: options.cameraAutoColorBlackClip ?? 0.0001,
                 whiteClip: options.cameraAutoColorWhiteClip ?? 0.004,
                 highlightPercentile: options.cameraAutoColorHighlightPercentile ?? 0.95,
@@ -5865,7 +5864,7 @@ export async function startCameraScanner(video, options = {}) {
                 state: "decoded",
                 method: "camera-auto-color",
                 elapsedMs: recoveryElapsedMs,
-                message: `Auto Color ${cropInset ? `${Math.round(cropInset * 100)}% crop` : "full frame"} decoded v${recovered.version} · ECC ${recovered.eccLevel} · ${Math.round(recoveryElapsedMs)} ms`,
+                message: `QuadQR Auto Color ${cropInset ? `${Math.round(cropInset * 100)}% crop` : "full frame"} decoded v${recovered.version} · ECC ${recovered.eccLevel} · ${Math.round(recoveryElapsedMs)} ms`,
                 ...(autoColorFrameDiagnostics ?? frameDiagnostics)
               });
               capturedFrame.enhancedImageData = correctedFrame;
@@ -5916,7 +5915,7 @@ export async function startCameraScanner(video, options = {}) {
                 type: "method",
                 state: "failed",
                 method: profileName,
-                message: `Auto Color ${cropInset ? `${Math.round(cropInset * 100)}% crop` : "full frame"} did not decode${autoColorFrameDiagnostics?.finderCount != null ? ` · ${autoColorFrameDiagnostics.finderCount} finder(s)` : ""}`,
+                message: `QuadQR Auto Color ${cropInset ? `${Math.round(cropInset * 100)}% crop` : "full frame"} did not decode${autoColorFrameDiagnostics?.finderCount != null ? ` · ${autoColorFrameDiagnostics.finderCount} finder(s)` : ""}`,
                 ...(autoColorFrameDiagnostics ?? frameDiagnostics)
               });
             }
@@ -5926,7 +5925,7 @@ export async function startCameraScanner(video, options = {}) {
               type: "method",
               state: "failed",
               method: "camera-auto-color",
-              message: "All camera Auto Color profiles failed · continuing deeper recovery",
+              message: "All camera QuadQR Auto Color profiles failed · continuing deeper recovery",
               ...frameDiagnostics
             });
           }

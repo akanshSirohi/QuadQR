@@ -1,160 +1,137 @@
-<!doctype html>
-<html lang="en" data-theme="light">
+<!DOCTYPE html>
+
+<html data-theme="light" lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format.">
-  <meta name="color-scheme" content="light dark">
-  <title>CLI Reference | QuadQR Documentation</title>
-  <link rel="stylesheet" href="./styles.css">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format." name="description"/>
+<meta content="light dark" name="color-scheme"/>
+<title>CLI Reference | QuadQR Documentation</title>
+<link href="./styles.css" rel="stylesheet"/>
 </head>
 <body data-page="cli">
-  <header class="topbar">
-    <div class="topbar-left">
-      <button class="icon-button mobile-menu" type="button" aria-label="Open navigation" data-menu-button>☰</button>
-      <a class="brand" href="index.html" aria-label="QuadQR documentation home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
-      </a>
-    </div>
-    <div class="top-actions">
-      <button class="search-button" type="button" data-search-open><span>Search documentation</span><kbd>/</kbd></button>
-      <a href="../demo/">Demo</a>
-      <a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
-      <a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
-      <button class="icon-button" type="button" aria-label="Toggle theme" data-theme-toggle>◐</button>
-    </div>
-  </header>
-
-  <div class="mobile-backdrop" data-mobile-backdrop></div>
-  <div class="docs-shell">
-    <aside class="sidebar" data-sidebar>
-      <div class="sidebar-inner">
-        <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a class="active" href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
-        <div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
-      </div>
-    </aside>
-
-    <main class="main-content">
-      <article class="doc-article">
-        <header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>CLI Reference</h1></header>
-        <p>The npm package includes the <code>quadqr</code> executable and can be used directly through <code>npx</code>.</p>
-<h2 id="encode-text">Encode text<a class="heading-anchor" href="#encode-text" aria-label="Link to Encode text">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js encode &quot;Hello QuadQR&quot; -o hello.png
-npx quadqr-js encode &quot;Hello QuadQR&quot; -o hello.svg
+<header class="topbar">
+<div class="topbar-left">
+<button aria-label="Open navigation" class="icon-button mobile-menu" data-menu-button="" type="button">☰</button>
+<a aria-label="QuadQR documentation home" class="brand" href="index.html">
+<span aria-hidden="true" class="brand-mark"><i></i><i></i><i></i><i></i></span>
+<span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
+</a>
+</div>
+<div class="top-actions">
+<button class="search-button" data-search-open="" type="button"><span>Search documentation</span><kbd>/</kbd></button>
+<a href="../demo/">Demo</a>
+<a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
+<a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
+<button aria-label="Toggle theme" class="icon-button" data-theme-toggle="" type="button">◐</button>
+</div>
+</header>
+<div class="mobile-backdrop" data-mobile-backdrop=""></div>
+<div class="docs-shell">
+<aside class="sidebar" data-sidebar="">
+<div class="sidebar-inner">
+<div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a class="active" href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
+<div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+</div>
+</aside>
+<main class="main-content">
+<article class="doc-article">
+<header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>CLI Reference</h1></header>
+<p>The npm package includes the <code>quadqr</code> executable and can be used directly through <code>npx</code>.</p>
+<h2 id="encode-text">Encode text<a aria-label="Link to Encode text" class="heading-anchor" href="#encode-text">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "Hello QuadQR" -o hello.png
+npx quadqr-js encode "Hello QuadQR" -o hello.svg
 </code></pre></div>
 <p>Optional encoding controls:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js encode &quot;Hello&quot; --ecc M --version auto --image-size 720 --quiet-zone 4 -o hello.png
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "Hello" --ecc M --version auto --image-size 720 --quiet-zone 4 -o hello.png
 </code></pre></div>
 <p>Use the print-safe rendering profile when the symbol is intended for physical output:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js encode &quot;Print me&quot; --print -o print.svg
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "Print me" --print -o print.svg
 </code></pre></div>
 <p>Print mode enforces a minimum four-module quiet zone and uses the print-safe rendering defaults.</p>
-<h2 id="compression">Compression<a class="heading-anchor" href="#compression" aria-label="Link to Compression">#</a></h2>
+<h2 id="compression">Compression<a aria-label="Link to Compression" class="heading-anchor" href="#compression">#</a></h2>
 <p>Compression works directly with normal text payloads:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js encode &quot;repeat repeat repeat repeat&quot; \
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "repeat repeat repeat repeat" \
   --compression auto \
   -o compressed.png
 </code></pre></div>
 <p>Compression modes are <code>none</code>, <code>auto</code>, <code>smart</code>, <code>brotli</code>, <code>deflate</code>, and <code>lz</code>. <code>auto</code> performs one balanced comparison using LZ level 6, DEFLATE level 6, and Brotli quality 6. <code>smart</code> is CPU-heavy: it starts with the same pass and only escalates to stronger DEFLATE/Brotli levels when a smaller QuadQR version is realistically reachable. If envelope overhead would erase the gain, Auto/Smart leave the original payload untouched. No separate payload mode is required.</p>
 <p>Explicit codecs can select a level:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js encode &quot;structured payload&quot; --compression lz --compression-level 9 -o lz.png
-npx quadqr-js encode &quot;structured payload&quot; --compression deflate --compression-level 9 -o deflate.png
-npx quadqr-js encode &quot;structured payload&quot; --compression brotli --compression-level 11 -o brotli.png
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "structured payload" --compression lz --compression-level 9 -o lz.png
+npx quadqr-js encode "structured payload" --compression deflate --compression-level 9 -o deflate.png
+npx quadqr-js encode "structured payload" --compression brotli --compression-level 11 -o brotli.png
 </code></pre></div>
 <p>LZ and DEFLATE accept levels <code>1..9</code> and default to 6. Brotli accepts qualities <code>0..11</code> and defaults to 11. <code>--compression-level</code> is ignored by Auto/Smart because those modes manage their own staged levels.</p>
-<h2 id="signed-quadqr">Signed QuadQR<a class="heading-anchor" href="#signed-quadqr" aria-label="Link to Signed QuadQR">#</a></h2>
+<h2 id="signed-quadqr">Signed QuadQR<a aria-label="Link to Signed QuadQR" class="heading-anchor" href="#signed-quadqr">#</a></h2>
 <p>Generate an Ed25519 signing-key bundle:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js signkeygen -o quadqr-signing-key.json
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js signkeygen -o quadqr-signing-key.json
 </code></pre></div>
 <p>Keep this file secret because it contains the private signing key. Encode a signed payload with:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js encode &quot;Offline-verifiable ticket&quot; \
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "Offline-verifiable ticket" \
   --sign-key quadqr-signing-key.json \
   -o signed.png
 </code></pre></div>
 <p>The generated key bundle contains both keys plus a compact <code>keyId</code>. Only the private key signs. The public key is <strong>not embedded</strong> in the QuadQR by default and should be distributed separately to trusted scanners or stored in a trusted-key registry.</p>
 <p>To override the identifier stored in the symbol:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js encode &quot;Offline-verifiable ticket&quot; \
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "Offline-verifiable ticket" \
   --sign-key quadqr-signing-key.json \
   --key-id event-main-2026 \
   -o signed.png
 </code></pre></div>
 <p>Signing can be combined with password or raw-key encryption:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js encode &quot;Signed and private&quot; \
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "Signed and private" \
   --sign-key quadqr-signing-key.json \
-  --password &quot;my-password&quot; \
+  --password "my-password" \
   -o signed-secure.png
 </code></pre></div>
-<h2 id="decode-an-image">Decode an image<a class="heading-anchor" href="#decode-an-image" aria-label="Link to Decode an image">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js decode hello.png
+<h2 id="decode-an-image">Decode an image<a aria-label="Link to Decode an image" class="heading-anchor" href="#decode-an-image">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js decode hello.png
 npx quadqr-js decode signed.png --verify-key quadqr-signing-key.json
 </code></pre></div>
 <p>For an unencrypted text payload, the decoded text is printed to stdout. To verify a signed symbol against a trusted public key, pass the signing bundle with <code>--verify-key</code>.</p>
 <p>Add scanner diagnostics without changing the normal stdout payload:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js decode hello.png --debug
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js decode hello.png --debug
 </code></pre></div>
 <p>Diagnostics are written to stderr and include confidence, geometry/color confidence, ECC utilization, signing state, and the scanner diagnostics object when available.</p>
-<h2 id="password-protected-payloads">Password-protected payloads<a class="heading-anchor" href="#password-protected-payloads" aria-label="Link to Password-protected payloads">#</a></h2>
+<h2 id="password-protected-payloads">Password-protected payloads<a aria-label="Link to Password-protected payloads" class="heading-anchor" href="#password-protected-payloads">#</a></h2>
 <p>Encode:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js encode &quot;Private data&quot; --password &quot;my-password&quot; -o secure.png
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "Private data" --password "my-password" -o secure.png
 </code></pre></div>
 <p>Decode:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js decode secure.png --password &quot;my-password&quot;
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js decode secure.png --password "my-password"
 </code></pre></div>
 <p>If an encrypted symbol is decoded without a credential, the CLI reports that decryption is required instead of exposing plaintext.</p>
-<h2 id="raw-256-bit-key-mode">Raw 256-bit key mode<a class="heading-anchor" href="#raw-256-bit-key-mode" aria-label="Link to Raw 256-bit key mode">#</a></h2>
+<h2 id="raw-256-bit-key-mode">Raw 256-bit key mode<a aria-label="Link to Raw 256-bit key mode" class="heading-anchor" href="#raw-256-bit-key-mode">#</a></h2>
 <p>Generate a random 256-bit encryption key:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js keygen
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js keygen
 </code></pre></div>
 <p>The output is a 64-character hexadecimal key. Store it securely and do not place it inside the same QuadQR symbol.</p>
 <p>Encode using the key:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js encode &quot;Application secret&quot; --key &lt;64-hex-key&gt; -o secure-key.png
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "Application secret" --key &lt;64-hex-key&gt; -o secure-key.png
 </code></pre></div>
 <p>Decode using the key:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npx quadqr-js decode secure-key.png --key &lt;64-hex-key&gt;
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js decode secure-key.png --key &lt;64-hex-key&gt;
 </code></pre></div>
-<h2 id="options">Options<a class="heading-anchor" href="#options" aria-label="Link to Options">#</a></h2>
-<p>| Option | Purpose |
-| --- | --- |
-| <code>-o, --output &lt;file&gt;</code> | Output PNG/SVG path, or signing-key JSON path for <code>signkeygen</code> |
-| <code>--ecc &lt;L|M|Q|H&gt;</code> | QuadQR ECC profile. Default: <code>M</code> |
-| <code>--version &lt;auto|1..40&gt;</code> | Symbol version. Default: <code>auto</code> |
-| <code>--compression &lt;mode&gt;</code> | <code>none</code>, <code>auto</code>, <code>smart</code>, <code>brotli</code>, <code>deflate</code>, or <code>lz</code>. Default: <code>auto</code> |
-| <code>--compression-level &lt;n&gt;</code> | Explicit LZ/DEFLATE <code>1..9</code> or Brotli <code>0..11</code> encoder level |
-| <code>--high-density</code> | Enable experimental Triangle16 High Density Mode |
-| <code>--sign-key &lt;file&gt;</code> | Sign using a key bundle generated by <code>signkeygen</code> |
-| <code>--key-id &lt;id&gt;</code> | Override the signing key ID stored in the symbol |
-| <code>--embed-public-key</code> | Explicit compatibility mode that embeds the public key |
-| <code>--verify-key &lt;file&gt;</code> | Verify a signed symbol with a trusted Ed25519 key bundle |
-| <code>--password &lt;text&gt;</code> | Password-mode encryption/decryption |
-| <code>--key &lt;hex&gt;</code> | Raw 256-bit key encryption/decryption |
-| <code>--print</code> | Use the print-safe render profile |
-| <code>--image-size &lt;px&gt;</code> | Exact square output size in pixels. Default: <code>720</code> |
-| <code>--module-size &lt;px&gt;</code> | Legacy pixels-per-module sizing. Used when <code>--image-size</code> is omitted |
-| <code>--quiet-zone &lt;modules&gt;</code> | Quiet-zone size in modules. Default: <code>4</code> |
-| <code>--debug</code> | Emit scanner diagnostics to stderr when decoding |
-| <code>-h, --help</code> | Show CLI help |</p>
+<h2 id="options">Options<a aria-label="Link to Options" class="heading-anchor" href="#options">#</a></h2>
+<div class="table-wrap"><table><thead><tr><th>Option</th><th>Purpose</th><th>Default</th></tr></thead><tbody><tr><td><code>-o, --output &lt;file&gt;</code></td><td>PNG/SVG output path for <code>encode</code>, or signing-key JSON path for <code>signkeygen</code>.</td><td><code>quadqr.png</code> for encode</td></tr><tr><td><code>--ecc &lt;L|M|Q|H&gt;</code></td><td>Spectrum ECC profile.</td><td><code>M</code></td></tr><tr><td><code>--version &lt;auto|1..40&gt;</code></td><td>Fixed symbol version or automatic smallest-fit version.</td><td><code>auto</code></td></tr><tr><td><code>--compression &lt;mode&gt;</code></td><td><code>none|auto|smart|brotli|deflate|lz</code>.</td><td><code>auto</code> in CLI encode</td></tr><tr><td><code>--compression-level &lt;n&gt;</code></td><td>Explicit LZ/DEFLATE 1..9 or Brotli 0..11 level. Auto/Smart manage their own levels.</td><td>unset</td></tr><tr><td><code>--high-density</code></td><td>Enable experimental Triangle16 body cells.</td><td>off</td></tr><tr><td><code>--sign-key &lt;file&gt;</code></td><td>Sign with a <code>signkeygen</code> key bundle.</td><td>unset</td></tr><tr><td><code>--key-id &lt;id&gt;</code></td><td>Override the signing key ID stored in the symbol.</td><td>bundle key ID</td></tr><tr><td><code>--embed-public-key</code></td><td>Embed the Ed25519 public key in the payload envelope.</td><td>off</td></tr><tr><td><code>--verify-key &lt;file&gt;</code></td><td>Verify a signed decode using the public key in a trusted bundle.</td><td>unset</td></tr><tr><td><code>--password &lt;text&gt;</code></td><td>Password-mode encryption/decryption.</td><td>unset</td></tr><tr><td><code>--key &lt;hex&gt;</code></td><td>Raw 256-bit key encryption/decryption; exactly 64 hex characters.</td><td>unset</td></tr><tr><td><code>--print</code></td><td>Use print-safe rendering.</td><td>off</td></tr><tr><td><code>--image-size &lt;px&gt;</code></td><td>Exact square output size.</td><td><code>720</code></td></tr><tr><td><code>--module-size &lt;px&gt;</code></td><td>Pixels per module when image size is omitted.</td><td>unset</td></tr><tr><td><code>--quiet-zone &lt;modules&gt;</code></td><td>Blank border size.</td><td><code>4</code></td></tr><tr><td><code>--debug</code></td><td>Write decode diagnostics to stderr.</td><td>off</td></tr><tr><td><code>-h, --help</code></td><td>Show CLI help.</td><td>—</td></tr></tbody></table></div>
 <p>Password mode and raw-key mode are mutually exclusive for a single operation.</p>
-<h2 id="high-density-mode-experimental">High Density Mode (Experimental)<a class="heading-anchor" href="#high-density-mode-experimental" aria-label="Link to High Density Mode (Experimental)">#</a></h2>
+<h2 id="high-density-mode-experimental">High Density Mode (Experimental)<a aria-label="Link to High Density Mode (Experimental)" class="heading-anchor" href="#high-density-mode-experimental">#</a></h2>
 <p>Use <code>--high-density</code> to enable the experimental Triangle16 layout with 16 states and 4 raw bits per body cell. Decode is automatic; no matching decode flag is required.</p>
-
-        <nav class="page-pager" aria-label="Documentation pagination"><a class="prev" href="api.html"><span>Previous</span><strong>← API Reference</strong></a><a class="next" href="wasm.html"><span>Next</span><strong>WebAssembly →</strong></a></nav>
-        <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
-      </article>
-      <aside class="toc"><div class="toc-title">On this page</div><a href="#encode-text">Encode text</a><a href="#compression">Compression</a><a href="#signed-quadqr">Signed QuadQR</a><a href="#decode-an-image">Decode an image</a><a href="#password-protected-payloads">Password-protected payloads</a><a href="#raw-256-bit-key-mode">Raw 256-bit key mode</a><a href="#options">Options</a><a href="#high-density-mode-experimental">High Density Mode (Experimental)</a></aside>
-    </main>
-  </div>
-
-  <div class="search-modal" data-search-modal aria-hidden="true">
-    <div class="search-backdrop" data-search-close></div>
-    <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search QuadQR documentation">
-      <div class="search-input-wrap"><span>⌕</span><input type="search" placeholder="Search documentation…" autocomplete="off" data-search-input><kbd>Esc</kbd></div>
-      <div class="search-results" data-search-results><div class="search-empty">Type to search pages and sections.</div></div>
-    </div>
-  </div>
-
-  <script src="./search-index.js"></script>
-  <script src="../dist/quadqr.min.js"></script>
-  <script src="./app.js"></script>
+<nav aria-label="Documentation pagination" class="page-pager"><a class="prev" href="options.html"><span>Previous</span><strong>← Configuration Reference</strong></a><a class="next" href="wasm.html"><span>Next</span><strong>WebAssembly →</strong></a></nav>
+<footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
+</article>
+<aside class="toc"><div class="toc-title">On this page</div><a href="#encode-text">Encode text</a><a href="#compression">Compression</a><a href="#signed-quadqr">Signed QuadQR</a><a href="#decode-an-image">Decode an image</a><a href="#password-protected-payloads">Password-protected payloads</a><a href="#raw-256-bit-key-mode">Raw 256-bit key mode</a><a href="#options">Options</a><a href="#high-density-mode-experimental">High Density Mode (Experimental)</a></aside>
+</main>
+</div>
+<div aria-hidden="true" class="search-modal" data-search-modal="">
+<div class="search-backdrop" data-search-close=""></div>
+<div aria-label="Search QuadQR documentation" aria-modal="true" class="search-panel" role="dialog">
+<div class="search-input-wrap"><span>⌕</span><input autocomplete="off" data-search-input="" placeholder="Search documentation…" type="search"/><kbd>Esc</kbd></div>
+<div class="search-results" data-search-results=""><div class="search-empty">Type to search pages and sections.</div></div>
+</div>
+</div>
+<script src="./search-index.js"></script>
+<script src="../dist/quadqr.min.js"></script>
+<script src="./app.js"></script>
 </body>
 </html>

@@ -1155,7 +1155,7 @@ export function detectCodeGeometry(imageData, options = {}) {
     return { finders, geometries };
   };
 
-  // Fast path stays exactly one grayscale + finder pass. No Auto Color, extra
+  // Fast path stays exactly one grayscale + finder pass. No QuadQR Auto Color, extra
   // thresholding, or luminance image is computed when a normal frame works.
   const valueInfo = buildBinary(imageData, { grayMode: "value" });
   const fast = evaluatePass({
@@ -1169,7 +1169,7 @@ export function detectCodeGeometry(imageData, options = {}) {
 
   // If the clean threshold already found exactly two strong locators, try the
   // bounded perspective-tolerant third-finder pass before any color processing.
-  // This is substantially cheaper than Auto Color and targets the dense-code
+  // This is substantially cheaper than QuadQR Auto Color and targets the dense-code
   // projective failure mode directly.
   if (fast.finders.length === 2) {
     const recoveredFinders = recoverFinderSetFromTwo(valueInfo.binary, width, height, fast.finders, {});
@@ -1199,12 +1199,12 @@ export function detectCodeGeometry(imageData, options = {}) {
     }
   }
 
-  // Camera recovery #1: Photoshop Auto Color-style per-channel levels before
+  // Camera recovery #1: QuadQR Auto Color per-channel levels before
   // finder thresholding. Live camera frames are usually much larger than the
   // QR itself, so a single global histogram can be dominated by dark room/UI
-  // pixels around the guide. Photoshop looked strong in the user's cropped
-  // sample because its statistics were effectively code-centric. We emulate
-  // that by trying a few center-weighted analysis windows, while still applying
+  // pixels around the guide. QuadQR keeps recovery deliberately code-centric
+  // by using center-weighted analysis windows so surrounding scene pixels do not
+  // dominate the correction, while still applying
   // each correction to the full frame so finder coordinates never move.
   const requestedInsets = Array.isArray(options.finderAutoColorAnalysisInsets)
     ? options.finderAutoColorAnalysisInsets
@@ -1250,7 +1250,7 @@ export function detectCodeGeometry(imageData, options = {}) {
 
   // Camera recovery #2: bracket the raw value-channel threshold, then retain
   // the legacy luminance pass for unusual captures. These are only built after
-  // both the normal and Auto Color finder passes fail.
+  // both the normal and QuadQR Auto Color finder passes fail.
   const highThreshold = clamp(valueInfo.baseThreshold + 18, 8, 247);
   const lowThreshold = clamp(valueInfo.baseThreshold - 14, 8, 247);
   const recoveryPasses = [];
@@ -1364,7 +1364,7 @@ function buildAutoColorLevels(imageData, options = {}) {
   // Camera recovery deliberately supports analysing only the central part of
   // the visible frame. A phone preview often contains very dark UI/screen
   // edges outside the code; letting those pixels define the black point makes
-  // an otherwise useful Auto Color pass far too weak.
+  // an otherwise useful QuadQR Auto Color pass far too weak.
   for (let index = 0; index < pixelCount; index += step) {
     const x = x0 + (index % analysisWidth);
     const y = y0 + Math.floor(index / analysisWidth);
@@ -1389,8 +1389,8 @@ function buildAutoColorLevels(imageData, options = {}) {
   let highs;
   const outputHighlight = Number(options.outputHighlight);
   if (Number.isFinite(outputHighlight)) {
-    // Strong Photoshop-like camera mode. Photoshop Auto Color on the supplied
-    // warm camera sample does not stretch the brightest observed paper/white
+    // Strong QuadQR camera color-recovery mode. QuadQR Auto Color does not
+    // stretch the brightest observed paper/white
     // cells all the way to 255. Instead it anchors the per-channel shadow
     // points close to black while keeping the observed highlight around a
     // neutral mid-high value. That produces much darker structural black and
@@ -1463,7 +1463,7 @@ function buildAutoToneContrastColorTransform(samples, options = {}) {
   const highlightFraction = clamp(options.highlightFraction ?? 0.14, 0.04, 0.35);
   const saturation = clamp(options.saturation ?? 1.12, 1, 1.5);
 
-  // Auto Color-style neutralization: use the brightest portion of the frame as
+  // QuadQR Auto Color-style neutralization: use the brightest portion of the frame as
   // a likely white reference. This is especially effective on warm/yellow
   // phone-camera frames where the blue channel is suppressed.
   const luminanceHistogram = new Uint32Array(256);

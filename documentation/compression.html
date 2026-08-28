@@ -1,51 +1,50 @@
-<!doctype html>
-<html lang="en" data-theme="light">
+<!DOCTYPE html>
+
+<html data-theme="light" lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format.">
-  <meta name="color-scheme" content="light dark">
-  <title>Compression | QuadQR Documentation</title>
-  <link rel="stylesheet" href="./styles.css">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format." name="description"/>
+<meta content="light dark" name="color-scheme"/>
+<title>Compression | QuadQR Documentation</title>
+<link href="./styles.css" rel="stylesheet"/>
 </head>
 <body data-page="compression">
-  <header class="topbar">
-    <div class="topbar-left">
-      <button class="icon-button mobile-menu" type="button" aria-label="Open navigation" data-menu-button>☰</button>
-      <a class="brand" href="index.html" aria-label="QuadQR documentation home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
-      </a>
-    </div>
-    <div class="top-actions">
-      <button class="search-button" type="button" data-search-open><span>Search documentation</span><kbd>/</kbd></button>
-      <a href="../demo/">Demo</a>
-      <a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
-      <a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
-      <button class="icon-button" type="button" aria-label="Toggle theme" data-theme-toggle>◐</button>
-    </div>
-  </header>
-
-  <div class="mobile-backdrop" data-mobile-backdrop></div>
-  <div class="docs-shell">
-    <aside class="sidebar" data-sidebar>
-      <div class="sidebar-inner">
-        <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a class="active" href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
-        <div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
-      </div>
-    </aside>
-
-    <main class="main-content">
-      <article class="doc-article">
-        <header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>Compression</h1></header>
-        <p>QuadQR keeps compression as an internal transport detail around normal text or byte payloads. It does not introduce a payload type system, and the decompressor does not need to know which compression level was used.</p>
-<h2 id="modes">Modes<a class="heading-anchor" href="#modes" aria-label="Link to Modes">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">encodeText(text, { compression: &quot;none&quot; });
-encodeText(text, { compression: &quot;auto&quot; });
-encodeText(text, { compression: &quot;smart&quot; });
-encodeText(text, { compression: &quot;brotli&quot; });
-encodeText(text, { compression: &quot;deflate&quot; });
-encodeText(text, { compression: &quot;lz&quot; });
+<header class="topbar">
+<div class="topbar-left">
+<button aria-label="Open navigation" class="icon-button mobile-menu" data-menu-button="" type="button">☰</button>
+<a aria-label="QuadQR documentation home" class="brand" href="index.html">
+<span aria-hidden="true" class="brand-mark"><i></i><i></i><i></i><i></i></span>
+<span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
+</a>
+</div>
+<div class="top-actions">
+<button class="search-button" data-search-open="" type="button"><span>Search documentation</span><kbd>/</kbd></button>
+<a href="../demo/">Demo</a>
+<a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
+<a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
+<button aria-label="Toggle theme" class="icon-button" data-theme-toggle="" type="button">◐</button>
+</div>
+</header>
+<div class="mobile-backdrop" data-mobile-backdrop=""></div>
+<div class="docs-shell">
+<aside class="sidebar" data-sidebar="">
+<div class="sidebar-inner">
+<div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a class="active" href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
+<div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+</div>
+</aside>
+<main class="main-content">
+<article class="doc-article">
+<header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>Compression</h1></header><div class="callout info"><strong>Complete option definitions</strong><p>All compression mode and level fields are listed in the <a href="options.html#compression">Configuration Reference</a>.</p></div>
+<p>QuadQR keeps compression as an internal transport detail around normal text or byte payloads. It does not introduce a payload type system, and the decompressor does not need to know which compression level was used.</p>
+<h2 id="modes">Modes<a aria-label="Link to Modes" class="heading-anchor" href="#modes">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">encodeText(text, { compression: "none" });
+encodeText(text, { compression: "auto" });
+encodeText(text, { compression: "smart" });
+encodeText(text, { compression: "brotli" });
+encodeText(text, { compression: "deflate" });
+encodeText(text, { compression: "lz" });
 </code></pre></div>
 <ul>
 <li><code>none</code> stores the application payload directly.</li>
@@ -56,9 +55,9 @@ encodeText(text, { compression: &quot;lz&quot; });
 <li><code>lz</code> forces the original QuadQR LZSS-style stream for compatibility and testing.</li>
 </ul>
 <p>For unsigned payloads, <code>auto</code> and <code>smart</code> include the 16-byte internal extension-envelope cost when deciding whether compression helps. If compression would not make the complete stored representation smaller, the original payload is kept with no compression envelope. Signed payloads already require the extension envelope, so their comparison includes the fixed signing metadata automatically. Secure payload planning also includes the fixed encryption-envelope overhead when Smart evaluates version boundaries.</p>
-<h2 id="auto-versus-smart">Auto versus Smart<a class="heading-anchor" href="#auto-versus-smart" aria-label="Link to Auto versus Smart">#</a></h2>
+<h2 id="auto-versus-smart">Auto versus Smart<a aria-label="Link to Auto versus Smart" class="heading-anchor" href="#auto-versus-smart">#</a></h2>
 <p><code>auto</code> intentionally avoids expensive maximum-quality passes:</p>
-<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">Raw
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-text">Raw
 LZ level 6
 DEFLATE level 6
 Brotli quality 6
@@ -66,7 +65,7 @@ Brotli quality 6
 smallest final representation
 </code></pre></div>
 <p><code>smart</code> begins the same way, then considers the next smaller QuadQR version. When that boundary is close enough to be plausible, it escalates in stages:</p>
-<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">Balanced pass
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-text">Balanced pass
   LZ 6
   DEFLATE 6
   Brotli 6
@@ -85,66 +84,66 @@ Maximum pass
 </code></pre></div>
 <p>Smart is deliberately CPU-heavy and should be used when minimizing the physical matrix matters more than generation time. If an exact <code>version</code> is requested and the balanced pass does not fit, Smart may also escalate to stronger levels when that can plausibly make the requested version fit. The current plausibility gates are intentionally conservative: the strong stage is considered when the next boundary is within 30% of the current stored size or 192 bytes, and the maximum stage when it is within 16% or 96 bytes. The demo runs Smart in a Web Worker so the browser UI remains responsive.</p>
 <p>The generated code object includes generation-only diagnostics such as <code>compressionLevel</code>, <code>compressionStrategy</code>, and <code>smartCompression</code>. Compression level is not stored in the QuadQR because LZ, DEFLATE, and Brotli decoders do not need it.</p>
-<h2 id="explicit-compression-levels">Explicit compression levels<a class="heading-anchor" href="#explicit-compression-levels" aria-label="Link to Explicit compression levels">#</a></h2>
+<h2 id="explicit-compression-levels">Explicit compression levels<a aria-label="Link to Explicit compression levels" class="heading-anchor" href="#explicit-compression-levels">#</a></h2>
 <p>Use the generic <code>compressionLevel</code> option when you explicitly select LZ, DEFLATE, or Brotli:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const lz = encodeText(text, {
-  compression: &quot;lz&quot;,
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const lz = encodeText(text, {
+  compression: "lz",
   compressionLevel: 9
 });
 
 const deflated = encodeText(text, {
-  compression: &quot;deflate&quot;,
+  compression: "deflate",
   compressionLevel: 9
 });
 
 const brotlied = encodeText(text, {
-  compression: &quot;brotli&quot;,
+  compression: "brotli",
   compressionLevel: 11
 });
 </code></pre></div>
 <p>Ranges and defaults:</p>
 <div class="table-wrap"><table><thead>
 <tr>
-  <th>Algorithm</th>
-  <th style="text-align:right">Range</th>
-  <th style="text-align:right">Explicit default</th>
+<th>Algorithm</th>
+<th style="text-align:right">Range</th>
+<th style="text-align:right">Explicit default</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-  <td>Legacy LZ</td>
-  <td style="text-align:right">1..9</td>
-  <td style="text-align:right">6</td>
+<td>Legacy LZ</td>
+<td style="text-align:right">1..9</td>
+<td style="text-align:right">6</td>
 </tr>
 <tr>
-  <td>DEFLATE</td>
-  <td style="text-align:right">1..9</td>
-  <td style="text-align:right">6</td>
+<td>DEFLATE</td>
+<td style="text-align:right">1..9</td>
+<td style="text-align:right">6</td>
 </tr>
 <tr>
-  <td>Brotli</td>
-  <td style="text-align:right">0..11</td>
-  <td style="text-align:right">11</td>
+<td>Brotli</td>
+<td style="text-align:right">0..11</td>
+<td style="text-align:right">11</td>
 </tr>
 </tbody>
 </table></div>
 <p>Algorithm-specific aliases are also accepted: <code>lzLevel</code>, <code>deflateLevel</code>, and <code>brotliQuality</code>. <code>compressionLevel</code> is the recommended public option.</p>
 <p>Levels only affect encoder CPU/search effort and output size. They do not change the compression ID or decoder behavior.</p>
-<h2 id="legacy-lz-profile">Legacy LZ profile<a class="heading-anchor" href="#legacy-lz-profile" aria-label="Link to Legacy LZ profile">#</a></h2>
+<h2 id="legacy-lz-profile">Legacy LZ profile<a aria-label="Link to Legacy LZ profile" class="heading-anchor" href="#legacy-lz-profile">#</a></h2>
 <p>Compression ID <code>1</code> keeps the original QuadQR LZSS-style wire format. Levels <code>1..9</code> only control how much encoder work is spent walking candidate history and, at stronger levels, bounded lazy-match lookahead. Level 6 preserves the historical 32-candidate QuadQR search depth, so existing callers that do not pass a level keep the same default behavior.</p>
 <p>The direct helpers are:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">compressPayload(bytes, { level: 9 });
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">compressPayload(bytes, { level: 9 });
 decompressPayload(compressedBytes, originalLength);
 </code></pre></div>
 <p>The LZ window remains 4095 bytes and each back-reference still represents a 3..18 byte match. The compressed stream format is identical at every level, so the level is never serialized and old/new LZ decoders remain compatible. Auto and Smart use LZ level 6; Smart does not escalate LZ because its additional staged CPU budget is reserved for the stronger DEFLATE/Brotli candidates.</p>
-<h2 id="brotli-profile">Brotli profile<a class="heading-anchor" href="#brotli-profile" aria-label="Link to Brotli profile">#</a></h2>
+<h2 id="brotli-profile">Brotli profile<a aria-label="Link to Brotli profile" class="heading-anchor" href="#brotli-profile">#</a></h2>
 <p>Compression ID <code>3</code> is a standard Brotli stream. QuadQR vendors the codec into the library so Brotli compression and decompression are synchronous and available in browser ESM, the classic browser bundle, Web Workers, and server-side Node.js without a runtime package or native binding.</p>
 <p>The direct helpers are:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">compressBrotliPayload(bytes, { quality: 9 });
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">compressBrotliPayload(bytes, { quality: 9 });
 decompressBrotliPayload(compressedBytes, originalLength);
 </code></pre></div>
-<p>Brotli quality accepts integers <code>0..11</code>. Explicit <code>compression: &quot;brotli&quot;</code> defaults to quality 11 for backward compatibility. <code>auto</code> starts at quality 6. <code>smart</code> starts at 6 and may test 9 and 11 when a smaller QuadQR version is plausible.</p>
-<h2 id="portable-deflate-profile">Portable DEFLATE profile<a class="heading-anchor" href="#portable-deflate-profile" aria-label="Link to Portable DEFLATE profile">#</a></h2>
+<p>Brotli quality accepts integers <code>0..11</code>. Explicit <code>compression: "brotli"</code> defaults to quality 11 for backward compatibility. <code>auto</code> starts at quality 6. <code>smart</code> starts at 6 and may test 9 and 11 when a smaller QuadQR version is plausible.</p>
+<h2 id="portable-deflate-profile">Portable DEFLATE profile<a aria-label="Link to Portable DEFLATE profile" class="heading-anchor" href="#portable-deflate-profile">#</a></h2>
 <p>Compression ID <code>2</code> is a raw RFC 1951 DEFLATE stream. QuadQR's bundled encoder uses a fixed-Huffman block with level-dependent LZ77 match-search effort. It supports:</p>
 <ul>
 <li>a 32 KiB LZ77 window;</li>
@@ -156,48 +155,45 @@ decompressBrotliPayload(compressedBytes, originalLength);
 <li>no runtime dependency.</li>
 </ul>
 <p>The direct helpers are:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">compressDeflatePayload(bytes, { level: 9 });
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">compressDeflatePayload(bytes, { level: 9 });
 decompressDeflatePayload(compressedBytes, originalLength);
 </code></pre></div>
 <p>The stream remains standard raw DEFLATE at every level. The level is not serialized.</p>
-<h2 id="nodejs-and-browser-portability">Node.js and browser portability<a class="heading-anchor" href="#nodejs-and-browser-portability" aria-label="Link to Node.js and browser portability">#</a></h2>
+<h2 id="nodejs-and-browser-portability">Node.js and browser portability<a aria-label="Link to Node.js and browser portability" class="heading-anchor" href="#nodejs-and-browser-portability">#</a></h2>
 <p>All payload compression paths are bundled JavaScript. The library does not import <code>node:zlib</code>, use browser <code>CompressionStream</code>, depend on DOM APIs, or fetch a codec at runtime.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { encodeText, decodeMatrix } from &quot;quadqr-js&quot;;
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { encodeText, decodeMatrix } from "quadqr-js";
 
-const code = encodeText(&quot;hello &quot;.repeat(1000), {
-  compression: &quot;smart&quot;
+const code = encodeText("hello ".repeat(1000), {
+  compression: "smart"
 });
 
 const decoded = decodeMatrix(code.matrix);
 console.log(code.compression, code.compressionLevel);
 console.log(decoded.compression); // decoder only needs the algorithm ID
 </code></pre></div>
-<h2 id="compression-ids-and-compatibility">Compression IDs and compatibility<a class="heading-anchor" href="#compression-ids-and-compatibility" aria-label="Link to Compression IDs and compatibility">#</a></h2>
+<h2 id="compression-ids-and-compatibility">Compression IDs and compatibility<a aria-label="Link to Compression IDs and compatibility" class="heading-anchor" href="#compression-ids-and-compatibility">#</a></h2>
 <p>The internal envelope keeps the stable IDs:</p>
-<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button type="button" data-copy>Copy</button></div><pre><code class="language-text">0 = none
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-text">0 = none
 1 = legacy LZ
 2 = raw DEFLATE
 3 = Brotli
 </code></pre></div>
 <p>Compression level is intentionally not part of the envelope. Existing LZ, DEFLATE, and Brotli decoders remain compatible with streams produced at any supported level.</p>
-
-        <nav class="page-pager" aria-label="Documentation pagination"><a class="prev" href="scanning.html"><span>Previous</span><strong>← Scanning &amp; Camera</strong></a><a class="next" href="security.html"><span>Next</span><strong>Secure Payloads →</strong></a></nav>
-        <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
-      </article>
-      <aside class="toc"><div class="toc-title">On this page</div><a href="#modes">Modes</a><a href="#auto-versus-smart">Auto versus Smart</a><a href="#explicit-compression-levels">Explicit compression levels</a><a href="#legacy-lz-profile">Legacy LZ profile</a><a href="#brotli-profile">Brotli profile</a><a href="#portable-deflate-profile">Portable DEFLATE profile</a><a href="#nodejs-and-browser-portability">Node.js and browser portability</a><a href="#compression-ids-and-compatibility">Compression IDs and compatibility</a></aside>
-    </main>
-  </div>
-
-  <div class="search-modal" data-search-modal aria-hidden="true">
-    <div class="search-backdrop" data-search-close></div>
-    <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search QuadQR documentation">
-      <div class="search-input-wrap"><span>⌕</span><input type="search" placeholder="Search documentation…" autocomplete="off" data-search-input><kbd>Esc</kbd></div>
-      <div class="search-results" data-search-results><div class="search-empty">Type to search pages and sections.</div></div>
-    </div>
-  </div>
-
-  <script src="./search-index.js"></script>
-  <script src="../dist/quadqr.min.js"></script>
-  <script src="./app.js"></script>
+<nav aria-label="Documentation pagination" class="page-pager"><a class="prev" href="scanning.html"><span>Previous</span><strong>← Scanning &amp; Camera</strong></a><a class="next" href="security.html"><span>Next</span><strong>Secure Payloads →</strong></a></nav>
+<footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
+</article>
+<aside class="toc"><div class="toc-title">On this page</div><a href="#modes">Modes</a><a href="#auto-versus-smart">Auto versus Smart</a><a href="#explicit-compression-levels">Explicit compression levels</a><a href="#legacy-lz-profile">Legacy LZ profile</a><a href="#brotli-profile">Brotli profile</a><a href="#portable-deflate-profile">Portable DEFLATE profile</a><a href="#nodejs-and-browser-portability">Node.js and browser portability</a><a href="#compression-ids-and-compatibility">Compression IDs and compatibility</a></aside>
+</main>
+</div>
+<div aria-hidden="true" class="search-modal" data-search-modal="">
+<div class="search-backdrop" data-search-close=""></div>
+<div aria-label="Search QuadQR documentation" aria-modal="true" class="search-panel" role="dialog">
+<div class="search-input-wrap"><span>⌕</span><input autocomplete="off" data-search-input="" placeholder="Search documentation…" type="search"/><kbd>Esc</kbd></div>
+<div class="search-results" data-search-results=""><div class="search-empty">Type to search pages and sections.</div></div>
+</div>
+</div>
+<script src="./search-index.js"></script>
+<script src="../dist/quadqr.min.js"></script>
+<script src="./app.js"></script>
 </body>
 </html>

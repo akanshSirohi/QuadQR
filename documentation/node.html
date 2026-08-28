@@ -1,125 +1,124 @@
-<!doctype html>
-<html lang="en" data-theme="light">
+<!DOCTYPE html>
+
+<html data-theme="light" lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format.">
-  <meta name="color-scheme" content="light dark">
-  <title>Node.js | QuadQR Documentation</title>
-  <link rel="stylesheet" href="./styles.css">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format." name="description"/>
+<meta content="light dark" name="color-scheme"/>
+<title>Node.js | QuadQR Documentation</title>
+<link href="./styles.css" rel="stylesheet"/>
 </head>
 <body data-page="node">
-  <header class="topbar">
-    <div class="topbar-left">
-      <button class="icon-button mobile-menu" type="button" aria-label="Open navigation" data-menu-button>☰</button>
-      <a class="brand" href="index.html" aria-label="QuadQR documentation home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
-      </a>
-    </div>
-    <div class="top-actions">
-      <button class="search-button" type="button" data-search-open><span>Search documentation</span><kbd>/</kbd></button>
-      <a href="../demo/">Demo</a>
-      <a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
-      <a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
-      <button class="icon-button" type="button" aria-label="Toggle theme" data-theme-toggle>◐</button>
-    </div>
-  </header>
-
-  <div class="mobile-backdrop" data-mobile-backdrop></div>
-  <div class="docs-shell">
-    <aside class="sidebar" data-sidebar>
-      <div class="sidebar-inner">
-        <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a class="active" href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
-        <div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
-      </div>
-    </aside>
-
-    <main class="main-content">
-      <article class="doc-article">
-        <header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>Node.js</h1></header>
-        <p>QuadQR uses the same matrix codec and scanner core in Node.js and the browser. The <code>quadqr-js/node</code> entry adds Node-specific PNG, file, and buffer helpers.</p>
-<h2 id="requirements">Requirements<a class="heading-anchor" href="#requirements" aria-label="Link to Requirements">#</a></h2>
+<header class="topbar">
+<div class="topbar-left">
+<button aria-label="Open navigation" class="icon-button mobile-menu" data-menu-button="" type="button">☰</button>
+<a aria-label="QuadQR documentation home" class="brand" href="index.html">
+<span aria-hidden="true" class="brand-mark"><i></i><i></i><i></i><i></i></span>
+<span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
+</a>
+</div>
+<div class="top-actions">
+<button class="search-button" data-search-open="" type="button"><span>Search documentation</span><kbd>/</kbd></button>
+<a href="../demo/">Demo</a>
+<a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
+<a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
+<button aria-label="Toggle theme" class="icon-button" data-theme-toggle="" type="button">◐</button>
+</div>
+</header>
+<div class="mobile-backdrop" data-mobile-backdrop=""></div>
+<div class="docs-shell">
+<aside class="sidebar" data-sidebar="">
+<div class="sidebar-inner">
+<div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a class="active" href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
+<div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+</div>
+</aside>
+<main class="main-content">
+<article class="doc-article">
+<header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>Node.js</h1></header>
+<p>QuadQR uses the same matrix codec and scanner core in Node.js and the browser. The <code>quadqr-js/node</code> entry adds Node-specific PNG, file, and buffer helpers.</p>
+<h2 id="requirements">Requirements<a aria-label="Link to Requirements" class="heading-anchor" href="#requirements">#</a></h2>
 <p>Node.js 20.19 or newer.</p>
-<h2 id="esm">ESM<a class="heading-anchor" href="#esm" aria-label="Link to ESM">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { encodeText } from &quot;quadqr-js&quot;;
-import { savePNG, saveSVG, scanFile } from &quot;quadqr-js/node&quot;;
+<h2 id="esm">ESM<a aria-label="Link to ESM" class="heading-anchor" href="#esm">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { encodeText } from "quadqr-js";
+import { savePNG, saveSVG, scanFile } from "quadqr-js/node";
 </code></pre></div>
-<h2 id="commonjs">CommonJS<a class="heading-anchor" href="#commonjs" aria-label="Link to CommonJS">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const QuadQR = require(&quot;quadqr-js&quot;);
-const QuadQRNode = require(&quot;quadqr-js/node&quot;);
+<h2 id="commonjs">CommonJS<a aria-label="Link to CommonJS" class="heading-anchor" href="#commonjs">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const QuadQR = require("quadqr-js");
+const QuadQRNode = require("quadqr-js/node");
 </code></pre></div>
-<h2 id="generate-a-png">Generate a PNG<a class="heading-anchor" href="#generate-a-png" aria-label="Link to Generate a PNG">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const code = QuadQR.encodeText(&quot;Server generated&quot;);
+<h2 id="generate-a-png">Generate a PNG<a aria-label="Link to Generate a PNG" class="heading-anchor" href="#generate-a-png">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const code = QuadQR.encodeText("Server generated");
 
-await QuadQRNode.savePNG(code, &quot;output.png&quot;, {
+await QuadQRNode.savePNG(code, "output.png", {
   imageSize: 720,
   quietZone: 4
 });
 </code></pre></div>
-<h2 id="generate-an-svg">Generate an SVG<a class="heading-anchor" href="#generate-an-svg" aria-label="Link to Generate an SVG">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">await QuadQRNode.saveSVG(code, &quot;output.svg&quot;, {
+<h2 id="generate-an-svg">Generate an SVG<a aria-label="Link to Generate an SVG" class="heading-anchor" href="#generate-an-svg">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">await QuadQRNode.saveSVG(code, "output.svg", {
   imageSize: 720,
   quietZone: 4,
-  style: &quot;classic&quot;
+  style: "classic"
 });
 </code></pre></div>
 <p><code>imageSize</code> is the exact PNG/SVG output dimension in pixels. If you omit both <code>imageSize</code> and <code>moduleSize</code>, rendering defaults to 720 × 720 px. <code>moduleSize</code> remains available for legacy pixels-per-module sizing.</p>
 <p>Use <code>toSVG()</code> when you need the SVG string in memory. SVG logo sources can be URL/data URL strings. For PNG generation with a logo through <code>renderToImageData()</code>, pass decoded ImageData-like RGBA pixels as the logo source.</p>
 <p>Use <code>toPNG()</code> when you need an in-memory <code>Buffer</code>:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const png = QuadQRNode.toPNG(code);
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const png = QuadQRNode.toPNG(code);
 </code></pre></div>
 <p>This works well for HTTP responses, object storage, attachments, and other buffer-based workflows.</p>
-<h2 id="scan-a-png-file">Scan a PNG file<a class="heading-anchor" href="#scan-a-png-file" aria-label="Link to Scan a PNG file">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const result = await QuadQRNode.scanFile(&quot;output.png&quot;);
+<h2 id="scan-a-png-file">Scan a PNG file<a aria-label="Link to Scan a PNG file" class="heading-anchor" href="#scan-a-png-file">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const result = await QuadQRNode.scanFile("output.png");
 console.log(result.text);
 </code></pre></div>
 <p>Or scan a buffer:</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">const result = await QuadQRNode.scanBuffer(pngBuffer);
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const result = await QuadQRNode.scanBuffer(pngBuffer);
 </code></pre></div>
 <p>PNG generation and decoding do not require external native dependencies.</p>
-<h2 id="server-side-compression">Server-side compression<a class="heading-anchor" href="#server-side-compression" aria-label="Link to Server-side compression">#</a></h2>
+<h2 id="server-side-compression">Server-side compression<a aria-label="Link to Server-side compression" class="heading-anchor" href="#server-side-compression">#</a></h2>
 <p>Compression uses the same synchronous JavaScript codec on Node.js as it does in the browser. No DOM API, browser <code>CompressionStream</code>, or Node <code>zlib</code> call is required by the QuadQR payload codec.</p>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import { encodeText, decodeMatrix } from &quot;quadqr-js&quot;;
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { encodeText, decodeMatrix } from "quadqr-js";
 
-const code = encodeText(&quot;hello &quot;.repeat(1000), {
-  compression: &quot;auto&quot;
+const code = encodeText("hello ".repeat(1000), {
+  compression: "auto"
 });
 
-const smallest = encodeText(&quot;structured payload &quot;.repeat(500), {
-  compression: &quot;smart&quot;
+const smallest = encodeText("structured payload ".repeat(500), {
+  compression: "smart"
 });
 
 const decoded = decodeMatrix(code.matrix);
-console.log(decoded.compression); // usually &quot;brotli&quot; for repetitive data
+console.log(decoded.compression); // usually "brotli" for repetitive data
 console.log(decoded.text);
 </code></pre></div>
-<p><code>compression: &quot;auto&quot;</code> performs one balanced comparison using LZ level 6, DEFLATE level 6, and Brotli quality 6. <code>compression: &quot;smart&quot;</code> is the opt-in CPU-heavy mode and escalates to stronger levels only when a smaller QuadQR version is realistically reachable. Explicit <code>lz</code> and <code>deflate</code> accept <code>compressionLevel: 1..9</code> (default 6), while explicit <code>brotli</code> accepts <code>compressionLevel: 0..11</code> (default 11). <code>lzLevel</code>, <code>deflateLevel</code>, and <code>brotliQuality</code> are available as algorithm-specific aliases.</p>
-<h2 id="other-image-formats">Other image formats<a class="heading-anchor" href="#other-image-formats" aria-label="Link to Other image formats">#</a></h2>
+<p><code>compression: "auto"</code> performs one balanced comparison using LZ level 6, DEFLATE level 6, and Brotli quality 6. <code>compression: "smart"</code> is the opt-in CPU-heavy mode and escalates to stronger levels only when a smaller QuadQR version is realistically reachable. Explicit <code>lz</code> and <code>deflate</code> accept <code>compressionLevel: 1..9</code> (default 6), while explicit <code>brotli</code> accepts <code>compressionLevel: 0..11</code> (default 11). <code>lzLevel</code>, <code>deflateLevel</code>, and <code>brotliQuality</code> are available as algorithm-specific aliases.</p>
+<h2 id="other-image-formats">Other image formats<a aria-label="Link to Other image formats" class="heading-anchor" href="#other-image-formats">#</a></h2>
 <p>For JPEG, WebP, or AVIF input, the Node adapter can use <code>sharp</code> when the consuming application has it installed:</p>
-<div class="code-block"><div class="code-toolbar"><span>BASH</span><button type="button" data-copy>Copy</button></div><pre><code class="language-bash">npm install sharp
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npm install sharp
 </code></pre></div>
 <p>If <code>sharp</code> is not installed, decode the image to RGBA in your own image pipeline and pass the pixels to <code>scanImageData()</code>.</p>
-<h2 id="secure-password-workflow">Secure password workflow<a class="heading-anchor" href="#secure-password-workflow" aria-label="Link to Secure password workflow">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import {
+<h2 id="secure-password-workflow">Secure password workflow<a aria-label="Link to Secure password workflow" class="heading-anchor" href="#secure-password-workflow">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import {
   decryptDecoded,
   encodeSecureText
-} from &quot;quadqr-js&quot;;
+} from "quadqr-js";
 import {
   savePNG,
   scanFile
-} from &quot;quadqr-js/node&quot;;
+} from "quadqr-js/node";
 
-const code = await encodeSecureText(&quot;private&quot;, {
+const code = await encodeSecureText("private", {
   security: {
-    mode: &quot;password&quot;,
+    mode: "password",
     password: process.env.QUADQR_PASSWORD
   }
 });
 
-await savePNG(code, &quot;secure.png&quot;);
+await savePNG(code, "secure.png");
 
-const locked = await scanFile(&quot;secure.png&quot;);
+const locked = await scanFile("secure.png");
 
 const unlocked = await decryptDecoded(locked, {
   password: process.env.QUADQR_PASSWORD
@@ -127,19 +126,19 @@ const unlocked = await decryptDecoded(locked, {
 
 console.log(unlocked.text);
 </code></pre></div>
-<h2 id="secure-raw-key-workflow">Secure raw-key workflow<a class="heading-anchor" href="#secure-raw-key-workflow" aria-label="Link to Secure raw-key workflow">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import {
+<h2 id="secure-raw-key-workflow">Secure raw-key workflow<a aria-label="Link to Secure raw-key workflow" class="heading-anchor" href="#secure-raw-key-workflow">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import {
   decryptDecoded,
   encodeSecureText,
   generateRaw256Key
-} from &quot;quadqr-js&quot;;
-import { toPNG, scanBuffer } from &quot;quadqr-js/node&quot;;
+} from "quadqr-js";
+import { toPNG, scanBuffer } from "quadqr-js/node";
 
 const key = generateRaw256Key();
 
-const code = await encodeSecureText(&quot;machine secret&quot;, {
+const code = await encodeSecureText("machine secret", {
   security: {
-    mode: &quot;raw-key&quot;,
+    mode: "raw-key",
     key
   }
 });
@@ -151,24 +150,21 @@ const unlocked = await decryptDecoded(locked, { key });
 console.log(unlocked.text);
 </code></pre></div>
 <p>Keep long-lived application keys in an appropriate secret-management or platform key-storage system.</p>
-
-        <nav class="page-pager" aria-label="Documentation pagination"><a class="prev" href="browser.html"><span>Previous</span><strong>← Browser &amp; CDN</strong></a><a class="next" href="scanning.html"><span>Next</span><strong>Scanning &amp; Camera →</strong></a></nav>
-        <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
-      </article>
-      <aside class="toc"><div class="toc-title">On this page</div><a href="#requirements">Requirements</a><a href="#esm">ESM</a><a href="#commonjs">CommonJS</a><a href="#generate-a-png">Generate a PNG</a><a href="#generate-an-svg">Generate an SVG</a><a href="#scan-a-png-file">Scan a PNG file</a><a href="#server-side-compression">Server-side compression</a><a href="#other-image-formats">Other image formats</a><a href="#secure-password-workflow">Secure password workflow</a><a href="#secure-raw-key-workflow">Secure raw-key workflow</a></aside>
-    </main>
-  </div>
-
-  <div class="search-modal" data-search-modal aria-hidden="true">
-    <div class="search-backdrop" data-search-close></div>
-    <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search QuadQR documentation">
-      <div class="search-input-wrap"><span>⌕</span><input type="search" placeholder="Search documentation…" autocomplete="off" data-search-input><kbd>Esc</kbd></div>
-      <div class="search-results" data-search-results><div class="search-empty">Type to search pages and sections.</div></div>
-    </div>
-  </div>
-
-  <script src="./search-index.js"></script>
-  <script src="../dist/quadqr.min.js"></script>
-  <script src="./app.js"></script>
+<nav aria-label="Documentation pagination" class="page-pager"><a class="prev" href="browser.html"><span>Previous</span><strong>← Browser &amp; CDN</strong></a><a class="next" href="scanning.html"><span>Next</span><strong>Scanning &amp; Camera →</strong></a></nav>
+<footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
+</article>
+<aside class="toc"><div class="toc-title">On this page</div><a href="#requirements">Requirements</a><a href="#esm">ESM</a><a href="#commonjs">CommonJS</a><a href="#generate-a-png">Generate a PNG</a><a href="#generate-an-svg">Generate an SVG</a><a href="#scan-a-png-file">Scan a PNG file</a><a href="#server-side-compression">Server-side compression</a><a href="#other-image-formats">Other image formats</a><a href="#secure-password-workflow">Secure password workflow</a><a href="#secure-raw-key-workflow">Secure raw-key workflow</a></aside>
+</main>
+</div>
+<div aria-hidden="true" class="search-modal" data-search-modal="">
+<div class="search-backdrop" data-search-close=""></div>
+<div aria-label="Search QuadQR documentation" aria-modal="true" class="search-panel" role="dialog">
+<div class="search-input-wrap"><span>⌕</span><input autocomplete="off" data-search-input="" placeholder="Search documentation…" type="search"/><kbd>Esc</kbd></div>
+<div class="search-results" data-search-results=""><div class="search-empty">Type to search pages and sections.</div></div>
+</div>
+</div>
+<script src="./search-index.js"></script>
+<script src="../dist/quadqr.min.js"></script>
+<script src="./app.js"></script>
 </body>
 </html>

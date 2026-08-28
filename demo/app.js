@@ -1252,7 +1252,7 @@ function friendlyScanMethod(method) {
     "fast-scan": "Fast scan",
     "finder-recovery": "Finder recovery",
     "high-resolution-geometry-recovery": "High-res geometry",
-    "camera-auto-color": "Camera Auto Color",
+    "camera-auto-color": "QuadQR Camera Auto Color",
     "progressive-color-recovery": "Color recovery",
     "qr-region-auto-enhance": "QR color enhance",
     "module-grid-auto-tone-contrast-color": "Module auto enhance",
@@ -1265,7 +1265,7 @@ function friendlyScanMethod(method) {
   };
   if (!method) return "Searching";
   if (names[method]) return names[method];
-  if (String(method).startsWith("camera-auto-color-")) return "Camera Auto Color";
+  if (String(method).startsWith("camera-auto-color-")) return "QuadQR Camera Auto Color";
   if (String(method).includes("auto-tone-contrast-color")) return "Auto Tone / Contrast / Color";
   return String(method).replaceAll("-", " ");
 }
@@ -1274,7 +1274,7 @@ function friendlyFinderMethod(method) {
   const names = {
     "rgb-value-otsu": "RGB value/Otsu",
     "rgb-value-otsu-two-finder-recovery": "RGB value/two-finder recovery",
-    "auto-color-value-otsu": "Auto Color value/Otsu",
+    "auto-color-value-otsu": "QuadQR Auto Color value/Otsu",
     "rgb-value-high-threshold": "RGB value/high threshold",
     "rgb-value-low-threshold": "RGB value/low threshold",
     "luminance-otsu": "Luminance/Otsu"
@@ -1283,7 +1283,7 @@ function friendlyFinderMethod(method) {
   if (names[method]) return names[method];
   if (String(method).endsWith("-two-finder-recovery")) return `${String(method).replace("-two-finder-recovery", "").replaceAll("-", " ")} / two-finder recovery`;
   const match = String(method).match(/^auto-color-center(\d+)-(otsu|high)$/);
-  if (match) return `Auto Color center ${Number(match[1])}%/${match[2] === "otsu" ? "Otsu" : "high"}`;
+  if (match) return `QuadQR Auto Color center ${Number(match[1])}%/${match[2] === "otsu" ? "Otsu" : "high"}`;
   return String(method).replaceAll("-", " ");
 }
 

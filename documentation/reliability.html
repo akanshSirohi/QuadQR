@@ -1,46 +1,45 @@
-<!doctype html>
-<html lang="en" data-theme="light">
+<!DOCTYPE html>
+
+<html data-theme="light" lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format.">
-  <meta name="color-scheme" content="light dark">
-  <title>Reliability Lab | QuadQR Documentation</title>
-  <link rel="stylesheet" href="./styles.css">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<meta content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format." name="description"/>
+<meta content="light dark" name="color-scheme"/>
+<title>Reliability Lab | QuadQR Documentation</title>
+<link href="./styles.css" rel="stylesheet"/>
 </head>
 <body data-page="reliability">
-  <header class="topbar">
-    <div class="topbar-left">
-      <button class="icon-button mobile-menu" type="button" aria-label="Open navigation" data-menu-button>☰</button>
-      <a class="brand" href="index.html" aria-label="QuadQR documentation home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
-      </a>
-    </div>
-    <div class="top-actions">
-      <button class="search-button" type="button" data-search-open><span>Search documentation</span><kbd>/</kbd></button>
-      <a href="../demo/">Demo</a>
-      <a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
-      <a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
-      <button class="icon-button" type="button" aria-label="Toggle theme" data-theme-toggle>◐</button>
-    </div>
-  </header>
-
-  <div class="mobile-backdrop" data-mobile-backdrop></div>
-  <div class="docs-shell">
-    <aside class="sidebar" data-sidebar>
-      <div class="sidebar-inner">
-        <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a class="active" href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
-        <div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
-      </div>
-    </aside>
-
-    <main class="main-content">
-      <article class="doc-article">
-        <header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>Reliability Lab</h1></header>
-        <p>QuadQR includes a deterministic Reliability Lab for regression testing generated symbols against camera-style damage. It is intended for comparing scanner changes, render settings, ECC profiles, output size, and the experimental High Density Mode under repeatable conditions.</p>
+<header class="topbar">
+<div class="topbar-left">
+<button aria-label="Open navigation" class="icon-button mobile-menu" data-menu-button="" type="button">☰</button>
+<a aria-label="QuadQR documentation home" class="brand" href="index.html">
+<span aria-hidden="true" class="brand-mark"><i></i><i></i><i></i><i></i></span>
+<span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
+</a>
+</div>
+<div class="top-actions">
+<button class="search-button" data-search-open="" type="button"><span>Search documentation</span><kbd>/</kbd></button>
+<a href="../demo/">Demo</a>
+<a href="https://www.npmjs.com/package/quadqr-js" rel="noreferrer">npm</a>
+<a href="https://github.com/akanshsirohi/QuadQR" rel="noreferrer">GitHub</a>
+<button aria-label="Toggle theme" class="icon-button" data-theme-toggle="" type="button">◐</button>
+</div>
+</header>
+<div class="mobile-backdrop" data-mobile-backdrop=""></div>
+<div class="docs-shell">
+<aside class="sidebar" data-sidebar="">
+<div class="sidebar-inner">
+<div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a class="active" href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
+<div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+</div>
+</aside>
+<main class="main-content">
+<article class="doc-article">
+<header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>Reliability Lab</h1></header><div class="callout info"><strong>Complete option definitions</strong><p>All Reliability Lab, stress-distortion, and perspective-sweep parameters are listed in the <a href="options.html#reliability-options">Configuration Reference</a>.</p></div>
+<p>QuadQR includes a deterministic Reliability Lab for regression testing generated symbols against camera-style damage. It is intended for comparing scanner changes, render settings, ECC profiles, output size, and the experimental High Density Mode under repeatable conditions.</p>
 <p>The lab verifies the decoded payload CRC. Finding three locators is not counted as success unless the final payload is recovered correctly.</p>
-<h2 id="browser-demo">Browser demo<a class="heading-anchor" href="#browser-demo" aria-label="Link to Browser demo">#</a></h2>
+<h2 id="browser-demo">Browser demo<a aria-label="Link to Browser demo" class="heading-anchor" href="#browser-demo">#</a></h2>
 <p>Open the <strong>Reliability Lab</strong> tab after generating a QuadQR. The lab provides:</p>
 <ul>
 <li>Quick, Full, and Extreme suites;</li>
@@ -50,14 +49,14 @@
 <li>angle sweeps to find the largest tested pitch, yaw, or Z rotation that still decodes.</li>
 </ul>
 <p>X pitch and Y yaw simulate a code plane tilting in depth. Z rotation is an in-plane rotation. The controls can be combined.</p>
-<h2 id="public-api">Public API<a class="heading-anchor" href="#public-api" aria-label="Link to Public API">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>JS</span><button type="button" data-copy>Copy</button></div><pre><code class="language-js">import {
+<h2 id="public-api">Public API<a aria-label="Link to Public API" class="heading-anchor" href="#public-api">#</a></h2>
+<div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import {
   applyStressDistortion,
   runReliabilityLab,
   runPerspectiveSweep
-} from &quot;quadqr-js&quot;;
+} from "quadqr-js";
 
-const transformed = applyStressDistortion(imageData, &quot;perspective-3d&quot;, 0.5, {
+const transformed = applyStressDistortion(imageData, "perspective-3d", 0.5, {
   pitchDegrees: 20,
   yawDegrees: 45,
   rollDegrees: 15
@@ -67,43 +66,40 @@ const report = runReliabilityLab(imageData, {
   version: encoded.version,
   crc32: encoded.crc32
 }, {
-  suite: &quot;full&quot;
+  suite: "full"
 });
 
 const sweep = runPerspectiveSweep(imageData, {
   version: encoded.version,
   crc32: encoded.crc32
 }, {
-  axis: &quot;yaw&quot;,
+  axis: "yaw",
   angles: [0, 15, 25, 35, 45, 55]
 });
 </code></pre></div>
-<h2 id="suites">Suites<a class="heading-anchor" href="#suites" aria-label="Link to Suites">#</a></h2>
+<h2 id="suites">Suites<a aria-label="Link to Suites" class="heading-anchor" href="#suites">#</a></h2>
 <p>The Reliability Lab extends the smaller scanability suite with deterministic cases for lens blur, motion blur, low/high exposure, gradient shadow, glare, warm/cool color casts, contrast loss, sensor noise, JPEG-like damage, downscaling, projective skew, 3D pitch/yaw, Z rotation, and combined 3D tilt.</p>
 <p>The <strong>Extreme</strong> suite adds stronger perspective cases. These are deliberately demanding and may fail at low pixels-per-module even when the same angle succeeds at a larger rendered size.</p>
-<h2 id="perspective-scanner-recovery">Perspective scanner recovery<a class="heading-anchor" href="#perspective-scanner-recovery" aria-label="Link to Perspective scanner recovery">#</a></h2>
+<h2 id="perspective-scanner-recovery">Perspective scanner recovery<a aria-label="Link to Perspective scanner recovery" class="heading-anchor" href="#perspective-scanner-recovery">#</a></h2>
 <p>The scanner keeps its normal fast path for ordinary frames. When locator scale differences indicate projective foreshortening, the geometry stage can perform a bounded coarse-to-fine search for the primary alignment reference. The fine stage uses denser sub-cell scoring so payload cells are less likely to impersonate the alignment marker. This improves steep-angle recovery without weakening normal structure checks globally.</p>
 <p>Distributed secondary alignment references are still used to validate the resulting homography.</p>
-<h2 id="interpreting-results">Interpreting results<a class="heading-anchor" href="#interpreting-results" aria-label="Link to Interpreting results">#</a></h2>
+<h2 id="interpreting-results">Interpreting results<a aria-label="Link to Interpreting results" class="heading-anchor" href="#interpreting-results">#</a></h2>
 <p>Synthetic results are regression aids, not a substitute for real phone-camera and print testing. A useful practical metric is the largest reliable angle at the intended physical size and scanning distance, not only the theoretical bits per cell.</p>
-
-        <nav class="page-pager" aria-label="Documentation pagination"><a class="prev" href="high-density.html"><span>Previous</span><strong>← High Density Mode</strong></a><a class="next" href="api.html"><span>Next</span><strong>API Reference →</strong></a></nav>
-        <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
-      </article>
-      <aside class="toc"><div class="toc-title">On this page</div><a href="#browser-demo">Browser demo</a><a href="#public-api">Public API</a><a href="#suites">Suites</a><a href="#perspective-scanner-recovery">Perspective scanner recovery</a><a href="#interpreting-results">Interpreting results</a></aside>
-    </main>
-  </div>
-
-  <div class="search-modal" data-search-modal aria-hidden="true">
-    <div class="search-backdrop" data-search-close></div>
-    <div class="search-panel" role="dialog" aria-modal="true" aria-label="Search QuadQR documentation">
-      <div class="search-input-wrap"><span>⌕</span><input type="search" placeholder="Search documentation…" autocomplete="off" data-search-input><kbd>Esc</kbd></div>
-      <div class="search-results" data-search-results><div class="search-empty">Type to search pages and sections.</div></div>
-    </div>
-  </div>
-
-  <script src="./search-index.js"></script>
-  <script src="../dist/quadqr.min.js"></script>
-  <script src="./app.js"></script>
+<nav aria-label="Documentation pagination" class="page-pager"><a class="prev" href="high-density.html"><span>Previous</span><strong>← High Density Mode</strong></a><a class="next" href="api.html"><span>Next</span><strong>API Reference →</strong></a></nav>
+<footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
+</article>
+<aside class="toc"><div class="toc-title">On this page</div><a href="#browser-demo">Browser demo</a><a href="#public-api">Public API</a><a href="#suites">Suites</a><a href="#perspective-scanner-recovery">Perspective scanner recovery</a><a href="#interpreting-results">Interpreting results</a></aside>
+</main>
+</div>
+<div aria-hidden="true" class="search-modal" data-search-modal="">
+<div class="search-backdrop" data-search-close=""></div>
+<div aria-label="Search QuadQR documentation" aria-modal="true" class="search-panel" role="dialog">
+<div class="search-input-wrap"><span>⌕</span><input autocomplete="off" data-search-input="" placeholder="Search documentation…" type="search"/><kbd>Esc</kbd></div>
+<div class="search-results" data-search-results=""><div class="search-empty">Type to search pages and sections.</div></div>
+</div>
+</div>
+<script src="./search-index.js"></script>
+<script src="../dist/quadqr.min.js"></script>
+<script src="./app.js"></script>
 </body>
 </html>
