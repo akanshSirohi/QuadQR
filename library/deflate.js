@@ -1,5 +1,5 @@
 /**
- * Small synchronous RFC 1951 raw-DEFLATE codec used by QuadQR Compression 2.0.
+ * Small synchronous RFC 1951 raw-DEFLATE codec used by QuadQR Compression 3.0.
  *
  * The compressor intentionally emits fixed-Huffman blocks only. This keeps the
  * implementation compact, deterministic, dependency-free, and usable in both
@@ -21,6 +21,30 @@ function asBytes(input) {
   if (ArrayBuffer.isView(input)) return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
   if (input instanceof ArrayBuffer) return new Uint8Array(input);
   return new Uint8Array(input);
+}
+
+export const DEFLATE_LEVEL_MIN = 1;
+export const DEFLATE_LEVEL_MAX = 9;
+export const DEFAULT_DEFLATE_LEVEL = 6;
+
+function normalizeDeflateLevel(value = DEFAULT_DEFLATE_LEVEL) {
+  const level = Number(value);
+  assert(Number.isInteger(level), `DEFLATE level must be an integer ${DEFLATE_LEVEL_MIN}..${DEFLATE_LEVEL_MAX}.`);
+  assert(
+    level >= DEFLATE_LEVEL_MIN && level <= DEFLATE_LEVEL_MAX,
+    `DEFLATE level must be ${DEFLATE_LEVEL_MIN}..${DEFLATE_LEVEL_MAX}.`
+  );
+  return level;
+}
+
+function deflateTuning(level) {
+  // Higher levels spend progressively more CPU walking candidate chains and
+  // performing lazy-match lookahead. The RFC 1951 stream stays compatible
+  // regardless of level, so the decoder never needs this value.
+  const candidateDepth = [0, 8, 16, 28, 48, 72, 96, 144, 224, 320][level];
+  const lazyDepth = [0, 0, 0, 8, 12, 18, 24, 40, 64, 96][level];
+  const lazyGain = level <= 3 ? 3 : level <= 6 ? 2 : 1;
+  return { candidateDepth, lazyDepth, lazyGain };
 }
 
 function reverseBits(value, width) {
@@ -195,8 +219,12 @@ function emitMatch(writer, length, distance) {
  * Compress bytes as a raw RFC 1951 DEFLATE stream using one final
  * fixed-Huffman block. The function is synchronous and runtime-neutral.
  */
-export function compressDeflatePayload(input) {
+export function compressDeflatePayload(input, options = {}) {
   const bytes = asBytes(input);
+  const level = normalizeDeflateLevel(
+    typeof options === "number" ? options : (options.level ?? options.compressionLevel ?? DEFAULT_DEFLATE_LEVEL)
+  );
+  const { candidateDepth, lazyDepth, lazyGain } = deflateTuning(level);
   const writer = new BitWriter();
 
   // BFINAL=1, BTYPE=01 (fixed Huffman). Bits are written LSB-first.
@@ -206,7 +234,7 @@ export function compressDeflatePayload(input) {
   const recent = new Map();
   const WINDOW = 32768;
   const MAX_MATCH = 258;
-  const MAX_CANDIDATES = 96;
+  const HISTORY_LIMIT = Math.max(candidateDepth, lazyDepth, 8);
 
   const remember = (position) => {
     const hash = hash3(bytes, position);
@@ -214,57 +242,47 @@ export function compressDeflatePayload(input) {
     let list = recent.get(hash);
     if (!list) recent.set(hash, list = []);
     list.push(position);
-    while (list.length > MAX_CANDIDATES) list.shift();
+    while (list.length > HISTORY_LIMIT) list.shift();
     const minimum = position - WINDOW;
     while (list.length && list[0] < minimum) list.shift();
   };
 
-  let pos = 0;
-  while (pos < bytes.length) {
+  const findBest = (position, maxCandidates) => {
     let bestLength = 0;
     let bestDistance = 0;
-    const hash = hash3(bytes, pos);
+    const hash = hash3(bytes, position);
     const candidates = hash >= 0 ? (recent.get(hash) ?? []) : [];
-
-    for (let ci = candidates.length - 1, checked = 0; ci >= 0 && checked < MAX_CANDIDATES; ci--, checked++) {
+    for (let ci = candidates.length - 1, checked = 0; ci >= 0 && checked < maxCandidates; ci--, checked++) {
       const candidate = candidates[ci];
-      const distance = pos - candidate;
+      const distance = position - candidate;
       if (distance <= 0 || distance > WINDOW) continue;
-
       let length = 0;
-      const limit = Math.min(MAX_MATCH, bytes.length - pos);
-      while (length < limit && bytes[candidate + (length % distance)] === bytes[pos + length]) length++;
-
+      const limit = Math.min(MAX_MATCH, bytes.length - position);
+      while (length < limit && bytes[candidate + (length % distance)] === bytes[position + length]) length++;
       if (length >= 3 && length > bestLength) {
         bestLength = length;
         bestDistance = distance;
         if (length === limit) break;
       }
     }
+    return { length: bestLength, distance: bestDistance };
+  };
 
-    // A tiny lazy-match check avoids consuming a mediocre match if the next
-    // byte starts a substantially longer one. It helps text without adding a
-    // heavyweight parser.
-    if (bestLength >= 3 && pos + 1 < bytes.length) {
-      const nextHash = hash3(bytes, pos + 1);
-      const nextCandidates = nextHash >= 0 ? (recent.get(nextHash) ?? []) : [];
-      let nextBest = 0;
-      for (let ci = nextCandidates.length - 1, checked = 0; ci >= 0 && checked < 24; ci--, checked++) {
-        const candidate = nextCandidates[ci];
-        const distance = (pos + 1) - candidate;
-        if (distance <= 0 || distance > WINDOW) continue;
-        let length = 0;
-        const limit = Math.min(MAX_MATCH, bytes.length - (pos + 1));
-        while (length < limit && bytes[candidate + (length % distance)] === bytes[pos + 1 + length]) length++;
-        if (length > nextBest) nextBest = length;
-      }
-      if (nextBest > bestLength + 1) bestLength = 0;
+  let pos = 0;
+  while (pos < bytes.length) {
+    let best = findBest(pos, candidateDepth);
+
+    // Levels 3+ may defer a match when the next byte starts a meaningfully
+    // longer one. Stronger levels search deeper and accept a smaller gain.
+    if (best.length >= 3 && lazyDepth > 0 && pos + 1 < bytes.length) {
+      const next = findBest(pos + 1, lazyDepth);
+      if (next.length > best.length + lazyGain) best = { length: 0, distance: 0 };
     }
 
-    if (bestLength >= 3) {
-      emitMatch(writer, bestLength, bestDistance);
-      for (let i = 0; i < bestLength; i++) remember(pos + i);
-      pos += bestLength;
+    if (best.length >= 3) {
+      emitMatch(writer, best.length, best.distance);
+      for (let i = 0; i < best.length; i++) remember(pos + i);
+      pos += best.length;
     } else {
       emitLiteral(writer, bytes[pos]);
       remember(pos);

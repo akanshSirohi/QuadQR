@@ -54,6 +54,10 @@ const compressed = encodeText("repeat repeat repeat repeat", {
   compression: "auto"
 });
 
+const smallest = encodeText("structured payload ".repeat(500), {
+  compression: "smart"
+});
+
 const keys = await generateSigningKeyPair();
 const signed = await encodeSignedText("ticket", {
   compression: "auto",
@@ -72,7 +76,7 @@ const report = assessScanability(compressed, { imageSize: 480 });
 console.log(report.score, report.rating);
 ```
 
-Compression 2.0 uses bundled synchronous Brotli/DEFLATE/LZ implementations and signing uses internal metadata only when required. The repository demo keeps heavy encoding, verification, stress testing, perspective sweeps, image scanning, and benchmarks off the UI thread with module Web Workers, while the public library API itself remains synchronous where documented. There is no public content-type mode to configure. The private key signs, while the public verification key stays outside the QuadQR by default. Use the stored `keyId` to select an application-trusted public key. Scanability testing is deterministic synthetic regression testing and should be supplemented with real devices and print samples.
+Compression uses bundled synchronous Brotli/DEFLATE/LZ implementations with explicit codec levels, fast Auto, and CPU-heavy Smart modes and signing uses internal metadata only when required. The repository demo keeps heavy encoding, verification, stress testing, perspective sweeps, image scanning, and benchmarks off the UI thread with module Web Workers, while the public library API itself remains synchronous where documented. There is no public content-type mode to configure. The private key signs, while the public verification key stays outside the QuadQR by default. Use the stored `keyId` to select an application-trusted public key. Scanability testing is deterministic synthetic regression testing and should be supplemented with real devices and print samples.
 
 ## Scan an uploaded image
 

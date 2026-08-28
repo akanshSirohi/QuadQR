@@ -148,7 +148,9 @@ Compression ID `1` is the original LZSS-style stream with groups of up to eight 
 4-bit length: stored value + 3, therefore 3..18 bytes
 ```
 
-Compression ID `2` is a raw RFC 1951 DEFLATE stream. QuadQR's portable encoder uses a deterministic fixed-Huffman block, a 32 KiB LZ77 window, distances up to 32768 bytes, and matches up to 258 bytes. The QuadQR decoder accepts the stored/fixed block forms emitted by the library.
+Compression ID `1` keeps the original QuadQR LZSS-style stream. Encoder levels `1..9` control candidate-history depth and bounded lazy-match effort; level 6 preserves the historical 32-candidate search depth. The 4095-byte window, 3..18 byte back-reference format, and decoder remain unchanged, and the level is not serialized.
+
+Compression ID `2` is a raw RFC 1951 DEFLATE stream. QuadQR's portable encoder uses a deterministic fixed-Huffman block, a 32 KiB LZ77 window, distances up to 32768 bytes, and matches up to 258 bytes. Encoder levels `1..9` control candidate-chain depth and lazy-match effort; the level is not serialized and does not change decoder behavior. The QuadQR decoder accepts the stored/fixed block forms emitted by the library.
 
 Compression ID `3` is a standard Brotli stream produced and decoded by QuadQR's bundled synchronous JavaScript codec. It uses no Node `zlib`, browser `CompressionStream`, DOM API, native addon, or network-loaded codec at runtime. Brotli is especially effective for repetitive text and structured payloads, while DEFLATE and legacy LZ remain available for deterministic selection and backward compatibility.
 
@@ -157,12 +159,17 @@ Public compression modes are:
 ```text
 none
 auto
+smart
 brotli
 deflate
 lz
 ```
 
-`compression: "auto"` evaluates bundled Brotli at quality 6, portable DEFLATE, and legacy LZ, then selects the smallest compressed body. Quality 6 is the portable Auto-mode tradeoff chosen to avoid quality-11 CPU spikes in browsers while keeping the explicit Brotli mode available when maximum compression is requested. For unsigned payloads it enables compression only when that body plus the extension-envelope overhead is smaller than the original payload, making Auto genuinely zero-overhead when compression is not useful. Signed payloads already require an extension envelope, so Auto compares the body size directly.
+`compression: "auto"` is the fast balanced policy. It evaluates LZ level 6, DEFLATE level 6, and Brotli quality 6 exactly once and chooses the smallest complete stored representation. For unsigned payloads that comparison includes the 16-byte extension-envelope cost, so Auto remains zero-overhead when compression is not useful.
+
+`compression: "smart"` is the opt-in CPU-heavy policy. It begins with the Auto candidates, computes the resulting Format v5 QuadQR version using the selected ECC/profile/version bounds, and only escalates when the next smaller matrix is plausibly reachable. The strong stage tests DEFLATE 8 and Brotli 9. If the symbol remains close to a smaller-version boundary, the maximum stage tests DEFLATE 9 and Brotli 11. With an explicitly requested fixed version, Smart does not chase a smaller matrix, but it may escalate when the balanced result does not fit and stronger compression can plausibly make that requested version fit. Signed and secure pipelines include their fixed envelope overhead when evaluating those version boundaries.
+
+Explicit `compression: "lz"` and `compression: "deflate"` accept `compressionLevel` `1..9` and default to 6. Explicit `compression: "brotli"` accepts `compressionLevel` `0..11` and defaults to 11. Compression levels are encoder-only parameters and are intentionally not stored in the extension envelope because LZ, RFC 1951, and Brotli decoders do not require them. Auto and Smart use LZ level 6; Smart's staged escalation remains focused on DEFLATE/Brotli.
 
 Compression occurs before signing, encryption, and Format v5 ECC.
 

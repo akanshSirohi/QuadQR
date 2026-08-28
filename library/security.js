@@ -125,6 +125,25 @@ export function generateRaw256Key() {
   return key;
 }
 
+/**
+ * Return the fixed number of bytes added around a plaintext by Secure Payload
+ * v1 for the supplied mode. AES-GCM ciphertext length matches plaintext length,
+ * so this lets higher layers reason about final QuadQR version boundaries
+ * before encryption runs.
+ */
+export function estimateSecureEnvelopeOverhead(security = {}) {
+  const mode = normalizeMode(security.mode);
+  let keyIdLength = 0;
+  if (mode === SECURITY_MODES.PASSWORD) {
+    if (security.keyId != null && security.keyId !== false) keyIdLength = encodeKeyId(security.keyId).bytes.length;
+    return FIXED_HEADER_BYTES + SALT_BYTES + NONCE_BYTES + TAG_BYTES + keyIdLength;
+  }
+  if (security.keyId === false) keyIdLength = 0;
+  else if (security.keyId != null) keyIdLength = encodeKeyId(security.keyId).bytes.length;
+  else keyIdLength = AUTO_KEY_ID_BYTES;
+  return FIXED_HEADER_BYTES + NONCE_BYTES + TAG_BYTES + keyIdLength;
+}
+
 function randomBytes(length) {
   const bytes = new Uint8Array(length);
   cryptoApi().getRandomValues(bytes);

@@ -218,7 +218,7 @@ const checked = await QuadQR.verifyDecodedSignature(
   { publicKey: keys.publicKey }
 );
 console.log(checked.signatureVerified, checked.signatureTrusted);</code></pre></div>
-        <p class="note"><code>compression: "auto"</code> compares balanced Brotli, portable DEFLATE, and legacy LZ, and adds no compression envelope when the final stored result would not save space. The private key signs, while the trusted public key stays outside the QuadQR by default. The compact key ID helps a scanner select the correct trusted verification key.</p>
+        <p class="note"><code>compression: "auto"</code> is the fast balanced mode: LZ level 6, DEFLATE level 6, and Brotli quality 6 are compared once. <code>compression: "smart"</code> is CPU-heavy and only escalates to DEFLATE 8/9 and Brotli 9/11 when a smaller physical QuadQR version is realistically reachable. Explicit LZ and DEFLATE accept <code>compressionLevel: 1..9</code>; explicit Brotli accepts <code>compressionLevel: 0..11</code>. Compression levels are encoder-only and are not stored in the symbol. The private key signs, while the trusted public key stays outside the QuadQR by default.</p>
       </section>
 
       <section id="rendering">
@@ -285,8 +285,8 @@ const sweep = QuadQR.runPerspectiveSweep(imageData, {
           <article><code>encodeBytes()</code><p>Encode arbitrary bytes.</p></article>
           <article><code>encodeSecureText()</code><p>Encrypt and encode text.</p></article>
           <article><code>compressPayload()</code><p>Legacy portable LZ compression helper.</p></article>
-          <article><code>compressBrotliPayload()</code><p>Bundled synchronous Brotli compression helper.</p></article>
-          <article><code>compressDeflatePayload()</code><p>Compression 2.0 pure-JavaScript raw DEFLATE helper.</p></article>
+          <article><code>compressBrotliPayload()</code><p>Bundled synchronous Brotli helper with quality 0..11.</p></article>
+          <article><code>compressDeflatePayload()</code><p>Pure-JavaScript raw DEFLATE helper with levels 1..9.</p></article>
           <article><code>encodeSignedText()</code><p>Sign with Ed25519.</p></article>
           <article><code>encodeUint8Array()</code><p>Explicit binary API.</p></article>
           <article><code>decodeMatrix()</code><p>Decode a sampled matrix.</p></article>
@@ -327,8 +327,14 @@ const sweep = QuadQR.runPerspectiveSweep(imageData, {
 npx quadqr-js encode "Hello QuadQR" -o hello.png
 npx quadqr-js decode hello.png
 
-# Automatic compression
+# Fast automatic compression
 npx quadqr-js encode "repeat repeat repeat" --compression auto -o compressed.svg
+
+# CPU-heavy version-aware compression
+npx quadqr-js encode "structured payload" --compression smart -o smallest.svg
+
+# Explicit codec level
+npx quadqr-js encode "structured payload" --compression brotli --compression-level 11 -o max.svg
 
 # Print-safe output
 npx quadqr-js encode "Print me" --print -o print.svg

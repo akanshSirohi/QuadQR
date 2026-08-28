@@ -201,7 +201,17 @@ const code = encodeText("repeat repeat repeat repeat", {
 });
 ```
 
-`auto` compares bundled Brotli at balanced quality 6, portable DEFLATE, and legacy LZ, chooses the smallest candidate, and keeps the original payload untouched when the complete compressed representation would not save space.
+`auto` is the fast default: it compares LZ level 6, DEFLATE level 6, and Brotli quality 6 once, then keeps the smallest complete representation. `smart` is the CPU-heavy option; it starts with the same pass and only tries DEFLATE 8/9 and Brotli 9/11 when stronger compression can realistically reduce the QuadQR version.
+
+When you explicitly choose a codec, `compressionLevel` controls encoder effort:
+
+```js
+encodeText(text, { compression: "lz", compressionLevel: 9 }); // 1..9
+encodeText(text, { compression: "deflate", compressionLevel: 9 }); // 1..9
+encodeText(text, { compression: "brotli", compressionLevel: 11 }); // 0..11
+```
+
+LZ defaults to level 6, DEFLATE defaults to level 6, and Brotli defaults to quality 11. The level is not stored in the symbol because decoding does not depend on it.
 
 For offline integrity verification:
 

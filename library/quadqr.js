@@ -53,15 +53,22 @@ import {
   DEFAULT_PBKDF2_ITERATIONS,
   generateRaw256Key,
   normalizeRaw256Key,
-  bytesToHex
+  bytesToHex,
+  estimateSecureEnvelopeOverhead
 } from "./security.js";
 import {
   compressDeflatePayload as compressDeflateBytes,
-  decompressDeflatePayload as decompressDeflateBytes
+  decompressDeflatePayload as decompressDeflateBytes,
+  DEFAULT_DEFLATE_LEVEL,
+  DEFLATE_LEVEL_MIN,
+  DEFLATE_LEVEL_MAX
 } from "./deflate.js";
 import {
   compressBrotliPayload as compressBrotliBytes,
-  decompressBrotliPayload as decompressBrotliBytes
+  decompressBrotliPayload as decompressBrotliBytes,
+  DEFAULT_BROTLI_QUALITY,
+  BROTLI_QUALITY_MIN,
+  BROTLI_QUALITY_MAX
 } from "./brotli.js";
 
 export const FORMAT_VERSION = 5;
@@ -93,9 +100,30 @@ export const PRINT_PALETTE = Object.freeze({
 export const COMPRESSION_MODES = Object.freeze({
   NONE: "none",
   AUTO: "auto",
+  SMART: "smart",
   LZ: "lz",
   DEFLATE: "deflate",
   BROTLI: "brotli"
+});
+
+export const LZ_LEVEL_MIN = 1;
+export const LZ_LEVEL_MAX = 9;
+export const DEFAULT_LZ_LEVEL = 6;
+
+export const COMPRESSION_LEVELS = Object.freeze({
+  lz: Object.freeze({ min: LZ_LEVEL_MIN, max: LZ_LEVEL_MAX, default: DEFAULT_LZ_LEVEL }),
+  deflate: Object.freeze({ min: DEFLATE_LEVEL_MIN, max: DEFLATE_LEVEL_MAX, default: DEFAULT_DEFLATE_LEVEL }),
+  brotli: Object.freeze({ min: BROTLI_QUALITY_MIN, max: BROTLI_QUALITY_MAX, default: DEFAULT_BROTLI_QUALITY }),
+  auto: Object.freeze({ lz: DEFAULT_LZ_LEVEL, deflate: DEFAULT_DEFLATE_LEVEL, brotli: 6 }),
+  smart: Object.freeze({
+    initialLz: DEFAULT_LZ_LEVEL,
+    initialDeflate: DEFAULT_DEFLATE_LEVEL,
+    initialBrotli: 6,
+    strongDeflate: 8,
+    strongBrotli: 9,
+    maximumDeflate: 9,
+    maximumBrotli: 11
+  })
 });
 export const SIGNATURE_ALGORITHMS = Object.freeze({ ED25519: "Ed25519" });
 
@@ -311,8 +339,34 @@ function readU16be(bytes, offset = 0) {
 
 function normalizeCompressionMode(value = "none") {
   const key = String(value).toLowerCase();
-  assert(["none", "auto", "lz", "deflate", "brotli"].includes(key), "compression must be none, auto, lz, deflate, or brotli.");
+  assert(["none", "auto", "smart", "lz", "deflate", "brotli"].includes(key), "compression must be none, auto, smart, lz, deflate, or brotli.");
   return key;
+}
+
+function normalizeExplicitCompressionLevel(mode, options = {}) {
+  const generic = options.compressionLevel;
+  if (mode === "lz") {
+    const value = Number(generic ?? options.lzLevel ?? DEFAULT_LZ_LEVEL);
+    assert(Number.isInteger(value) && value >= LZ_LEVEL_MIN && value <= LZ_LEVEL_MAX, `LZ compressionLevel must be ${LZ_LEVEL_MIN}..${LZ_LEVEL_MAX}.`);
+    return value;
+  }
+  if (mode === "deflate") {
+    const value = Number(generic ?? options.deflateLevel ?? DEFAULT_DEFLATE_LEVEL);
+    assert(Number.isInteger(value) && value >= DEFLATE_LEVEL_MIN && value <= DEFLATE_LEVEL_MAX, `DEFLATE compressionLevel must be ${DEFLATE_LEVEL_MIN}..${DEFLATE_LEVEL_MAX}.`);
+    return value;
+  }
+  if (mode === "brotli") {
+    const value = Number(generic ?? options.brotliQuality ?? DEFAULT_BROTLI_QUALITY);
+    assert(Number.isInteger(value) && value >= BROTLI_QUALITY_MIN && value <= BROTLI_QUALITY_MAX, `Brotli compressionLevel must be ${BROTLI_QUALITY_MIN}..${BROTLI_QUALITY_MAX}.`);
+    return value;
+  }
+  if (generic != null || options.lzLevel != null || options.deflateLevel != null || options.brotliQuality != null) {
+    assert(
+      mode === "auto" || mode === "smart",
+      "compressionLevel is only meaningful with compression: lz, compression: deflate, or compression: brotli."
+    );
+  }
+  return null;
 }
 
 function asBytes(input) {
@@ -322,9 +376,27 @@ function asBytes(input) {
   return new Uint8Array(input);
 }
 
-/** Portable LZSS-style compressor used by QuadQR payload compression. */
-export function compressPayload(input) {
+/** Portable LZSS-style compressor used by QuadQR payload compression.
+ * Levels 1..9 only change encoder search effort. The wire format is unchanged,
+ * so every level is decoded by the same legacy LZ decoder. Level 6 preserves
+ * the historical QuadQR search depth and is the default.
+ */
+export function compressPayload(input, options = {}) {
   const bytes = asBytes(input);
+  const requestedLevel = typeof options === "number"
+    ? options
+    : (options.level ?? options.compressionLevel ?? DEFAULT_LZ_LEVEL);
+  const level = Number(requestedLevel);
+  assert(Number.isInteger(level) && level >= LZ_LEVEL_MIN && level <= LZ_LEVEL_MAX, `LZ level must be ${LZ_LEVEL_MIN}..${LZ_LEVEL_MAX}.`);
+
+  // Level 6 deliberately matches the original compressor's 32-candidate
+  // history exactly. Higher levels walk deeper chains and add bounded lazy
+  // lookahead, while lower levels reduce CPU work for faster encoding.
+  const candidateDepth = [0, 4, 8, 12, 16, 24, 32, 48, 64, 96][level];
+  const lazyDepth = [0, 0, 0, 0, 0, 0, 0, 12, 24, 48][level];
+  const lazyGain = level >= 9 ? 0 : level >= 7 ? 1 : 2;
+  const historyLimit = Math.max(candidateDepth, lazyDepth, 4);
+
   const out = [];
   const recent = new Map();
   let pos = 0;
@@ -336,8 +408,28 @@ export function compressPayload(input) {
     let list = recent.get(key);
     if (!list) recent.set(key, list = []);
     list.push(i);
-    while (list.length > 32) list.shift();
+    while (list.length > historyLimit) list.shift();
     while (list.length && i - list[0] > 4095) list.shift();
+  };
+
+  const findBest = (position, maxCandidates) => {
+    let bestLength = 0;
+    let bestOffset = 0;
+    const key = keyAt(position);
+    const candidates = key >= 0 ? (recent.get(key) ?? []) : [];
+    for (let ci = candidates.length - 1, checked = 0; ci >= 0 && checked < maxCandidates; ci--, checked++) {
+      const candidate = candidates[ci];
+      const offset = position - candidate;
+      if (offset <= 0 || offset > 4095) continue;
+      let length = 0;
+      while (length < 18 && position + length < bytes.length && bytes[candidate + length] === bytes[position + length]) length++;
+      if (length >= 3 && length > bestLength) {
+        bestLength = length;
+        bestOffset = offset;
+        if (length === 18) break;
+      }
+    }
+    return { length: bestLength, offset: bestOffset };
   };
 
   while (pos < bytes.length) {
@@ -345,29 +437,21 @@ export function compressPayload(input) {
     out.push(0);
     let flags = 0;
     for (let token = 0; token < 8 && pos < bytes.length; token++) {
-      let bestLength = 0;
-      let bestOffset = 0;
-      const key = keyAt(pos);
-      const candidates = key >= 0 ? (recent.get(key) ?? []) : [];
-      for (let ci = candidates.length - 1; ci >= 0; ci--) {
-        const candidate = candidates[ci];
-        const offset = pos - candidate;
-        if (offset <= 0 || offset > 4095) continue;
-        let length = 0;
-        while (length < 18 && pos + length < bytes.length && bytes[candidate + length] === bytes[pos + length]) length++;
-        if (length >= 3 && length > bestLength) {
-          bestLength = length;
-          bestOffset = offset;
-          if (length === 18) break;
-        }
+      let best = findBest(pos, candidateDepth);
+
+      // Strong levels may emit one literal when the next byte begins a
+      // meaningfully longer match. This changes encoder effort only.
+      if (best.length >= 3 && lazyDepth > 0 && pos + 1 < bytes.length) {
+        const next = findBest(pos + 1, lazyDepth);
+        if (next.length > best.length + lazyGain) best = { length: 0, offset: 0 };
       }
 
-      if (bestLength >= 3) {
+      if (best.length >= 3) {
         flags |= (1 << token);
-        const encoded = ((bestOffset & 0x0fff) << 4) | ((bestLength - 3) & 0x0f);
+        const encoded = ((best.offset & 0x0fff) << 4) | ((best.length - 3) & 0x0f);
         out.push((encoded >>> 8) & 0xff, encoded & 0xff);
-        for (let i = 0; i < bestLength; i++) remember(pos + i);
-        pos += bestLength;
+        for (let i = 0; i < best.length; i++) remember(pos + i);
+        pos += best.length;
       } else {
         out.push(bytes[pos]);
         remember(pos);
@@ -403,9 +487,9 @@ export function decompressPayload(input, expectedLength = null) {
   return Uint8Array.from(out);
 }
 
-/** Raw RFC 1951 fixed-Huffman DEFLATE helper used by Compression 2.0. */
-export function compressDeflatePayload(input) {
-  return compressDeflateBytes(asBytes(input));
+/** Raw RFC 1951 fixed-Huffman DEFLATE helper used by Compression 3.0. */
+export function compressDeflatePayload(input, options = {}) {
+  return compressDeflateBytes(asBytes(input), options);
 }
 
 /** Restore a raw DEFLATE payload produced by compressDeflatePayload(). */
@@ -413,7 +497,7 @@ export function decompressDeflatePayload(input, expectedLength = null) {
   return decompressDeflateBytes(asBytes(input), expectedLength);
 }
 
-/** Portable Brotli helper used by Compression 2.0 in browsers and Node.js. */
+/** Portable Brotli helper used by Compression 3.0 in browsers and Node.js. */
 export function compressBrotliPayload(input, options = {}) {
   return compressBrotliBytes(asBytes(input), options);
 }
@@ -423,29 +507,190 @@ export function decompressBrotliPayload(input, expectedLength = null) {
   return decompressBrotliBytes(asBytes(input), expectedLength);
 }
 
-function compressionCandidates(payload) {
+function makeCompressionCandidate(payload, compression, compressionLevel = null) {
+  if (compression === "none") return { body: payload, compression: "none", compressionLevel: null };
+  if (compression === "lz") {
+    return {
+      body: compressPayload(payload, { level: compressionLevel ?? DEFAULT_LZ_LEVEL }),
+      compression: "lz",
+      compressionLevel: compressionLevel ?? DEFAULT_LZ_LEVEL
+    };
+  }
+  if (compression === "deflate") {
+    return {
+      body: compressDeflatePayload(payload, { level: compressionLevel ?? DEFAULT_DEFLATE_LEVEL }),
+      compression: "deflate",
+      compressionLevel: compressionLevel ?? DEFAULT_DEFLATE_LEVEL
+    };
+  }
+  if (compression === "brotli") {
+    return {
+      body: compressBrotliPayload(payload, { quality: compressionLevel ?? DEFAULT_BROTLI_QUALITY }),
+      compression: "brotli",
+      compressionLevel: compressionLevel ?? DEFAULT_BROTLI_QUALITY
+    };
+  }
+  throw new Error(`Unsupported compression candidate ${compression}.`);
+}
+
+function candidateFinalPayloadLength(candidate, payload, options = {}) {
+  const outerFixedBytes = Math.max(0, Number(options.outerFixedBytes ?? 0) || 0);
+  if (options.envelopeAlreadyRequired) {
+    const envelopeFixedBytes = Math.max(
+      PAYLOAD_ENVELOPE_HEADER_BYTES,
+      Number(options.envelopeFixedBytes ?? PAYLOAD_ENVELOPE_HEADER_BYTES) || PAYLOAD_ENVELOPE_HEADER_BYTES
+    );
+    return outerFixedBytes + envelopeFixedBytes + candidate.body.length;
+  }
+  const innerBytes = candidate.compression === "none"
+    ? candidate.body.length
+    : PAYLOAD_ENVELOPE_HEADER_BYTES + candidate.body.length;
+  return outerFixedBytes + innerBytes;
+}
+
+function compareCompressionCandidates(a, b) {
+  if (a.finalLength !== b.finalLength) return a.finalLength - b.finalLength;
+  // Prefer the cheaper decoder when storage is exactly tied.
+  const rank = { none: 0, lz: 1, deflate: 2, brotli: 3 };
+  return (rank[a.compression] ?? 9) - (rank[b.compression] ?? 9);
+}
+
+function annotateCompressionCandidate(candidate, payload, options = {}) {
+  return { ...candidate, finalLength: candidateFinalPayloadLength(candidate, payload, options) };
+}
+
+function safeChooseCompressionVersion(payloadLength, versionOptions = {}) {
+  try {
+    return chooseVersion(payloadLength, versionOptions);
+  } catch {
+    return null;
+  }
+}
+
+function smartCompressionTarget(candidate, versionOptions = {}) {
+  const requested = versionOptions.version ?? "auto";
+  const minVersion = versionOptions.minVersion ?? MIN_VERSION;
+  const maxVersion = versionOptions.maxVersion ?? MAX_VERSION;
+
+  // A fixed version cannot become physically smaller, but Smart may still
+  // spend extra CPU when stronger compression is needed to make that exact
+  // requested version fit.
+  if (requested !== "auto") {
+    validateVersion(requested);
+    const info = getVersionInfo(requested, versionOptions);
+    if (candidate.finalLength <= info.capacityBytes) return null;
+    const gapBytes = candidate.finalLength - info.capacityBytes;
+    return {
+      currentVersion: null,
+      targetVersion: requested,
+      targetCapacityBytes: info.capacityBytes,
+      gapBytes,
+      gapRatio: candidate.finalLength > 0 ? gapBytes / candidate.finalLength : 0
+    };
+  }
+
+  const currentVersion = safeChooseCompressionVersion(candidate.finalLength, versionOptions);
+  const targetVersion = currentVersion == null ? maxVersion : currentVersion - 1;
+  if (targetVersion < minVersion) return null;
+  const info = getVersionInfo(targetVersion, versionOptions);
+  const gapBytes = Math.max(0, candidate.finalLength - info.capacityBytes);
+  return {
+    currentVersion,
+    targetVersion,
+    targetCapacityBytes: info.capacityBytes,
+    gapBytes,
+    gapRatio: candidate.finalLength > 0 ? gapBytes / candidate.finalLength : 0
+  };
+}
+
+function compressionCandidates(payload, options = {}) {
   return [
-    { body: compressPayload(payload), compression: "lz" },
-    { body: compressDeflatePayload(payload), compression: "deflate" },
-    { body: compressBrotliPayload(payload, { quality: 6 }), compression: "brotli" }
-  ];
+    makeCompressionCandidate(payload, "none"),
+    makeCompressionCandidate(payload, "lz", DEFAULT_LZ_LEVEL),
+    makeCompressionCandidate(payload, "deflate", DEFAULT_DEFLATE_LEVEL),
+    makeCompressionCandidate(payload, "brotli", 6)
+  ].map((candidate) => annotateCompressionCandidate(candidate, payload, options));
+}
+
+function chooseBestCompressionCandidate(candidates) {
+  return candidates.slice().sort(compareCompressionCandidates)[0];
+}
+
+function prepareSmartCompressedBody(payload, options = {}) {
+  const versionOptions = options.versionOptions ?? {};
+  const tried = [];
+  const seen = new Set();
+  const add = (compression, level = null) => {
+    const key = `${compression}:${level ?? ""}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    const candidate = annotateCompressionCandidate(makeCompressionCandidate(payload, compression, level), payload, options);
+    tried.push(candidate);
+    return candidate;
+  };
+
+  add("none");
+  add("lz", DEFAULT_LZ_LEVEL);
+  add("deflate", DEFAULT_DEFLATE_LEVEL);
+  add("brotli", 6);
+  let best = chooseBestCompressionCandidate(tried);
+  const initialVersion = safeChooseCompressionVersion(best.finalLength, versionOptions);
+
+  // Smart is intentionally CPU-heavy, but it still avoids maximum-quality
+  // passes when the next smaller matrix is far outside realistic reach.
+  let target = smartCompressionTarget(best, versionOptions);
+  if (target && (target.gapRatio <= 0.30 || target.gapBytes <= 192)) {
+    add("deflate", 8);
+    add("brotli", 9);
+    best = chooseBestCompressionCandidate(tried);
+    target = smartCompressionTarget(best, versionOptions);
+
+    // Maximum passes are reserved for a genuinely close version boundary, or
+    // when the strong pass already crossed one boundary and another is close.
+    if (target && (target.gapRatio <= 0.16 || target.gapBytes <= 96)) {
+      add("deflate", 9);
+      add("brotli", 11);
+      best = chooseBestCompressionCandidate(tried);
+    }
+  }
+
+  const finalVersion = safeChooseCompressionVersion(best.finalLength, versionOptions);
+  return {
+    ...best,
+    compressionStrategy: "smart",
+    smartCompression: {
+      cpuHeavy: true,
+      initialVersion,
+      finalVersion,
+      levelsTried: tried
+        .filter((candidate) => candidate.compression === "deflate" || candidate.compression === "brotli")
+        .map((candidate) => ({ algorithm: candidate.compression, level: candidate.compressionLevel, bytes: candidate.body.length, finalBytes: candidate.finalLength }))
+    }
+  };
 }
 
 function prepareCompressedBody(payload, compression = "none", options = {}) {
   const mode = normalizeCompressionMode(compression);
-  if (mode === "none") return { body: payload, compression: "none" };
-  if (mode === "lz") return { body: compressPayload(payload), compression: "lz" };
-  if (mode === "deflate") return { body: compressDeflatePayload(payload), compression: "deflate" };
-  if (mode === "brotli") return { body: compressBrotliPayload(payload), compression: "brotli" };
+  if (mode === "none") return { ...makeCompressionCandidate(payload, "none"), compressionStrategy: "none" };
+  if (mode === "lz") {
+    const level = normalizeExplicitCompressionLevel(mode, options);
+    return { ...makeCompressionCandidate(payload, "lz", level), compressionStrategy: "explicit" };
+  }
+  if (mode === "deflate") {
+    const level = normalizeExplicitCompressionLevel(mode, options);
+    return { ...makeCompressionCandidate(payload, "deflate", level), compressionStrategy: "explicit" };
+  }
+  if (mode === "brotli") {
+    const level = normalizeExplicitCompressionLevel(mode, options);
+    return { ...makeCompressionCandidate(payload, "brotli", level), compressionStrategy: "explicit" };
+  }
+  if (mode === "smart") return prepareSmartCompressedBody(payload, options);
 
-  const candidates = compressionCandidates(payload).sort((a, b) => a.body.length - b.body.length);
-  const best = candidates[0];
-  // Unsigned Auto mode requires the 16-byte extension envelope only when a
-  // compressor is selected. Signed payloads already need that envelope, so
-  // they only need the compressed body itself to be smaller.
-  const overhead = options.envelopeAlreadyRequired ? 0 : PAYLOAD_ENVELOPE_HEADER_BYTES;
-  if (best.body.length + overhead >= payload.length) return { body: payload, compression: "none" };
-  return best;
+  // Auto deliberately performs one balanced pass per codec. It is the fast
+  // default; Smart is the opt-in mode that spends extra CPU near QR-version
+  // boundaries.
+  const best = chooseBestCompressionCandidate(compressionCandidates(payload, options));
+  return { ...best, compressionStrategy: "auto" };
 }
 
 
@@ -479,9 +724,7 @@ function isPayloadEnvelope(input) {
   return bytes.length >= PAYLOAD_ENVELOPE_HEADER_BYTES && PAYLOAD_ENVELOPE_MAGIC.every((value, index) => bytes[index] === value);
 }
 
-function packPayloadEnvelope(input, options = {}) {
-  const payload = asBytes(input);
-  const prepared = prepareCompressedBody(payload, options.compression ?? "none");
+function packPreparedPayloadEnvelope(payload, prepared) {
   const flags = prepared.compression !== "none" ? PAYLOAD_ENVELOPE_COMPRESSED_FLAG : 0;
   const header = makePayloadEnvelopeHeader({
     compression: prepared.compression,
@@ -489,6 +732,12 @@ function packPayloadEnvelope(input, options = {}) {
     originalLength: payload.length
   });
   return concatBytes(header, prepared.body);
+}
+
+function packPayloadEnvelope(input, options = {}) {
+  const payload = asBytes(input);
+  const prepared = prepareCompressedBody(payload, options.compression ?? "none", options);
+  return packPreparedPayloadEnvelope(payload, prepared);
 }
 
 function parsePayloadEnvelope(input) {
@@ -608,7 +857,6 @@ async function packSignedPayloadEnvelope(input, options = {}) {
   const payload = asBytes(input);
   assert(options.privateKey, "privateKey is required to sign a QuadQR payload.");
   const subtle = subtleCrypto();
-  const prepared = prepareCompressedBody(payload, options.compression ?? "auto", { envelopeAlreadyRequired: true });
   const keyIdBytes = normalizeSigningKeyId(options.keyId);
 
   let publicKeyBytes = new Uint8Array(0);
@@ -617,6 +865,14 @@ async function packSignedPayloadEnvelope(input, options = {}) {
     const publicKeyObject = await normalizeEd25519PublicKey(options.publicKey);
     publicKeyBytes = new Uint8Array(await subtle.exportKey("raw", publicKeyObject));
   }
+
+  const signedEnvelopeFixedBytes = PAYLOAD_ENVELOPE_HEADER_BYTES + keyIdBytes.length + publicKeyBytes.length + 64;
+  const prepared = prepareCompressedBody(payload, options.compression ?? "auto", {
+    ...options,
+    envelopeAlreadyRequired: true,
+    envelopeFixedBytes: signedEnvelopeFixedBytes,
+    versionOptions: options.versionOptions ?? options
+  });
 
   const flags = PAYLOAD_ENVELOPE_SIGNED_FLAG |
     (prepared.compression !== "none" ? PAYLOAD_ENVELOPE_COMPRESSED_FLAG : 0) |
@@ -634,7 +890,13 @@ async function packSignedPayloadEnvelope(input, options = {}) {
   const privateKey = await normalizeEd25519PrivateKey(options.privateKey);
   const signature = new Uint8Array(await subtle.sign({ name: "Ed25519" }, privateKey, signedBytes));
   assert(signature.length === 64, "Unexpected Ed25519 signature length.");
-  return concatBytes(header, keyIdBytes, publicKeyBytes, signature, prepared.body);
+  return {
+    envelope: concatBytes(header, keyIdBytes, publicKeyBytes, signature, prepared.body),
+    compression: prepared.compression,
+    compressionLevel: prepared.compressionLevel ?? null,
+    compressionStrategy: prepared.compressionStrategy ?? null,
+    smartCompression: prepared.smartCompression ?? null
+  };
 }
 
 function lookupTrustedSigningKey(trustedKeys, keyId) {
@@ -685,19 +947,31 @@ async function verifyPayloadEnvelopeSignature(input, options = {}) {
   };
 }
 
-function prepareOptionalCompressedPayload(input, compression = "none") {
+function prepareOptionalCompressedPayload(input, compression = "none", options = {}) {
   const payload = asBytes(input);
   const mode = normalizeCompressionMode(compression);
-  if (mode === "none") return { payload, extended: false, compression: "none" };
-  const prepared = prepareCompressedBody(payload, mode);
-  // Auto mode is truly zero-overhead when compression does not help.
-  if (mode === "auto" && prepared.compression === "none") {
-    return { payload, extended: false, compression: "none" };
+  if (mode === "none") {
+    return { payload, extended: false, compression: "none", compressionLevel: null, compressionStrategy: "none", smartCompression: null };
+  }
+  const prepared = prepareCompressedBody(payload, mode, { ...options, versionOptions: options.versionOptions ?? options });
+  // Auto and Smart are truly zero-overhead when compression does not help.
+  if ((mode === "auto" || mode === "smart") && prepared.compression === "none") {
+    return {
+      payload,
+      extended: false,
+      compression: "none",
+      compressionLevel: null,
+      compressionStrategy: prepared.compressionStrategy,
+      smartCompression: prepared.smartCompression ?? null
+    };
   }
   return {
-    payload: packPayloadEnvelope(payload, { compression: prepared.compression }),
+    payload: packPreparedPayloadEnvelope(payload, prepared),
     extended: true,
-    compression: prepared.compression
+    compression: prepared.compression,
+    compressionLevel: prepared.compressionLevel ?? null,
+    compressionStrategy: prepared.compressionStrategy ?? mode,
+    smartCompression: prepared.smartCompression ?? null
   };
 }
 
@@ -1417,6 +1691,9 @@ function finalizeMatrix(layout, rawCells, meta) {
     secure: Boolean(meta.secure),
     compressed: meta.compression != null && meta.compression !== "none",
     compression: meta.compression ?? "none",
+    compressionLevel: meta.compressionLevel ?? null,
+    compressionStrategy: meta.compressionStrategy ?? null,
+    smartCompression: meta.smartCompression ?? null,
     signed: Boolean(meta.signed),
     signingKeyId: meta.signingKeyId ?? null,
     hasEmbeddedPublicKey: Boolean(meta.hasEmbeddedPublicKey),
@@ -1477,6 +1754,9 @@ function encodePreparedBytes(input, options = {}) {
     extended,
     signed,
     compression: options.compressionMetadata ?? "none",
+    compressionLevel: options.compressionLevelMetadata ?? null,
+    compressionStrategy: options.compressionStrategyMetadata ?? null,
+    smartCompression: options.smartCompressionMetadata ?? null,
     signingKeyId: options.signingKeyId ?? null,
     hasEmbeddedPublicKey: Boolean(options.hasEmbeddedPublicKey),
     security: options.securityMetadata ?? null,
@@ -1492,25 +1772,31 @@ function encodePreparedBytes(input, options = {}) {
 export function encodeText(text, options = {}) {
   assert(typeof text === "string", "encodeText expects a string.");
   const source = getTextEncoder().encode(text);
-  const prepared = prepareOptionalCompressedPayload(source, options.compression ?? "none");
+  const prepared = prepareOptionalCompressedPayload(source, options.compression ?? "none", options);
   return encodePreparedBytes(prepared.payload, {
     ...options,
     text: true,
     extended: prepared.extended,
     sourcePayloadBytes: source.length,
-    compressionMetadata: prepared.compression
+    compressionMetadata: prepared.compression,
+    compressionLevelMetadata: prepared.compressionLevel,
+    compressionStrategyMetadata: prepared.compressionStrategy,
+    smartCompressionMetadata: prepared.smartCompression
   });
 }
 
 export function encodeBytes(input, options = {}) {
   const source = asBytes(input);
-  const prepared = prepareOptionalCompressedPayload(source, options.compression ?? "none");
+  const prepared = prepareOptionalCompressedPayload(source, options.compression ?? "none", options);
   return encodePreparedBytes(prepared.payload, {
     ...options,
     text: Boolean(options.text),
     extended: prepared.extended,
     sourcePayloadBytes: source.length,
-    compressionMetadata: prepared.compression
+    compressionMetadata: prepared.compression,
+    compressionLevelMetadata: prepared.compressionLevel,
+    compressionStrategyMetadata: prepared.compressionStrategy,
+    smartCompressionMetadata: prepared.smartCompression
   });
 }
 
@@ -1522,15 +1808,18 @@ export function encodeUint8Array(input, options = {}) {
 /** Encode and sign a normal payload using an internal Ed25519 envelope. */
 export async function encodeSignedBytes(input, options = {}) {
   const source = asBytes(input);
-  const envelope = await packSignedPayloadEnvelope(source, options);
-  const parsed = parsePayloadEnvelope(envelope);
-  return encodePreparedBytes(envelope, {
+  const packed = await packSignedPayloadEnvelope(source, options);
+  const parsed = parsePayloadEnvelope(packed.envelope);
+  return encodePreparedBytes(packed.envelope, {
     ...options,
     text: Boolean(options.text),
     extended: true,
     signed: true,
     sourcePayloadBytes: source.length,
     compressionMetadata: parsed.compression,
+    compressionLevelMetadata: packed.compressionLevel,
+    compressionStrategyMetadata: packed.compressionStrategy,
+    smartCompressionMetadata: packed.smartCompression,
     signingKeyId: parsed.keyId,
     hasEmbeddedPublicKey: parsed.hasEmbeddedPublicKey
   });
@@ -1555,30 +1844,47 @@ export async function encodeSecureText(text, options = {}) {
 export async function encodeSecureBytes(input, options = {}) {
   const sourcePayload = asBytes(input);
   const security = options.security ?? {};
+  const secureOuterFixedBytes = estimateSecureEnvelopeOverhead(security);
   let protectedPayload = sourcePayload;
   let extended = false;
   let signed = false;
   let compression = "none";
+  let compressionLevel = null;
+  let compressionStrategy = null;
+  let smartCompression = null;
   let signingKeyId = null;
   let hasEmbeddedPublicKey = false;
 
   if (options.signing) {
-    protectedPayload = await packSignedPayloadEnvelope(sourcePayload, {
+    const packed = await packSignedPayloadEnvelope(sourcePayload, {
       ...options,
       ...options.signing,
-      compression: options.compression ?? "auto"
+      compression: options.compression ?? "auto",
+      outerFixedBytes: secureOuterFixedBytes,
+      versionOptions: options
     });
+    protectedPayload = packed.envelope;
     const parsed = parsePayloadEnvelope(protectedPayload);
     extended = true;
     signed = true;
     compression = parsed.compression;
+    compressionLevel = packed.compressionLevel;
+    compressionStrategy = packed.compressionStrategy;
+    smartCompression = packed.smartCompression;
     signingKeyId = parsed.keyId;
     hasEmbeddedPublicKey = parsed.hasEmbeddedPublicKey;
   } else {
-    const prepared = prepareOptionalCompressedPayload(sourcePayload, options.compression ?? "none");
+    const prepared = prepareOptionalCompressedPayload(sourcePayload, options.compression ?? "none", {
+      ...options,
+      outerFixedBytes: secureOuterFixedBytes,
+      versionOptions: options
+    });
     protectedPayload = prepared.payload;
     extended = prepared.extended;
     compression = prepared.compression;
+    compressionLevel = prepared.compressionLevel;
+    compressionStrategy = prepared.compressionStrategy;
+    smartCompression = prepared.smartCompression;
   }
 
   const encrypted = await encryptSecurePayload(protectedPayload, security);
@@ -1590,6 +1896,9 @@ export async function encodeSecureBytes(input, options = {}) {
     signed,
     sourcePayloadBytes: sourcePayload.length,
     compressionMetadata: compression,
+    compressionLevelMetadata: compressionLevel,
+    compressionStrategyMetadata: compressionStrategy,
+    smartCompressionMetadata: smartCompression,
     signingKeyId,
     hasEmbeddedPublicKey,
     securityMetadata: encrypted.metadata

@@ -145,9 +145,12 @@
               <div class="accordion-content">
                 <label class="field">
                   <span>Compression mode</span>
-                  <select id="compressionMode"><option value="auto" selected>Auto · choose best compression</option><option value="none">Off · store payload directly</option><option value="brotli">Brotli · always compress</option><option value="deflate">DEFLATE · always compress</option><option value="lz">Legacy LZ · always compress</option></select>
+                  <select id="compressionMode"><option value="auto" selected>Auto · fast balanced comparison</option><option value="smart">Smart · CPU-heavy smallest-QR search</option><option value="none">Off · store payload directly</option><option value="brotli">Brotli · choose quality manually</option><option value="deflate">DEFLATE · choose level manually</option><option value="lz">Legacy LZ · choose level manually</option></select>
                 </label>
-                <p class="style-hint">Your payload remains normal text or bytes. Auto compares balanced Brotli, portable DEFLATE, and legacy LZ in a background worker, uses the smallest result, and adds no compression envelope when the final stored payload would not actually be smaller.</p>
+                <div id="compressionLevelFields" class="security-fields hidden">
+                  <label class="field"><span id="compressionLevelLabel">Compression level</span><select id="compressionLevel"></select></label>
+                </div>
+                <p id="compressionHint" class="style-hint">Auto performs one balanced pass with LZ level 6, DEFLATE level 6, and Brotli quality 6, then stores the smallest final representation. Smart is opt-in CPU-heavy mode: it starts the same way and only tries stronger DEFLATE/Brotli levels when they have a realistic chance of reducing the QuadQR version.</p>
               </div>
             </details>
 
@@ -515,7 +518,7 @@
                   <label class="field"><span>Payload bytes</span><input id="capacityPayloadBytes" type="number" min="0" value="256" /></label>
                   <label class="field"><span>ECC</span><select id="capacityEcc"><option>L</option><option selected>M</option><option>Q</option><option>H</option></select></label>
                   <label class="field"><span>High Density Mode</span><select id="capacityHighDensity"><option value="false" selected>Disabled · Normal RGBW</option><option value="true">Enabled · Triangle16 · Experimental</option></select></label>
-                  <label class="field"><span>Compression</span><select id="capacityCompression"><option value="none">None</option><option value="auto" selected>Auto · best</option><option value="brotli">Brotli</option><option value="deflate">DEFLATE</option><option value="lz">Legacy LZ</option></select></label>
+                  <label class="field"><span>Compression</span><select id="capacityCompression"><option value="none">None</option><option value="auto" selected>Auto · fast balanced</option><option value="smart">Smart · CPU-heavy</option><option value="brotli">Brotli</option><option value="deflate">DEFLATE</option><option value="lz">Legacy LZ</option></select></label>
                   <label class="field"><span>Signed</span><select id="capacitySigned"><option value="false" selected>No</option><option value="true">Yes · Ed25519</option></select></label>
                 </div>
                 <div class="actions"><button id="calculateCapacityBtn" class="secondary" type="button">Calculate</button></div>

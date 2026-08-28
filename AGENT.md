@@ -216,10 +216,10 @@ Keep both documentation surfaces updated when public APIs change:
 
 The interactive product demo remains under `demo/`; do not merge it into the documentation site. Keep `demo/compute-worker.js` as the background execution boundary for CPU-heavy demo-only work, and keep UI rendering/orchestration in `demo/app.js`.
 
-## Compression 2.0
+## Compression 3.0
 
 - Keep payload compression synchronous and runtime-neutral. Core compression code must work in both browsers and server-side Node.js without DOM APIs, `CompressionStream`, or `node:zlib`.
-- `compression: "auto"` compares bundled Brotli at balanced quality 6, portable raw DEFLATE, and the legacy LZ codec, and must only add an unsigned compression envelope when the complete stored representation is smaller. Keep browser demo CPU-heavy work in module Web Workers so synchronous codecs and scanners do not block the UI thread.
+- `compression: "auto"` is the fast path: compare LZ level 6, DEFLATE level 6, and Brotli quality 6 once. `compression: "smart"` is the CPU-heavy version-aware path: only escalate to DEFLATE 8/9 and Brotli 9/11 when a smaller QuadQR version is plausibly reachable. Both must compare complete stored size including applicable envelope overhead. Keep browser demo CPU-heavy work in module Web Workers so synchronous codecs and scanners do not block the UI thread.
 - Keep compression ID `1` and the legacy LZ decoder for backward compatibility. Compression ID `2` is portable raw DEFLATE and compression ID `3` is Brotli.
-- Brotli must stay synchronous and runtime-neutral in the published core. Do not replace it with `node:zlib`, `CompressionStream`, a DOM-only implementation, or a network-loaded codec.
+- Brotli must stay synchronous and runtime-neutral in the published core. Do not replace it with `node:zlib`, `CompressionStream`, a DOM-only implementation, or a network-loaded codec. Explicit LZ and DEFLATE support levels 1..9 (default 6); explicit Brotli supports qualities 0..11 (default 11). LZ level 6 must preserve the historical search depth/wire compatibility. Compression levels are encoder-only and must not be added to the wire envelope.
 - Do not introduce TypeScript.

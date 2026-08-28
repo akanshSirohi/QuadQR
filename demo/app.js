@@ -24,6 +24,10 @@ const renderStyleEl = document.querySelector("#renderStyle");
 const renderModeEl = document.querySelector("#renderMode");
 const styleHintEl = document.querySelector("#styleHint");
 const compressionModeEl = document.querySelector("#compressionMode");
+const compressionLevelFieldsEl = document.querySelector("#compressionLevelFields");
+const compressionLevelEl = document.querySelector("#compressionLevel");
+const compressionLevelLabelEl = document.querySelector("#compressionLevelLabel");
+const compressionHintEl = document.querySelector("#compressionHint");
 const logoFileEl = document.querySelector("#logoFile");
 const logoUploadEl = document.querySelector("#logoUpload");
 const logoFileNameEl = document.querySelector("#logoFileName");
@@ -222,6 +226,58 @@ function highDensityEnabled(element) {
   return element?.value === "true";
 }
 
+function rebuildCompressionLevelOptions(min, max, selected, formatter) {
+  compressionLevelEl.innerHTML = "";
+  for (let level = min; level <= max; level++) {
+    const option = document.createElement("option");
+    option.value = String(level);
+    option.textContent = formatter(level);
+    if (level === selected) option.selected = true;
+    compressionLevelEl.appendChild(option);
+  }
+}
+
+function updateCompressionUi() {
+  const mode = compressionModeEl.value;
+  const explicit = mode === "lz" || mode === "deflate" || mode === "brotli";
+  compressionLevelFieldsEl.classList.toggle("hidden", !explicit);
+
+
+  if (mode === "lz") {
+    compressionLevelLabelEl.textContent = "LZ level";
+    rebuildCompressionLevelOptions(1, 9, 6, (level) => `${level}${level === 1 ? " · fastest" : level === 6 ? " · default / legacy-compatible" : level === 9 ? " · strongest" : ""}`);
+    compressionHintEl.textContent = "Forced LZ uses the selected level. Levels 1–9 change how deeply the encoder searches its legacy 4 KB history; level 6 preserves the historical QuadQR search depth. The stored LZ format and decoder stay unchanged.";
+    return;
+  }
+  if (mode === "deflate") {
+    compressionLevelLabelEl.textContent = "DEFLATE level";
+    rebuildCompressionLevelOptions(1, 9, 6, (level) => `${level}${level === 1 ? " · fastest" : level === 6 ? " · default / balanced" : level === 9 ? " · strongest" : ""}`);
+    compressionHintEl.textContent = "Forced DEFLATE uses the selected level. Levels 1–9 change match-search depth and CPU cost; level 6 is the portable default. The decoder does not need to know the level.";
+    return;
+  }
+  if (mode === "brotli") {
+    compressionLevelLabelEl.textContent = "Brotli quality";
+    rebuildCompressionLevelOptions(0, 11, 11, (level) => `${level}${level === 0 ? " · fastest" : level === 6 ? " · balanced" : level === 11 ? " · default / maximum" : ""}`);
+    compressionHintEl.textContent = "Forced Brotli uses the selected quality 0–11. Quality 11 is the explicit Brotli default and may be CPU-heavy, so generation stays inside the worker.";
+    return;
+  }
+  if (mode === "smart") {
+    compressionHintEl.textContent = "Smart is CPU-heavy by design. It starts with LZ 6 + DEFLATE 6 + Brotli 6, then tests DEFLATE 8 / Brotli 9 and, only near a smaller-version boundary, DEFLATE 9 / Brotli 11. LZ stays at its default level because Smart escalation is focused on the stronger modern codecs.";
+    return;
+  }
+  if (mode === "auto") {
+    compressionHintEl.textContent = "Auto is the fast default. It performs one balanced pass with LZ level 6, DEFLATE level 6, and Brotli quality 6, then chooses the smallest final representation including envelope overhead.";
+    return;
+  }
+  compressionHintEl.textContent = "Compression is disabled and the source payload is stored directly.";
+}
+
+function selectedCompressionLevel() {
+  const mode = compressionModeEl.value;
+  if (mode !== "lz" && mode !== "deflate" && mode !== "brotli") return null;
+  return Number(compressionLevelEl.value);
+}
+
 function rebuildVersions() {
   const selected = versionEl.value || "auto";
   const ecc = eccLevelEl.value;
@@ -379,7 +435,9 @@ function updateStats(code) {
     String(code.maskId),
     `${(code.utilization * 100).toFixed(1)}%`,
     [
-      code.compressed ? `${String(code.compression || "compressed").toUpperCase()} compressed` : null,
+      code.compressed
+        ? `${String(code.compression || "compressed").toUpperCase()} compressed${code.compressionLevel != null ? ` · level ${code.compressionLevel}` : ""}${code.compressionStrategy === "smart" ? " · Smart" : ""}`
+        : (code.compressionStrategy === "smart" ? "Smart checked · raw kept" : null),
       code.signed ? "Ed25519 signed" : null,
       code.secure ? `${code.security?.mode === "raw-key" ? "Raw key" : "Password"} encrypted` : null
     ].filter(Boolean).join(" · ") || "None",
@@ -629,14 +687,18 @@ async function performGeneration(revision) {
   const commonOptions = {
     version: requestedVersion,
     ecc: eccLevelEl.value,
-    highDensity: highDensityEnabled(highDensityModeEl)
+    highDensity: highDensityEnabled(highDensityModeEl),
+    ...(selectedCompressionLevel() != null ? { compressionLevel: selectedCompressionLevel() } : {})
   };
 
+  const compressionMode = compressionModeEl.value;
   updateGenerationPhase(
-    compressionModeEl.value === "auto" ? "Compressing + encoding…" : "Encoding payload…",
-    compressionModeEl.value === "auto"
-      ? "Balanced Brotli, DEFLATE and legacy LZ are compared in a background worker. The page stays responsive."
-      : "Encoding is running in a background worker so the browser UI does not freeze."
+    compressionMode === "smart" ? "Smart compression search…" : compressionMode === "auto" ? "Compressing + encoding…" : "Encoding payload…",
+    compressionMode === "smart"
+      ? "CPU-heavy Smart mode is testing stronger DEFLATE/Brotli levels only when they can plausibly reduce the QuadQR version. Work stays off the UI thread."
+      : compressionMode === "auto"
+        ? "Balanced Brotli quality 6, DEFLATE level 6 and legacy LZ are compared in a background worker. The page stays responsive."
+        : "Encoding is running in a background worker so the browser UI does not freeze."
   );
   const expectedText = payloadEl.value;
   const code = await encodeWorker.run("encode", {
@@ -1598,7 +1660,11 @@ for (const button of tabButtons) {
 
 generateBtn.addEventListener("click", generate);
 scanabilityBtn.addEventListener("click", runScanabilityTest);
-compressionModeEl.addEventListener("change", () => currentCode && generate());
+compressionModeEl.addEventListener("change", () => {
+  updateCompressionUi();
+  if (currentCode) generate();
+});
+compressionLevelEl.addEventListener("change", () => currentCode && generate());
 signPayloadEl.addEventListener("change", () => { updateSigningUi(); generate(); });
 signingKeyIdEl.addEventListener("change", () => signPayloadEl.checked && generate());
 generateSigningKeyBtn.addEventListener("click", async () => {
@@ -1835,6 +1901,7 @@ window.addEventListener("pagehide", () => {
 
 resetCameraDiagnosticsUi();
 updateLogoUploadUi();
+updateCompressionUi();
 updateSecurityUi();
 updateSigningUi();
 updateRenderModeUi();

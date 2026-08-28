@@ -79,12 +79,16 @@ const code = encodeText("hello ".repeat(1000), {
   compression: "auto"
 });
 
+const smallest = encodeText("structured payload ".repeat(500), {
+  compression: "smart"
+});
+
 const decoded = decodeMatrix(code.matrix);
 console.log(decoded.compression); // usually "brotli" for repetitive data
 console.log(decoded.text);
 ```
 
-`compression: "auto"` compares bundled Brotli at balanced quality 6, portable DEFLATE, and the legacy LZ codec. You can force `compression: "brotli"`, `compression: "deflate"`, or `compression: "lz"` when deterministic algorithm selection is required.
+`compression: "auto"` performs one balanced comparison using LZ level 6, DEFLATE level 6, and Brotli quality 6. `compression: "smart"` is the opt-in CPU-heavy mode and escalates to stronger levels only when a smaller QuadQR version is realistically reachable. Explicit `lz` and `deflate` accept `compressionLevel: 1..9` (default 6), while explicit `brotli` accepts `compressionLevel: 0..11` (default 11). `lzLevel`, `deflateLevel`, and `brotliQuality` are available as algorithm-specific aliases.
 
 ## Other image formats
 

@@ -133,38 +133,50 @@ export function calculateCapacityPlan(options = {}) {
   else sourceBytes = new Uint8Array(Math.max(0, Math.floor(options.payloadBytes ?? 0)));
 
   const requestedCompression = String(options.compression ?? "none").toLowerCase();
-  if (!["none", "auto", "lz", "deflate", "brotli"].includes(requestedCompression)) {
-    throw new Error("compression must be none, auto, lz, deflate, or brotli.");
+  if (!["none", "auto", "smart", "lz", "deflate", "brotli"].includes(requestedCompression)) {
+    throw new Error("compression must be none, auto, smart, lz, deflate, or brotli.");
   }
   const signed = Boolean(options.signed);
   const keyIdBytes = options.keyId ? new TextEncoder().encode(String(options.keyId)).length : 0;
   const envelopeHeaderBytes = 16;
   const signingBytes = signed ? 64 + keyIdBytes + (options.embedPublicKey ? 32 : 0) : 0;
   let compression = requestedCompression;
+  let compressionLevel = null;
   let storedBytes = sourceBytes.length;
   let compressed = false;
 
   if (requestedCompression !== "none" && hasConcretePayload) {
     const candidates = [];
-    if (requestedCompression === "auto" || requestedCompression === "lz") {
-      candidates.push({ compression: "lz", bytes: compressPayload(sourceBytes).length });
+    const explicitLevel = options.compressionLevel;
+    if (requestedCompression === "auto" || requestedCompression === "smart" || requestedCompression === "lz") {
+      const level = requestedCompression === "lz" ? (explicitLevel ?? options.lzLevel ?? 6) : 6;
+      candidates.push({ compression: "lz", bytes: compressPayload(sourceBytes, { level }).length, level });
     }
-    if (requestedCompression === "auto" || requestedCompression === "deflate") {
-      candidates.push({ compression: "deflate", bytes: compressDeflatePayload(sourceBytes).length });
+    if (requestedCompression === "auto") {
+      candidates.push({ compression: "deflate", bytes: compressDeflatePayload(sourceBytes, { level: 6 }).length, level: 6 });
+      candidates.push({ compression: "brotli", bytes: compressBrotliPayload(sourceBytes, { quality: 6 }).length, level: 6 });
+    } else if (requestedCompression === "smart") {
+      for (const level of [6, 8, 9]) candidates.push({ compression: "deflate", bytes: compressDeflatePayload(sourceBytes, { level }).length, level });
+      for (const level of [6, 9, 11]) candidates.push({ compression: "brotli", bytes: compressBrotliPayload(sourceBytes, { quality: level }).length, level });
+    } else if (requestedCompression === "deflate") {
+      const level = explicitLevel ?? options.deflateLevel ?? 6;
+      candidates.push({ compression: "deflate", bytes: compressDeflatePayload(sourceBytes, { level }).length, level });
+    } else if (requestedCompression === "brotli") {
+      const level = explicitLevel ?? options.brotliQuality ?? 11;
+      candidates.push({ compression: "brotli", bytes: compressBrotliPayload(sourceBytes, { quality: level }).length, level });
     }
-    if (requestedCompression === "auto" || requestedCompression === "brotli") {
-      candidates.push({ compression: "brotli", bytes: compressBrotliPayload(sourceBytes).length });
-    }
-    if (!candidates.length) throw new Error("compression must be none, auto, lz, deflate, or brotli.");
+    if (!candidates.length) throw new Error("compression must be none, auto, smart, lz, deflate, or brotli.");
     candidates.sort((a, b) => a.bytes - b.bytes);
     const best = candidates[0];
     const compressionOverhead = signed ? 0 : envelopeHeaderBytes;
-    if (requestedCompression !== "auto" || best.bytes + compressionOverhead < sourceBytes.length) {
+    if (!["auto", "smart"].includes(requestedCompression) || best.bytes + compressionOverhead < sourceBytes.length) {
       storedBytes = best.bytes;
       compressed = true;
       compression = best.compression;
+      compressionLevel = best.level ?? null;
     } else {
       compression = "none";
+      compressionLevel = null;
     }
   } else if (requestedCompression !== "none" && !hasConcretePayload) {
     compression = "unknown";
@@ -203,6 +215,7 @@ export function calculateCapacityPlan(options = {}) {
     storedBytes,
     extensionOverheadBytes,
     compression,
+    compressionLevel,
     compressed,
     signed,
     quadqrVersion,

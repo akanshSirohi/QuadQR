@@ -1,5 +1,5 @@
 /*
- * Vendored portable Brotli codec used by QuadQR Compression 2.0.
+ * Vendored portable Brotli codec used by QuadQR Compression 3.0.
  * Based on brotli.js 1.3.3 (MIT) by Devon Govett and Google Brotli code.
  * Bundled into one dependency-free JavaScript module for browser + Node use.
  */
@@ -2181,9 +2181,19 @@ function __asBytes(input) {
   throw new TypeError('Expected Uint8Array, ArrayBuffer, typed-array view, or byte array.');
 }
 
+export const BROTLI_QUALITY_MIN = 0;
+export const BROTLI_QUALITY_MAX = 11;
+export const DEFAULT_BROTLI_QUALITY = 11;
+
 export function compressBrotliPayload(input, options = {}) {
   const bytes = __asBytes(input);
-  const quality = Math.max(1, Math.min(11, Number(options.quality ?? 11) || 11));
+  const rawQuality = typeof options === "number"
+    ? options
+    : (options.quality ?? options.level ?? options.compressionLevel ?? DEFAULT_BROTLI_QUALITY);
+  const quality = Number(rawQuality);
+  if (!Number.isInteger(quality) || quality < BROTLI_QUALITY_MIN || quality > BROTLI_QUALITY_MAX) {
+    throw new Error(`Brotli quality must be an integer ${BROTLI_QUALITY_MIN}..${BROTLI_QUALITY_MAX}.`);
+  }
   const result = __brotliCompress(bytes, { quality, mode: 0, lgwin: 22 });
   if (!result) throw new Error('Brotli compression failed.');
   return result instanceof Uint8Array ? result : Uint8Array.from(result);

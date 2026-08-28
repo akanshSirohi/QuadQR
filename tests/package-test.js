@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { webcrypto } from "node:crypto";
-import { brotliCompressSync, brotliDecompressSync, constants as zlibConstants } from "node:zlib";
+import { brotliCompressSync, brotliDecompressSync, inflateRawSync, constants as zlibConstants } from "node:zlib";
 
 import * as esm from "../dist/index.js";
 import * as nodeApi from "../dist/node.js";
@@ -56,6 +56,42 @@ console.log("Running package distribution tests...");
     params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 7 }
   });
   assert.deepEqual(esm.decompressBrotliPayload(nativeCompressed, raw.length), raw);
+
+  // DEFLATE levels remain standard RFC 1951 streams and explicit level metadata
+  // is available on generated objects without changing decode compatibility.
+  for (const level of [1, 6, 9]) {
+    const portableDeflate = esm.compressDeflatePayload(raw, { level });
+    assert.deepEqual(new Uint8Array(inflateRawSync(portableDeflate)), raw);
+    assert.deepEqual(esm.decompressDeflatePayload(portableDeflate, raw.length), raw);
+  }
+  const lzSearchPayload = new TextEncoder().encode(Array.from({ length: 500 }, (_, i) => `item-${i % 17}-group-${i % 11}-value-${i % 23};`).join(""));
+  const lzFast = esm.compressPayload(lzSearchPayload, { level: 1 });
+  const lzStrong = esm.compressPayload(lzSearchPayload, { level: 9 });
+  assert.deepEqual(esm.decompressPayload(lzFast, lzSearchPayload.length), lzSearchPayload);
+  assert.deepEqual(esm.decompressPayload(lzStrong, lzSearchPayload.length), lzSearchPayload);
+  assert.ok(lzStrong.length <= lzFast.length);
+
+  const explicitLzLevel = esm.encodeText(serverText, { compression: "lz", compressionLevel: 9 });
+  assert.equal(explicitLzLevel.compression, "lz");
+  assert.equal(explicitLzLevel.compressionLevel, 9);
+  assert.equal(esm.decodeMatrix(explicitLzLevel.matrix).text, serverText);
+
+  const explicitLevel = esm.encodeText(serverText, { compression: "deflate", compressionLevel: 9 });
+  assert.equal(explicitLevel.compressionLevel, 9);
+  assert.equal(esm.decodeMatrix(explicitLevel.matrix).text, serverText);
+
+  const structured = Array.from({ length: 20 }, (_, i) => JSON.stringify({
+    id: i,
+    name: `product-${i % 17}`,
+    category: `cat-${i % 7}`,
+    description: `This is a repeated product description for item ${i % 23} with common words and values`,
+    price: (i % 13) * 17.25
+  })).join("\n");
+  const balanced = esm.encodeText(structured, { compression: "auto", ecc: "M" });
+  const smart = esm.encodeText(structured, { compression: "smart", ecc: "M" });
+  assert.equal(smart.compressionStrategy, "smart");
+  assert.ok(smart.version <= balanced.version);
+  assert.equal(esm.decodeMatrix(smart.matrix).text, structured);
 }
 
 // CommonJS wrapper on supported modern Node.

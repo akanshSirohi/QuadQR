@@ -223,8 +223,23 @@ const compressed = encodeText("repeated repeated repeated", {
   ecc: "M"
 });
 
-// Force Brotli when deterministic algorithm selection is required.
-const brotli = encodeText("hello ".repeat(1000), { compression: "brotli" });
+// Smart is CPU-heavy and only escalates when stronger compression can
+// realistically reduce the physical QuadQR version.
+const smart = encodeText(largeStructuredText, { compression: "smart" });
+
+// Explicit codecs can choose their encoder level.
+const lz = encodeText(largeStructuredText, {
+  compression: "lz",
+  compressionLevel: 9
+});
+const brotli = encodeText("hello ".repeat(1000), {
+  compression: "brotli",
+  compressionLevel: 11
+});
+const deflate = encodeText(largeStructuredText, {
+  compression: "deflate",
+  compressionLevel: 9
+});
 
 const keys = await generateSigningKeyPair();
 const signed = await encodeSignedText("verified offline", {
@@ -241,7 +256,7 @@ console.log(verified.signatureVerified); // true
 console.log(verified.signatureTrusted);  // true
 ```
 
-Compression modes are `none`, `auto`, `brotli`, `deflate`, and `lz`. Compression 2.0 makes `auto` compare bundled Brotli at a balanced quality setting, portable DEFLATE, and the legacy LZ stream, then choose the smallest final candidate. Auto only enables compression when the complete stored representation is actually smaller, including internal envelope overhead. `brotli`, `deflate`, and `lz` can still be forced explicitly. All three codecs are synchronous and bundled with QuadQR, so the same compression path works in browsers and server-side Node.js without `node:zlib`, `CompressionStream`, or a runtime dependency. The included demo runs encoding, image verification, Reliability Lab work, perspective sweeps, and codec benchmarks in module Web Workers so these synchronous algorithms do not freeze the browser UI. Ed25519 signing stores the signature plus an optional compact `keyId`; the public verification key stays outside the QuadQR by default. Applications do not need to choose or maintain content types.
+Compression modes are `none`, `auto`, `smart`, `brotli`, `deflate`, and `lz`. `auto` is the fast default: it compares LZ level 6, DEFLATE level 6, and Brotli quality 6 once, including envelope overhead, and keeps the smallest final representation. `smart` is an opt-in CPU-heavy mode. It starts with the same balanced pass, checks the resulting QuadQR version, and only escalates to DEFLATE 8 / Brotli 9 and then DEFLATE 9 / Brotli 11 when a smaller physical version is realistically reachable; LZ stays at its default level in Auto/Smart. Explicit `lz` accepts `compressionLevel: 1..9` with default 6, explicit `deflate` accepts `1..9` with default 6, and explicit `brotli` accepts `0..11` with default 11. Compression level is an encoder-only setting and is not stored in the symbol because the decoder does not need it. All codecs are synchronous and bundled with QuadQR, so the same compression path works in browsers and server-side Node.js without `node:zlib`, `CompressionStream`, or a runtime dependency. The demo keeps these CPU-heavy operations in module Web Workers so the browser UI remains responsive. See [`docs/COMPRESSION.md`](./docs/COMPRESSION.md) for the exact Smart escalation policy and level API. Ed25519 signing stores the signature plus an optional compact `keyId`; the public verification key stays outside the QuadQR by default. Applications do not need to choose or maintain content types.
 
 Signing can also be composed with Secure Payload. QuadQR compresses if requested, signs the normal payload with the private key, then encrypts the protected bytes with AES-256-GCM. A verifier supplies the trusted public key separately, or resolves it from `keyId`.
 

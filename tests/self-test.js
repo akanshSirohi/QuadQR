@@ -6,6 +6,7 @@ import {
   DEFAULT_ECC_LEVEL,
   FORMAT_VERSION,
   MAX_VERSION,
+  COMPRESSION_LEVELS,
   decodeMatrix,
   decryptDecoded,
   encodeBytes,
@@ -1182,7 +1183,7 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
 }
 
 
-// Compression 2.0 stays an internal detail around a normal payload.
+// Compression 3.0 stays an internal detail around a normal payload.
 {
   const text = "Payload compression compression compression ".repeat(8);
   const raw = new TextEncoder().encode(text);
@@ -1192,6 +1193,22 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   const lzRestored = decompressPayload(lzCompressed, raw.length);
   bytesEqual(lzRestored, raw);
   assert.ok(lzCompressed.length < raw.length);
+  assert.deepEqual(COMPRESSION_LEVELS.lz, { min: 1, max: 9, default: 6 });
+  bytesEqual(compressPayload(raw), compressPayload(raw, { level: 6 }));
+  for (const level of [1, 6, 9]) {
+    const compressed = compressPayload(raw, { level });
+    bytesEqual(decompressPayload(compressed, raw.length), raw);
+  }
+  assert.throws(() => compressPayload(raw, { level: 0 }), /LZ level must be 1\.\.9/i);
+  assert.throws(() => compressPayload(raw, { level: 10 }), /LZ level must be 1\.\.9/i);
+
+  const explicitLzLevelCode = encodeText(text, { compression: "lz", compressionLevel: 9 });
+  assert.equal(explicitLzLevelCode.compression, "lz");
+  assert.equal(explicitLzLevelCode.compressionLevel, 9);
+  assert.equal(decodeMatrix(explicitLzLevelCode.matrix).text, text);
+  const explicitLzAlias = encodeText(text, { compression: "lz", lzLevel: 1 });
+  assert.equal(explicitLzAlias.compressionLevel, 1);
+  assert.throws(() => encodeText(text, { compression: "lz", compressionLevel: 10 }), /LZ compressionLevel must be 1\.\.9/i);
 
   // Forced legacy LZ must remain a valid stream even for 0..3 byte inputs.
   for (const tinyText of ["", "a", "ab", "abc"]) {
@@ -1207,12 +1224,24 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   const inflated = decompressDeflatePayload(deflated, raw.length);
   bytesEqual(inflated, raw);
   assert.ok(deflated.length < lzCompressed.length);
+  assert.deepEqual(COMPRESSION_LEVELS.deflate, { min: 1, max: 9, default: 6 });
+  for (const level of [1, 6, 9]) {
+    const compressed = compressDeflatePayload(raw, { level });
+    bytesEqual(decompressDeflatePayload(compressed, raw.length), raw);
+  }
+  assert.throws(() => compressDeflatePayload(raw, { level: 0 }), /DEFLATE level must be 1\.\.9/i);
 
   // Brotli is also bundled, synchronous, and round-trips standard byte payloads.
   const brotlied = compressBrotliPayload(raw);
   const unbrotlied = decompressBrotliPayload(brotlied, raw.length);
   bytesEqual(unbrotlied, raw);
   assert.ok(brotlied.length <= deflated.length);
+  assert.deepEqual(COMPRESSION_LEVELS.brotli, { min: 0, max: 11, default: 11 });
+  for (const quality of [0, 6, 11]) {
+    const compressed = compressBrotliPayload(raw, { quality });
+    bytesEqual(decompressBrotliPayload(compressed, raw.length), raw);
+  }
+  assert.throws(() => compressBrotliPayload(raw, { quality: 12 }), /Brotli quality must be an integer 0\.\.11/i);
 
   const encoded = encodeText(text, { ecc: "M", compression: "auto" });
   const decoded = decodeMatrix(encoded.matrix);
@@ -1240,8 +1269,36 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   assert.equal(explicitLz.compression, "lz");
   const explicitDeflate = decodeMatrix(encodeText(text, { compression: "deflate" }).matrix);
   assert.equal(explicitDeflate.compression, "deflate");
-  const explicitBrotli = decodeMatrix(encodeText(text, { compression: "brotli" }).matrix);
+  const explicitBrotliCode = encodeText(text, { compression: "brotli", compressionLevel: 9 });
+  const explicitBrotli = decodeMatrix(explicitBrotliCode.matrix);
   assert.equal(explicitBrotli.compression, "brotli");
+  assert.equal(explicitBrotliCode.compressionLevel, 9);
+  const explicitDeflateCode = encodeText(text, { compression: "deflate", compressionLevel: 1 });
+  assert.equal(explicitDeflateCode.compressionLevel, 1);
+  assert.throws(() => encodeText(text, { compression: "deflate", compressionLevel: 10 }), /1\.\.9/);
+  assert.throws(() => encodeText(text, { compression: "brotli", compressionLevel: -1 }), /0\.\.11/);
+
+  // Smart mode starts balanced, then escalates only when stronger levels can
+  // plausibly cross a physical QuadQR version boundary.
+  const smartRows = [];
+  for (let i = 0; i < 20; i++) {
+    smartRows.push(JSON.stringify({
+      id: i,
+      name: `product-${i % 17}`,
+      category: `cat-${i % 7}`,
+      description: `This is a repeated product description for item ${i % 23} with common words and values`,
+      price: (i % 13) * 17.25,
+      tags: [`tag${i % 5}`, `tag${i % 9}`]
+    }));
+  }
+  const smartText = smartRows.join("\n");
+  const autoSmartBaseline = encodeText(smartText, { compression: "auto", ecc: "M" });
+  const smartCode = encodeText(smartText, { compression: "smart", ecc: "M" });
+  assert.equal(smartCode.compressionStrategy, "smart");
+  assert.equal(smartCode.smartCompression.cpuHeavy, true);
+  assert.ok(smartCode.smartCompression.levelsTried.length >= 4);
+  assert.ok(smartCode.version < autoSmartBaseline.version, `Expected Smart v${smartCode.version} to beat Auto v${autoSmartBaseline.version}.`);
+  assert.equal(decodeMatrix(smartCode.matrix).text, smartText);
 
   // Auto mode is genuinely zero-overhead when an envelope would make the
   // stored representation larger than the original payload. Brotli must also
