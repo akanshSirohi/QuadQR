@@ -9,6 +9,9 @@ import {
   applyStressDistortion
 } from "../library/quadqr.js";
 import { benchmarkCodec } from "../library/benchmark.js";
+import { initWasm } from "../library/wasm.js";
+
+const scannerWasmReady = initWasm().catch(() => null);
 
 function serializeError(error) {
   return {
@@ -51,6 +54,7 @@ async function handleTask(task, payload) {
   }
 
   if (task === "scan") {
+    await scannerWasmReady;
     return scanImageData(imageDataFromPayload(payload.imageData), payload.options ?? {});
   }
 

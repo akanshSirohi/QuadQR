@@ -209,11 +209,16 @@ const result = scanVideoFrame(video);
 
 ### `startCameraScanner(video, options?)`
 
-Starts live camera scanning. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. It scans the CSS-visible preview region by default. Finder detection uses a QuadQR-specific RGB value channel (`max(R,G,B)`) on the fast pass so saturated blue/red/green data cells are not mistaken for structural black. If a miss still contains at least two strong finder patterns, the scanner can retry the visible ROI at up to 1600 px before heavier recovery, which preserves more pixels per module for dense versions. If that does not decode, the **same captured frame** is retried through QuadQR code-centric Auto Color recovery. The default recovery sequence crops 8%, 16%, and 22% from the camera-frame edges, then falls back to the full frame. This prevents dark room pixels, browser UI, or monitor bezels outside the guide from controlling QuadQR Auto Color and Otsu thresholds. Each crop uses the QuadQR-specific per-channel shadow/highlight correction with a neutral mid-high highlight target (190 by default). Finder-only recovery also tries multiple center-weighted QuadQR Auto Color histogram windows before raw threshold bracketing. The normal fast path is untouched; these extra passes run only after a miss. If geometry is found but color decoding fails, the captured ROI is retried with stronger color/geometry recovery, including affine cross-channel calibration. Consecutive failed frames can then be combined with tracked-symbol **confidence fusion**: cell evidence is weighted by source confidence, frame quality, and recency, and second hypotheses are carried forward into Spectrum ECC 2.0.
+Starts live camera scanning. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. Modern browsers run the complete camera scanner in a dedicated module Web Worker by default, including the same perspective, color, recovery, ECC, and multi-frame paths used by the main scanner. The loop uses `requestVideoFrameCallback()` when available, drops stale frames instead of queueing them, measures `scanInterval` from scan start rather than scan completion, and reuses recently detected geometry for consecutive frames before falling back to a full finder search. Worker mode defaults to a 33 ms minimum cadence; automatic main-thread fallback uses 80 ms. It scans the CSS-visible preview region by default at a 640 px working dimension. Finder acquisition uses a streaming 1:1:3:1:1 RGB-value pass, direct cross-checks, local-threshold fallback, and directional module-size/version estimation so saturated data cells and uneven lighting do not delay structural detection. Once a geometry candidate validates structure, ECC, and CRC, it returns immediately. If a miss still contains at least two strong finder patterns, the scanner can retry the visible ROI at up to 960 px before heavier recovery, which preserves more pixels per module for dense versions. If that does not decode, the **same captured frame** is retried through QuadQR code-centric Auto Color recovery. The default recovery sequence crops 8%, 16%, and 22% from the camera-frame edges, then falls back to the full frame. This prevents dark room pixels, browser UI, or monitor bezels outside the guide from controlling QuadQR Auto Color and Otsu thresholds. Each crop uses the QuadQR-specific per-channel shadow/highlight correction with a neutral mid-high highlight target (190 by default). Finder-only recovery also tries multiple center-weighted QuadQR Auto Color histogram windows before raw threshold bracketing. The normal fast path is untouched; these extra passes run only after a miss. If geometry is found but color decoding fails, the captured ROI is retried with stronger color/geometry recovery, including affine cross-channel calibration. Consecutive failed frames can then be combined with tracked-symbol **confidence fusion**: cell evidence is weighted by source confidence, frame quality, and recency, and second hypotheses are carried forward into Spectrum ECC 2.0.
 
 ```js
 const scanner = await startCameraScanner(video, {
-  scanInterval: 120,
+  cameraWorker: true,
+  maxDimension: 640,
+  scanInterval: 33,
+  useVideoFrameCallback: true,
+  cameraGeometryReuse: true,
+  cameraGeometryReuseMaxMisses: 5,
   multiFrame: true,
   multiFrameWindow: 4,
   multiFrameMinFrames: 2,
@@ -226,7 +231,7 @@ const scanner = await startCameraScanner(video, {
   cameraAutoEnhanceEvery: 2,
   cameraFinderRecoveryEvery: 2,
   cameraHighResolutionRecovery: true,
-  cameraHighResolutionMaxDimension: 1600,
+  cameraHighResolutionMaxDimension: 960,
   cameraHighResolutionEvery: 2,
   onResult(result) {
     console.log(result);
@@ -331,14 +336,14 @@ Security constants include:
 
 ### `initWasm(options?)`
 
-Loads and activates the optional bundled WASM accelerator.
+Loads and activates the optional bundled WASM accelerator for CRC-32 and scanner pixel preprocessing (RGBA grayscale conversion, Otsu thresholding, and finder binary generation).
 
 ```js
 import { initWasm } from "quadqr-js";
 await initWasm();
 ```
 
-An explicit URL or byte buffer can also be supplied.
+An explicit URL or byte buffer can also be supplied. Initialize it once before performance-sensitive synchronous `scanImageData()` loops or before starting the camera scanner.
 
 ### `getWasmState()`
 

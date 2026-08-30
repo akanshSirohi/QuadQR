@@ -3,12 +3,14 @@ import {
   alignmentPatternIsBlack,
   alignmentPatternRadius,
   primaryAlignmentPatternForVersion,
+  ALIGNMENT_PROFILE_STANDARD_5,
+  ALIGNMENT_PROFILE_LEGACY_3,
   sizeForVersion
 } from "./geometry.js";
 
 /**
  * Image geometry and sampling helpers for QuadQR.
- * Pure JavaScript. No DOM dependency except callers may pass browser ImageData.
+ * JavaScript fallback with optional WASM hot-loop acceleration. No DOM dependency except callers may pass browser ImageData.
  */
 
 function assert(condition, message) {
@@ -17,6 +19,20 @@ function assert(condition, message) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+let visionAccelerator = null;
+
+// Repeated recovery stages often inspect the exact same captured ImageData.
+// Cache immutable grayscale/binary preprocessing by ImageData identity so the
+// stronger scanner can reuse work instead of rebuilding millions of pixels.
+// WeakMap keeps camera frames collectible as soon as the scan finishes.
+const binaryPreprocessCache = new WeakMap();
+const autoColorGrayCache = new WeakMap();
+
+/** Install or remove optional scanner hot-loop acceleration. Internal WASM wiring hook. */
+export function installVisionAccelerator(accelerator = null) {
+  visionAccelerator = accelerator && typeof accelerator.buildBinary === "function" ? accelerator : null;
 }
 
 function pixelRgb(imageData, x, y) {
@@ -114,54 +130,140 @@ function binaryAtThreshold(gray, threshold) {
   return binary;
 }
 
-function buildBinary(imageData, options = {}) {
+function hybridLocalBinary(gray, width, height) {
+  // QR-specific local thresholding inspired by the same block strategy used by
+  // ZXing's HybridBinarizer. It is intentionally a locator fallback, not a
+  // replacement for QuadQR's color correction. 8x8 blocks + smoothed local
+  // black points make finder rings survive shadows and screen gradients that
+  // defeat one global threshold.
+  const BLOCK = 8;
+  const MIN_DIMENSION = 40;
+  const MIN_DYNAMIC_RANGE = 24;
+  if (width < MIN_DIMENSION || height < MIN_DIMENSION) return null;
+
+  const subWidth = Math.ceil(width / BLOCK);
+  const subHeight = Math.ceil(height / BLOCK);
+  const blackPoints = new Uint16Array(subWidth * subHeight);
+  const maxXOffset = Math.max(0, width - BLOCK);
+  const maxYOffset = Math.max(0, height - BLOCK);
+
+  for (let by = 0; by < subHeight; by++) {
+    const y0 = Math.min(by * BLOCK, maxYOffset);
+    for (let bx = 0; bx < subWidth; bx++) {
+      const x0 = Math.min(bx * BLOCK, maxXOffset);
+      let sum = 0;
+      let min = 255;
+      let max = 0;
+      for (let yy = 0; yy < BLOCK; yy++) {
+        const row = (y0 + yy) * width + x0;
+        for (let xx = 0; xx < BLOCK; xx++) {
+          const value = gray[row + xx];
+          sum += value;
+          if (value < min) min = value;
+          if (value > max) max = value;
+        }
+      }
+      let average = sum >> 6;
+      if (max - min <= MIN_DYNAMIC_RANGE) {
+        average = min >> 1;
+        if (by > 0 && bx > 0) {
+          const above = blackPoints[(by - 1) * subWidth + bx];
+          const left = blackPoints[by * subWidth + bx - 1];
+          const diag = blackPoints[(by - 1) * subWidth + bx - 1];
+          const neighbor = (above + 2 * left + diag) >> 2;
+          if (min < neighbor) average = neighbor;
+        }
+      }
+      blackPoints[by * subWidth + bx] = average;
+    }
+  }
+
+  const binary = new Uint8Array(width * height);
+  for (let by = 0; by < subHeight; by++) {
+    const y0 = Math.min(by * BLOCK, maxYOffset);
+    const centerY = clamp(by, 2, Math.max(2, subHeight - 3));
+    for (let bx = 0; bx < subWidth; bx++) {
+      const x0 = Math.min(bx * BLOCK, maxXOffset);
+      const centerX = clamp(bx, 2, Math.max(2, subWidth - 3));
+      let sum = 0;
+      let count = 0;
+      for (let oy = -2; oy <= 2; oy++) {
+        const py = clamp(centerY + oy, 0, subHeight - 1);
+        for (let ox = -2; ox <= 2; ox++) {
+          const px = clamp(centerX + ox, 0, subWidth - 1);
+          sum += blackPoints[py * subWidth + px];
+          count++;
+        }
+      }
+      const threshold = Math.round(sum / Math.max(1, count));
+      for (let yy = 0; yy < BLOCK; yy++) {
+        const y = y0 + yy;
+        if (y >= height) break;
+        const row = y * width;
+        for (let xx = 0; xx < BLOCK; xx++) {
+          const x = x0 + xx;
+          if (x >= width) break;
+          if (gray[row + x] <= threshold) binary[row + x] = 1;
+        }
+      }
+    }
+  }
+  return binary;
+}
+
+export function buildBinary(imageData, options = {}) {
   const grayMode = options.grayMode ?? "luminance";
+  const thresholdOffset = Math.round(Number(options.thresholdOffset) || 0);
+  const canCache = imageData && typeof imageData === "object" && options.cache !== false;
+  const cacheKey = `${grayMode}:${thresholdOffset}`;
+  if (canCache) {
+    const cached = binaryPreprocessCache.get(imageData)?.get(cacheKey);
+    if (cached) return cached;
+  }
+
+  let result;
+  if (visionAccelerator) {
+    try {
+      const accelerated = visionAccelerator.buildBinary(imageData, {
+        grayMode,
+        thresholdOffset
+      });
+      if (accelerated?.gray && accelerated?.binary) {
+        result = accelerated;
+        if (canCache) {
+          let entries = binaryPreprocessCache.get(imageData);
+          if (!entries) binaryPreprocessCache.set(imageData, entries = new Map());
+          entries.set(cacheKey, result);
+        }
+        return result;
+      }
+    } catch {
+      // A WASM/runtime failure must never make scanning unavailable. Fall back
+      // to the exact JavaScript implementation for this and future calls.
+      visionAccelerator = null;
+    }
+  }
+
   const gray = buildGray(imageData, grayMode);
   const baseThreshold = otsuThreshold(gray);
   const threshold = clamp(
-    Math.round(baseThreshold + (options.thresholdOffset ?? 0)),
+    Math.round(baseThreshold + thresholdOffset),
     8,
     247
   );
-  return {
+  result = {
     gray,
     binary: binaryAtThreshold(gray, threshold),
     threshold,
     baseThreshold,
     grayMode
   };
-}
-
-function runsForRow(binary, width, row) {
-  const runs = [];
-  let color = binary[row * width];
-  let start = 0;
-  for (let x = 1; x < width; x++) {
-    const next = binary[row * width + x];
-    if (next !== color) {
-      runs.push({ color, start, length: x - start });
-      color = next;
-      start = x;
-    }
+  if (canCache) {
+    let entries = binaryPreprocessCache.get(imageData);
+    if (!entries) binaryPreprocessCache.set(imageData, entries = new Map());
+    entries.set(cacheKey, result);
   }
-  runs.push({ color, start, length: width - start });
-  return runs;
-}
-
-function runsForColumn(binary, width, height, col) {
-  const runs = [];
-  let color = binary[col];
-  let start = 0;
-  for (let y = 1; y < height; y++) {
-    const next = binary[y * width + col];
-    if (next !== color) {
-      runs.push({ color, start, length: y - start });
-      color = next;
-      start = y;
-    }
-  }
-  runs.push({ color, start, length: height - start });
-  return runs;
+  return result;
 }
 
 function finderRatioScore(lengths, toleranceScale = 1) {
@@ -179,34 +281,85 @@ function finderRatioScore(lengths, toleranceScale = 1) {
   return score;
 }
 
-function findWindowContainingCoordinate(runs, coordinate, toleranceScale = 1) {
-  for (let i = 2; i < runs.length - 2; i++) {
-    const centerRun = runs[i];
-    if (centerRun.color !== 1) continue;
-    if (coordinate < centerRun.start || coordinate >= centerRun.start + centerRun.length) continue;
-    const window = runs.slice(i - 2, i + 3);
-    if (window.map((run) => run.color).join("") !== "10101") continue;
-    const score = finderRatioScore(window.map((run) => run.length), toleranceScale);
-    if (!Number.isFinite(score)) continue;
-    const first = window[0].start;
-    const total = window.reduce((sum, run) => sum + run.length, 0);
-    return {
-      center: first + total / 2,
-      moduleSize: total / 7,
-      score
-    };
-  }
-  return null;
+function finderCenterFromEnd(stateCount, end) {
+  return end - stateCount[4] - stateCount[3] - stateCount[2] / 2;
 }
 
-function crossCheckVertical(binary, width, height, x, y, toleranceScale = 1) {
-  const col = clamp(Math.round(x), 0, width - 1);
-  return findWindowContainingCoordinate(runsForColumn(binary, width, height, col), y, toleranceScale);
+function directCrossCheckVertical(binary, width, height, startY, centerX, maxCount, originalTotal, toleranceScale = 1) {
+  const x = clamp(Math.round(centerX), 0, width - 1);
+  const state = [0, 0, 0, 0, 0];
+  let y = clamp(Math.round(startY), 0, height - 1);
+
+  while (y >= 0 && binary[y * width + x]) { state[2]++; y--; }
+  if (y < 0) return null;
+  while (y >= 0 && !binary[y * width + x] && state[1] <= maxCount) { state[1]++; y--; }
+  if (y < 0 || state[1] > maxCount) return null;
+  while (y >= 0 && binary[y * width + x] && state[0] <= maxCount) { state[0]++; y--; }
+  if (state[0] > maxCount) return null;
+
+  y = clamp(Math.round(startY), 0, height - 1) + 1;
+  while (y < height && binary[y * width + x]) { state[2]++; y++; }
+  if (y === height) return null;
+  while (y < height && !binary[y * width + x] && state[3] < maxCount) { state[3]++; y++; }
+  if (y === height || state[3] >= maxCount) return null;
+  while (y < height && binary[y * width + x] && state[4] < maxCount) { state[4]++; y++; }
+  if (state[4] >= maxCount) return null;
+
+  const total = state.reduce((sum, value) => sum + value, 0);
+  if (Math.abs(total - originalTotal) > originalTotal * 0.40) return null;
+  const score = finderRatioScore(state, toleranceScale);
+  if (!Number.isFinite(score)) return null;
+  return { center: finderCenterFromEnd(state, y), moduleSize: total / 7, score };
 }
 
-function crossCheckHorizontal(binary, width, height, x, y, toleranceScale = 1) {
-  const row = clamp(Math.round(y), 0, height - 1);
-  return findWindowContainingCoordinate(runsForRow(binary, width, row), x, toleranceScale);
+function directCrossCheckHorizontal(binary, width, height, startX, centerY, maxCount, originalTotal, toleranceScale = 1) {
+  const y = clamp(Math.round(centerY), 0, height - 1);
+  const row = y * width;
+  const state = [0, 0, 0, 0, 0];
+  let x = clamp(Math.round(startX), 0, width - 1);
+
+  while (x >= 0 && binary[row + x]) { state[2]++; x--; }
+  if (x < 0) return null;
+  while (x >= 0 && !binary[row + x] && state[1] <= maxCount) { state[1]++; x--; }
+  if (x < 0 || state[1] > maxCount) return null;
+  while (x >= 0 && binary[row + x] && state[0] <= maxCount) { state[0]++; x--; }
+  if (state[0] > maxCount) return null;
+
+  x = clamp(Math.round(startX), 0, width - 1) + 1;
+  while (x < width && binary[row + x]) { state[2]++; x++; }
+  if (x === width) return null;
+  while (x < width && !binary[row + x] && state[3] < maxCount) { state[3]++; x++; }
+  if (x === width || state[3] >= maxCount) return null;
+  while (x < width && binary[row + x] && state[4] < maxCount) { state[4]++; x++; }
+  if (state[4] >= maxCount) return null;
+
+  const total = state.reduce((sum, value) => sum + value, 0);
+  if (Math.abs(total - originalTotal) > originalTotal * 0.25) return null;
+  const score = finderRatioScore(state, toleranceScale);
+  if (!Number.isFinite(score)) return null;
+  return { center: finderCenterFromEnd(state, x), moduleSize: total / 7, score };
+}
+
+function directCrossCheckDiagonal(binary, width, height, centerX, centerY, toleranceScale = 1) {
+  const cx = clamp(Math.round(centerX), 0, width - 1);
+  const cy = clamp(Math.round(centerY), 0, height - 1);
+  const state = [0, 0, 0, 0, 0];
+  let step = 0;
+  while (cx - step >= 0 && cy - step >= 0 && binary[(cy - step) * width + (cx - step)]) { state[2]++; step++; }
+  if (!state[2]) return false;
+  while (cx - step >= 0 && cy - step >= 0 && !binary[(cy - step) * width + (cx - step)]) { state[1]++; step++; }
+  if (!state[1]) return false;
+  while (cx - step >= 0 && cy - step >= 0 && binary[(cy - step) * width + (cx - step)]) { state[0]++; step++; }
+  if (!state[0]) return false;
+
+  step = 1;
+  while (cx + step < width && cy + step < height && binary[(cy + step) * width + (cx + step)]) { state[2]++; step++; }
+  while (cx + step < width && cy + step < height && !binary[(cy + step) * width + (cx + step)]) { state[3]++; step++; }
+  if (!state[3]) return false;
+  while (cx + step < width && cy + step < height && binary[(cy + step) * width + (cx + step)]) { state[4]++; step++; }
+  if (!state[4]) return false;
+
+  return Number.isFinite(finderRatioScore(state, toleranceScale * 1.35));
 }
 
 function clusterFinderCandidates(raw, minConfirmations = 2) {
@@ -250,46 +403,179 @@ function clusterFinderCandidates(raw, minConfirmations = 2) {
     );
 }
 
-function detectFinderCandidates(binary, width, height, options = {}) {
+export function detectFinderCandidates(binary, width, height, options = {}) {
+  // Finder acquisition follows the same broad strategy that makes mature QR
+  // readers feel immediate: scan a subset of rows for 1:1:3:1:1, then confirm
+  // each hit directly across the orthogonal axes. Unlike the previous scanner,
+  // this does not allocate complete run arrays for every row and column.
   const raw = [];
-  const rowStep = height > 1200 ? 2 : 1;
   const toleranceScale = options.toleranceScale ?? 1;
   const moduleSpreadLimit = options.moduleSpreadLimit ?? 0.45;
   const minConfirmations = options.minConfirmations ?? 2;
+  const rowStep = Math.max(1, Math.round(options.rowStep ?? (height > 900 ? 2 : 1)));
+  const diagonalCheck = options.diagonalCheck === true;
+  const maxRawCandidates = Math.max(24, Math.round(options.maxRawCandidates ?? 160));
 
-  for (let y = 0; y < height; y += rowStep) {
-    const runs = runsForRow(binary, width, y);
-    for (let i = 0; i <= runs.length - 5; i++) {
-      const window = runs.slice(i, i + 5);
-      if (window.map((run) => run.color).join("") !== "10101") continue;
-      const lengths = window.map((run) => run.length);
-      const ratioScore = finderRatioScore(lengths, toleranceScale);
-      if (!Number.isFinite(ratioScore)) continue;
-      const total = lengths.reduce((sum, value) => sum + value, 0);
-      const centerX = window[0].start + total / 2;
-      const vertical = crossCheckVertical(binary, width, height, centerX, y, toleranceScale);
-      if (!vertical) continue;
-      const horizontal = crossCheckHorizontal(binary, width, height, centerX, vertical.center, toleranceScale);
-      if (!horizontal) continue;
+  const handlePossibleCenter = (stateCount, y, endX) => {
+    const ratioScore = finderRatioScore(stateCount, toleranceScale);
+    if (!Number.isFinite(ratioScore)) return false;
+    const total = stateCount.reduce((sum, value) => sum + value, 0);
+    const centerX = finderCenterFromEnd(stateCount, endX);
+    const maxCount = Math.max(2, Math.ceil(stateCount[2] * 1.25));
+    const vertical = directCrossCheckVertical(binary, width, height, y, centerX, maxCount, total, toleranceScale);
+    if (!vertical) return false;
+    const horizontal = directCrossCheckHorizontal(binary, width, height, centerX, vertical.center, maxCount, total, toleranceScale);
+    if (!horizontal) return false;
+    if (diagonalCheck && !directCrossCheckDiagonal(binary, width, height, horizontal.center, vertical.center, toleranceScale)) return false;
 
-      const moduleSize = (total / 7 + vertical.moduleSize + horizontal.moduleSize) / 3;
-      const moduleSpread = Math.max(
-        Math.abs(moduleSize - total / 7),
-        Math.abs(moduleSize - vertical.moduleSize),
-        Math.abs(moduleSize - horizontal.moduleSize)
-      ) / moduleSize;
-      if (moduleSpread > moduleSpreadLimit) continue;
+    const moduleSize = (total / 7 + vertical.moduleSize + horizontal.moduleSize) / 3;
+    const moduleSpread = Math.max(
+      Math.abs(moduleSize - total / 7),
+      Math.abs(moduleSize - vertical.moduleSize),
+      Math.abs(moduleSize - horizontal.moduleSize)
+    ) / Math.max(0.01, moduleSize);
+    if (moduleSpread > moduleSpreadLimit) return false;
 
-      raw.push({
-        x: horizontal.center,
-        y: vertical.center,
-        moduleSize,
-        score: ratioScore + vertical.score + horizontal.score
-      });
+    raw.push({
+      x: horizontal.center,
+      y: vertical.center,
+      moduleSize,
+      score: ratioScore + vertical.score + horizontal.score
+    });
+    return true;
+  };
+
+  for (let y = rowStep - 1; y < height; y += rowStep) {
+    const state = [0, 0, 0, 0, 0];
+    let currentState = 0;
+    const row = y * width;
+
+    for (let x = 0; x < width; x++) {
+      if (binary[row + x]) {
+        if ((currentState & 1) === 1) currentState++;
+        state[currentState]++;
+      } else {
+        if ((currentState & 1) === 0) {
+          if (currentState === 4) {
+            handlePossibleCenter(state, y, x);
+            state[0] = state[2];
+            state[1] = state[3];
+            state[2] = state[4];
+            state[3] = 1;
+            state[4] = 0;
+            currentState = 3;
+          } else {
+            currentState++;
+            state[currentState]++;
+          }
+        } else {
+          state[currentState]++;
+        }
+      }
     }
+    if (currentState === 4) handlePossibleCenter(state, y, width);
+    if (raw.length >= maxRawCandidates) break;
   }
 
   return clusterFinderCandidates(raw, minConfirmations);
+}
+
+function detectFinderCandidatesByComponents(binary, width, height, options = {}) {
+  const visited = new Uint8Array(width * height);
+  const stack = [];
+  const candidates = [];
+  const minArea = Math.max(16, Math.round(options.componentMinArea ?? 20));
+  const minSpan = Math.max(5, Math.round(options.componentMinSpan ?? 7));
+  const maxComponents = Math.max(64, Math.round(options.componentMaxCount ?? 600));
+  let componentsSeen = 0;
+
+  const templateScore = (minX, minY, maxX, maxY) => {
+    const spanX = maxX - minX + 1;
+    const spanY = maxY - minY + 1;
+    let matches = 0;
+    let total = 0;
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < 7; c++) {
+        const x = minX + ((c + 0.5) / 7) * spanX;
+        const y = minY + ((r + 0.5) / 7) * spanY;
+        const actual = sampleBinaryAt(binary, width, height, x, y);
+        if (actual == null) continue;
+        const expected = r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4);
+        total++;
+        if (Boolean(actual) === expected) matches++;
+      }
+    }
+    return total ? matches / total : 0;
+  };
+
+  for (let index = 0; index < binary.length; index++) {
+    if (!binary[index] || visited[index]) continue;
+    componentsSeen++;
+    if (componentsSeen > maxComponents) break;
+    visited[index] = 1;
+    stack.length = 0;
+    stack.push(index);
+    let area = 0;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+
+    while (stack.length) {
+      const current = stack.pop();
+      const y = Math.floor(current / width);
+      const x = current - y * width;
+      area++;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+
+      if (x > 0) {
+        const next = current - 1;
+        if (binary[next] && !visited[next]) { visited[next] = 1; stack.push(next); }
+      }
+      if (x + 1 < width) {
+        const next = current + 1;
+        if (binary[next] && !visited[next]) { visited[next] = 1; stack.push(next); }
+      }
+      if (y > 0) {
+        const next = current - width;
+        if (binary[next] && !visited[next]) { visited[next] = 1; stack.push(next); }
+      }
+      if (y + 1 < height) {
+        const next = current + width;
+        if (binary[next] && !visited[next]) { visited[next] = 1; stack.push(next); }
+      }
+    }
+
+    const spanX = maxX - minX + 1;
+    const spanY = maxY - minY + 1;
+    if (area < minArea || spanX < minSpan || spanY < minSpan) continue;
+    const aspect = spanX / spanY;
+    if (aspect < 0.18 || aspect > 5.5) continue;
+    const density = area / (spanX * spanY);
+    if (density < 0.10 || density > 0.78) continue;
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    if (sampleBinaryAt(binary, width, height, centerX, centerY) !== 1) continue;
+    const score = templateScore(minX, minY, maxX, maxY);
+    if (score < (options.componentTemplateThreshold ?? 0.63)) continue;
+
+    candidates.push({
+      x: centerX,
+      y: centerY,
+      moduleSize: Math.max(0.75, Math.sqrt(area / 24)),
+      score: (1 - score) * 3,
+      componentScore: score,
+      componentArea: area
+    });
+  }
+
+  return candidates.sort((a, b) =>
+    (b.componentScore - a.componentScore) ||
+    (b.componentArea - a.componentArea)
+  ).slice(0, Math.max(3, Math.round(options.componentMaxCandidates ?? 12)));
 }
 
 function recoverFinderSetFromTwo(binary, width, height, strongFinders, detector = {}) {
@@ -329,7 +615,7 @@ function cross(a, b) {
   return a.x * b.y - a.y * b.x;
 }
 
-function chooseFinderTriples(candidates, maxTriples = 16, options = {}) {
+export function chooseFinderTriples(candidates, maxTriples = 16, options = {}) {
   const perspectiveRecovery = options.perspectiveRecovery === true;
   const topLimit = perspectiveRecovery ? 18 : 14;
   const top = candidates.slice(0, Math.min(candidates.length, topLimit));
@@ -395,6 +681,61 @@ function chooseFinderTriples(candidates, maxTriples = 16, options = {}) {
 
   triples.sort((a, b) => b.score - a.score);
   return triples.slice(0, maxTriples);
+}
+
+function rayDistanceToImageBoundary(width, height, x, y, dx, dy) {
+  let limit = Infinity;
+  if (dx > 1e-9) limit = Math.min(limit, (width - 1 - x) / dx);
+  else if (dx < -1e-9) limit = Math.min(limit, (0 - x) / dx);
+  if (dy > 1e-9) limit = Math.min(limit, (height - 1 - y) / dy);
+  else if (dy < -1e-9) limit = Math.min(limit, (0 - y) / dy);
+  return Number.isFinite(limit) ? Math.max(0, limit) : 0;
+}
+
+function finderHalfRunDistance(binary, width, height, center, direction) {
+  const length = Math.hypot(direction.x, direction.y);
+  if (length < 1e-6) return NaN;
+  const dx = direction.x / length;
+  const dy = direction.y / length;
+  const maxDistance = rayDistanceToImageBoundary(width, height, center.x, center.y, dx, dy);
+  let previous = sampleBinaryAt(binary, width, height, center.x, center.y);
+  if (previous !== 1) return NaN;
+  let transitions = 0;
+  let lastDistance = 0;
+  // Half-pixel stepping keeps the measured boundary stable at small module
+  // sizes without becoming expensive. A finder needs only three transitions:
+  // center black -> white ring -> black ring -> outside white.
+  for (let distance = 0.5; distance <= maxDistance; distance += 0.5) {
+    const value = sampleBinaryAt(binary, width, height, center.x + dx * distance, center.y + dy * distance);
+    if (value == null) break;
+    if (value !== previous) {
+      transitions++;
+      previous = value;
+      if (transitions === 3) return distance;
+    }
+    lastDistance = distance;
+    if (distance > 80 && transitions === 0) break;
+  }
+  return transitions >= 2 ? lastDistance : NaN;
+}
+
+function directionalFinderModuleSize(binary, width, height, pattern, otherPattern) {
+  const direction = { x: otherPattern.x - pattern.x, y: otherPattern.y - pattern.y };
+  const forward = finderHalfRunDistance(binary, width, height, pattern, direction);
+  const backward = finderHalfRunDistance(binary, width, height, pattern, { x: -direction.x, y: -direction.y });
+  if (!Number.isFinite(forward) && !Number.isFinite(backward)) return NaN;
+  if (!Number.isFinite(forward)) return (backward * 2) / 7;
+  if (!Number.isFinite(backward)) return (forward * 2) / 7;
+  return (forward + backward) / 7;
+}
+
+function moduleSizeBetweenFinders(binary, width, height, a, b) {
+  const fromA = directionalFinderModuleSize(binary, width, height, a, b);
+  const fromB = directionalFinderModuleSize(binary, width, height, b, a);
+  if (Number.isFinite(fromA) && Number.isFinite(fromB)) return (fromA + fromB) / 2;
+  if (Number.isFinite(fromA)) return fromA;
+  if (Number.isFinite(fromB)) return fromB;
+  return (a.moduleSize + b.moduleSize) / 2;
 }
 
 function nearestVersionFromEstimate(value, minVersion, maxVersion) {
@@ -467,7 +808,113 @@ function preciseAlignmentScore(binary, width, height, center, basisU, basisV, sc
   return total ? matches / total : 0;
 }
 
-function searchAlignment(binary, width, height, triple, version, options = {}) {
+// Fast 5x5 nested-eye probe used before the heavier alignment template search.
+// A standard 5x5 alignment pattern has a particularly strong signature along
+// its centre axes: black / white / black / white / black. We also probe the
+// inner and outer diagonals so random payload modules are much less likely to
+// impersonate an alignment eye. This is deliberately tiny: at most 17 binary
+// samples per candidate instead of a full 25/125-sample template evaluation.
+const FAST_ALIGNMENT_PROBES = Object.freeze([
+  Object.freeze([0, 0, 1, 2.2]),
+  Object.freeze([-1, 0, 0, 1.4]), Object.freeze([1, 0, 0, 1.4]),
+  Object.freeze([0, -1, 0, 1.4]), Object.freeze([0, 1, 0, 1.4]),
+  Object.freeze([-2, 0, 1, 1.2]), Object.freeze([2, 0, 1, 1.2]),
+  Object.freeze([0, -2, 1, 1.2]), Object.freeze([0, 2, 1, 1.2]),
+  Object.freeze([-1, -1, 0, 0.9]), Object.freeze([1, -1, 0, 0.9]),
+  Object.freeze([-1, 1, 0, 0.9]), Object.freeze([1, 1, 0, 0.9]),
+  Object.freeze([-2, -2, 1, 0.8]), Object.freeze([2, -2, 1, 0.8]),
+  Object.freeze([-2, 2, 1, 0.8]), Object.freeze([2, 2, 1, 0.8])
+]);
+
+function fastNestedAlignmentScore(binary, width, height, center, basisU, basisV, scale) {
+  let matched = 0;
+  let total = 0;
+  for (const [c, r, expected, weight] of FAST_ALIGNMENT_PROBES) {
+    const x = center.x + basisU.x * c * scale + basisV.x * r * scale;
+    const y = center.y + basisU.y * c * scale + basisV.y * r * scale;
+    const value = sampleBinaryAt(binary, width, height, x, y);
+    if (value === null) continue;
+    total += weight;
+    if (value === expected) matched += weight;
+  }
+  return total ? matched / total : 0;
+}
+
+function searchNestedAlignmentFast(binary, width, height, predicted, basisU, basisV, target, options = {}) {
+  if (target?.size !== 5 || options.fastAlignmentLocator === false) return null;
+
+  const inferredScale = clamp(Number(options.inferredTargetScale ?? 1), 0.5, 2.1);
+  const radius = clamp(Number(options.radius ?? 5), 2.5, 18);
+  const coarseStep = radius >= 14 ? 2 : radius >= 9 ? 1.5 : 1;
+  const scales = [...new Set([
+    Number((inferredScale * 0.78).toFixed(3)),
+    Number((inferredScale * 0.90).toFixed(3)),
+    Number(inferredScale.toFixed(3)),
+    Number((inferredScale * 1.12).toFixed(3)),
+    Number((inferredScale * 1.28).toFixed(3)),
+    0.75, 1, 1.25
+  ])].filter((value) => value >= 0.48 && value <= 2.1);
+
+  const candidates = [];
+  for (let offsetV = -radius; offsetV <= radius + 0.001; offsetV += coarseStep) {
+    for (let offsetU = -radius; offsetU <= radius + 0.001; offsetU += coarseStep) {
+      const center = {
+        x: predicted.x + basisU.x * offsetU + basisV.x * offsetV,
+        y: predicted.y + basisU.y * offsetU + basisV.y * offsetV
+      };
+      let bestScore = 0;
+      let bestScale = 1;
+      for (const scale of scales) {
+        const score = fastNestedAlignmentScore(binary, width, height, center, basisU, basisV, scale);
+        if (score > bestScore) {
+          bestScore = score;
+          bestScale = scale;
+        }
+      }
+      // Keeping only plausible nested eyes makes the fine phase effectively
+      // constant-time even on very dense symbols.
+      if (bestScore >= (options.fastAlignmentSeedThreshold ?? 0.73)) {
+        candidates.push({ score: bestScore, center, scale: bestScale, offsetU, offsetV });
+      }
+    }
+  }
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.score - a.score);
+  const fineSeeds = candidates.slice(0, Math.max(1, Math.round(options.fastAlignmentFineSeeds ?? 5)));
+  const fineOffsets = [-0.75, -0.35, 0, 0.35, 0.75];
+  let best = null;
+
+  for (const seed of fineSeeds) {
+    const fineScales = [...new Set([
+      Number((seed.scale * 0.90).toFixed(3)),
+      Number((seed.scale * 0.96).toFixed(3)),
+      Number(seed.scale.toFixed(3)),
+      Number((seed.scale * 1.05).toFixed(3)),
+      Number((seed.scale * 1.12).toFixed(3))
+    ])].filter((value) => value >= 0.46 && value <= 2.15);
+    for (const du of fineOffsets) {
+      for (const dv of fineOffsets) {
+        const offsetU = seed.offsetU + du;
+        const offsetV = seed.offsetV + dv;
+        const center = {
+          x: predicted.x + basisU.x * offsetU + basisV.x * offsetV,
+          y: predicted.y + basisU.y * offsetU + basisV.y * offsetV
+        };
+        for (const scale of fineScales) {
+          const score = alignmentScore(binary, width, height, center, basisU, basisV, scale, target);
+          if (!best || score > best.score) {
+            best = { score, center, scale, offsetU, offsetV, broadSearch: radius > 4, fastNested: true };
+          }
+        }
+      }
+    }
+  }
+
+  return best;
+}
+
+export function searchAlignment(binary, width, height, triple, version, options = {}) {
   const size = sizeForVersion(version);
   const separation = size - 7;
   const basisU = {
@@ -478,7 +925,7 @@ function searchAlignment(binary, width, height, triple, version, options = {}) {
     x: (triple.bl.x - triple.tl.x) / separation,
     y: (triple.bl.y - triple.tl.y) / separation
   };
-  const target = primaryAlignmentPatternForVersion(version);
+  const target = primaryAlignmentPatternForVersion(version, { profile: options.alignmentProfile ?? ALIGNMENT_PROFILE_STANDARD_5 });
   const targetX = target.col + 0.5;
   const targetY = target.row + 0.5;
   const predicted = {
@@ -486,11 +933,6 @@ function searchAlignment(binary, width, height, triple, version, options = {}) {
     y: triple.tl.y + basisU.y * (targetX - 3.5) + basisV.y * (targetY - 3.5)
   };
 
-  const precise = options.preciseAlignment === true;
-  const localScoreFn = precise ? preciseAlignmentScore : alignmentScore;
-  const localOffsets = precise
-    ? [-2.5, -1.5, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1.5, 2.5]
-    : [-2.5, -1.5, -0.75, 0, 0.75, 1.5, 2.5];
   const finderSizes = [triple.tl.moduleSize, triple.tr.moduleSize, triple.bl.moduleSize];
   const finderMin = Math.max(0.01, Math.min(...finderSizes));
   const finderMax = Math.max(...finderSizes);
@@ -510,11 +952,62 @@ function searchAlignment(binary, width, height, triple, version, options = {}) {
     Number((inferredTargetScale * 1.12).toFixed(3))
   ])].filter((scale) => scale >= 0.52 && scale <= 1.9);
 
+  const cornerSkew = Math.max(0, 1 - (triple.orthogonality ?? 1));
+  const projectiveSignal = Math.max(
+    Math.max(0, finderScaleRatio - 1),
+    Math.max(0, (triple.moduleSpread ?? 0) * 1.25),
+    cornerSkew * 0.75
+  );
+
+  // Try the nested-eye locator first. It searches a projective-sized region
+  // using only a handful of binary samples per location and therefore remains
+  // cheap even when the affine prediction is several modules off.
+  const fastRadius = clamp(
+    Number(options.fastAlignmentRadius ?? (3 + projectiveSignal * 13)),
+    3,
+    options.fastAlignmentMaxRadius ?? 16
+  );
+  const fastNested = searchNestedAlignmentFast(
+    binary,
+    width,
+    height,
+    predicted,
+    basisU,
+    basisV,
+    target,
+    {
+      ...options,
+      inferredTargetScale,
+      radius: fastRadius
+    }
+  );
+
+  const fastAccept = options.fastAlignmentAccept ?? (options.preciseAlignment ? 0.88 : 0.80);
+  if (fastNested && fastNested.score >= fastAccept) {
+    return {
+      ...fastNested,
+      basisU,
+      basisV,
+      predicted,
+      target,
+      finderScaleRatio,
+      projectiveSignal
+    };
+  }
+
+  const precise = options.preciseAlignment === true;
+  const localScoreFn = precise ? preciseAlignmentScore : alignmentScore;
+  const localOffsets = precise
+    ? [-2.5, -1.5, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1.5, 2.5]
+    : [-2.5, -1.5, -0.75, 0, 0.75, 1.5, 2.5];
+
   const centerAt = (offsetU, offsetV) => ({
     x: predicted.x + basisU.x * offsetU + basisV.x * offsetV,
     y: predicted.y + basisU.y * offsetU + basisV.y * offsetV
   });
-  let best = { score: 0, center: predicted, scale: 1, offsetU: 0, offsetV: 0, broadSearch: false };
+  let best = fastNested && fastNested.score > 0
+    ? fastNested
+    : { score: 0, center: predicted, scale: 1, offsetU: 0, offsetV: 0, broadSearch: false };
 
   const evaluateIntoBest = (offsetU, offsetV, scales, scoreFn, broadSearch = false) => {
     const center = centerAt(offsetU, offsetV);
@@ -534,12 +1027,6 @@ function searchAlignment(binary, width, height, triple, version, options = {}) {
   // prediction even though all three finder patterns remain strong. Use a
   // bounded coarse-to-fine search only when the locator geometry signals that
   // projective foreshortening is present.
-  const cornerSkew = Math.max(0, 1 - (triple.orthogonality ?? 1));
-  const projectiveSignal = Math.max(
-    Math.max(0, finderScaleRatio - 1),
-    Math.max(0, (triple.moduleSpread ?? 0) * 1.25),
-    cornerSkew * 0.75
-  );
   const broadEnabled = options.perspectiveAlignmentRecovery !== false && (
     options.perspectiveRecovery === true ||
     projectiveSignal >= (options.perspectiveAlignmentSignalThreshold ?? 0.32)
@@ -656,8 +1143,8 @@ function projectedAlignmentScore(binary, width, height, homography, pattern) {
   return total ? matches / total : 0;
 }
 
-function scoreAlignmentGrid(binary, width, height, homography, version) {
-  const patterns = alignmentPatternCentersForVersion(version);
+function scoreAlignmentGrid(binary, width, height, homography, version, options = {}) {
+  const patterns = alignmentPatternCentersForVersion(version, { profile: options.alignmentProfile ?? ALIGNMENT_PROFILE_STANDARD_5 });
   if (!patterns.length) return { score: 1, patternScores: [] };
   const patternScores = patterns.map((pattern) => ({
     row: pattern.row,
@@ -750,7 +1237,7 @@ function refineHomographyWithAlignmentGrid(
   initialGrid,
   options = {}
 ) {
-  const patterns = alignmentPatternCentersForVersion(version);
+  const patterns = alignmentPatternCentersForVersion(version, { profile: options.alignmentProfile ?? ALIGNMENT_PROFILE_STANDARD_5 });
   if (patterns.length <= 1 || options.alignmentRefinement === false) {
     return {
       homography: initialHomography,
@@ -805,9 +1292,9 @@ function refineHomographyWithAlignmentGrid(
       x: candidate.pattern.col + 0.5,
       y: candidate.pattern.row + 0.5
     });
-    // A 3x3 marker carries less evidence than the 5x5 primary and the three
-    // finder patterns, so it helps average geometry without overpowering them.
-    weights.push(0.8 + candidate.score * 1.7);
+    // Distributed 5x5 alignment eyes now carry stronger evidence while remaining
+    // below the three primary finder patterns in the projective fit.
+    weights.push(1.15 + candidate.score * 1.95);
     pointInfo.push({
       row: candidate.pattern.row,
       col: candidate.pattern.col,
@@ -825,7 +1312,7 @@ function refineHomographyWithAlignmentGrid(
     return { homography: initialHomography, grid: initialGrid, refined: false, points: [] };
   }
 
-  const refinedGrid = scoreAlignmentGrid(binary, width, height, refinedHomography, version);
+  const refinedGrid = scoreAlignmentGrid(binary, width, height, refinedHomography, version, options);
   const primaryBefore = primary
     ? projectedAlignmentScore(binary, width, height, initialHomography, primary)
     : 1;
@@ -948,12 +1435,118 @@ function geometryCandidatesFromBinary(binary, width, height, finders, threshold,
   for (const triple of triples) {
     const legH = Math.hypot(triple.tr.x - triple.tl.x, triple.tr.y - triple.tl.y);
     const legV = Math.hypot(triple.bl.x - triple.tl.x, triple.bl.y - triple.tl.y);
-    const estimatedSize = ((legH + legV) / 2) / triple.moduleMean + 7;
-    const versions = nearestVersionFromEstimate(estimatedSize, minVersion, maxVersion).slice(0, 9);
+    const moduleH = moduleSizeBetweenFinders(binary, width, height, triple.tl, triple.tr);
+    const moduleV = moduleSizeBetweenFinders(binary, width, height, triple.tl, triple.bl);
+    const estimatedSizeH = legH / Math.max(0.5, moduleH) + 7;
+    const estimatedSizeV = legV / Math.max(0.5, moduleV) + 7;
+    const estimateSpread = Math.abs(estimatedSizeH - estimatedSizeV);
+    const fallbackEstimate = ((legH + legV) / 2) / triple.moduleMean + 7;
+    const estimatedSize = Number.isFinite(estimatedSizeH) && Number.isFinite(estimatedSizeV)
+      ? (estimatedSizeH + estimatedSizeV) / 2
+      : fallbackEstimate;
+    // Wrong finder triples often produce wildly different horizontal/vertical
+    // module counts. Reject only the most implausible sets here; full projective
+    // recovery remains intentionally permissive for real extreme camera angles.
+    const maxEstimateSpread = options.maxDimensionEstimateSpread ?? (options.perspectiveRecovery ? 18 : 10);
+    if (estimateSpread > maxEstimateSpread) continue;
+    const versions = nearestVersionFromEstimate(estimatedSize, minVersion, maxVersion).slice(0, Math.max(1, Math.round(options.versionSearchLimit ?? 9)));
 
     for (const item of versions) {
       const version = item.version;
       const size = sizeForVersion(version);
+
+      // Near-front-facing symbols do not need to wait for a fourth locator.
+      // With three reliable finder centres we already have an affine mapping.
+      // Validate that cheap mapping against the distributed 5x5 alignment grid;
+      // when it agrees strongly, return it immediately and let payload decoding
+      // provide the final integrity check. Strongly projective symbols skip this
+      // shortcut and continue into the full alignment/homography path below.
+      const affineProjectiveSignal = Math.max(
+        Math.max(0, triple.moduleSpread ?? 0),
+        Math.max(0, 1 - (triple.orthogonality ?? 1)) * 0.85,
+        Math.max(0, (triple.legRatio ?? 1) - 1) * 0.12
+      );
+      const allowAffineFastPath = options.finderAffineFastPath !== false &&
+        options.preciseAlignment !== true &&
+        options.perspectiveRecovery !== true &&
+        item.error <= (options.finderAffineVersionError ?? 2.6) &&
+        affineProjectiveSignal <= (options.finderAffineMaxProjectiveSignal ?? 0.24);
+
+      if (allowAffineFastPath) {
+        const separation = size - 7;
+        const basisU = {
+          x: (triple.tr.x - triple.tl.x) / separation,
+          y: (triple.tr.y - triple.tl.y) / separation
+        };
+        const basisV = {
+          x: (triple.bl.x - triple.tl.x) / separation,
+          y: (triple.bl.y - triple.tl.y) / separation
+        };
+        const target = primaryAlignmentPatternForVersion(version, {
+          profile: options.alignmentProfile ?? ALIGNMENT_PROFILE_STANDARD_5
+        });
+        const targetX = target.col + 0.5;
+        const targetY = target.row + 0.5;
+        const predictedAlignment = {
+          x: triple.tl.x + basisU.x * (targetX - 3.5) + basisV.x * (targetY - 3.5),
+          y: triple.tl.y + basisU.y * (targetX - 3.5) + basisV.y * (targetY - 3.5)
+        };
+        const affineDest = [
+          { x: 3.5, y: 3.5 },
+          { x: size - 3.5, y: 3.5 },
+          { x: 3.5, y: size - 3.5 },
+          { x: targetX, y: targetY }
+        ];
+        const affineSrc = [
+          { x: triple.tl.x, y: triple.tl.y },
+          { x: triple.tr.x, y: triple.tr.y },
+          { x: triple.bl.x, y: triple.bl.y },
+          predictedAlignment
+        ];
+        try {
+          const affineHomography = computeHomography(affineSrc, affineDest);
+          const affineGrid = scoreAlignmentGrid(binary, width, height, affineHomography, version, options);
+          if (affineGrid.score >= (options.finderAffineGridThreshold ?? 0.84)) {
+            const versionPenalty = item.error / 4;
+            geometries.push({
+              version,
+              size,
+              sourcePoints: affineSrc,
+              destinationPoints: affineDest,
+              homography: affineHomography,
+              finders: { topLeft: triple.tl, topRight: triple.tr, bottomLeft: triple.bl },
+              alignment: {
+                center: predictedAlignment,
+                predicted: predictedAlignment,
+                score: affineGrid.score,
+                scale: 1,
+                target: { row: target.row, col: target.col },
+                patterns: affineGrid.patternScores.length,
+                gridScore: affineGrid.score,
+                initialGridScore: affineGrid.score,
+                refined: false,
+                refinementPoints: [],
+                patternScores: affineGrid.patternScores,
+                method: "finder-affine"
+              },
+              threshold,
+              finderMethod: `${options.finderMethod ?? "finder"}-affine`,
+              alignmentProfile: options.alignmentProfile ?? ALIGNMENT_PROFILE_STANDARD_5,
+              estimatedSize,
+              estimatedSizeH,
+              estimatedSizeV,
+              directionalModuleSizeH: moduleH,
+              directionalModuleSizeV: moduleV,
+              score: triple.score * (0.58 + 0.42 * affineGrid.score) / (1 + versionPenalty * 0.08),
+              finderAffineFastPath: true
+            });
+            continue;
+          }
+        } catch {
+          // Full alignment search below remains the authoritative path.
+        }
+      }
+
       const alignment = searchAlignment(binary, width, height, triple, version, options);
       if (alignment.score < (options.alignmentThreshold ?? 0.72)) continue;
 
@@ -978,7 +1571,7 @@ function geometryCandidatesFromBinary(binary, width, height, finders, threshold,
         continue;
       }
 
-      const initialAlignmentGrid = scoreAlignmentGrid(binary, width, height, homography, version);
+      const initialAlignmentGrid = scoreAlignmentGrid(binary, width, height, homography, version, options);
       const alignmentGridThreshold = options.alignmentGridThreshold ?? 0.68;
       const refinementFloor = Math.max(0, alignmentGridThreshold - (options.alignmentRefineCandidateMargin ?? 0.10));
       const skipRefinementScore = options.alignmentRefineSkipScore ?? 0.985;
@@ -1031,7 +1624,12 @@ function geometryCandidatesFromBinary(binary, width, height, finders, threshold,
         },
         threshold,
         finderMethod: options.finderMethod,
+        alignmentProfile: options.alignmentProfile ?? ALIGNMENT_PROFILE_STANDARD_5,
         estimatedSize,
+        estimatedSizeH,
+        estimatedSizeV,
+        directionalModuleSizeH: moduleH,
+        directionalModuleSizeV: moduleV,
         score
       });
     }
@@ -1080,6 +1678,7 @@ function pushFinderDiagnostic(options, finderMethod, threshold, finders, geometr
       alignmentScore: geometry.alignment.score,
       alignmentGridScore: geometry.alignment.gridScore,
       finderMethod: geometry.finderMethod,
+      alignmentProfile: geometry.alignmentProfile,
       finders: {
         topLeft: { ...geometry.finders.topLeft },
         topRight: { ...geometry.finders.topRight },
@@ -1105,7 +1704,10 @@ export function detectCodeGeometry(imageData, options = {}) {
       finderMethod: pass.finderMethod,
       perspectiveRecovery: recovery || options.perspectiveRecovery === true,
       alignmentThreshold: recovery ? 0.68 : 0.72,
-      alignmentGridThreshold: recovery ? 0.64 : 0.68
+      alignmentGridThreshold: recovery ? 0.64 : 0.68,
+      versionSearchLimit: recovery
+        ? (options.recoveryVersionSearchLimit ?? 9)
+        : (options.fastVersionSearchLimit ?? 4)
     };
     let geometries = geometryCandidatesFromBinary(
       pass.binary,
@@ -1113,8 +1715,37 @@ export function detectCodeGeometry(imageData, options = {}) {
       height,
       finders,
       pass.threshold,
-      geometryOptions
+      { ...geometryOptions, alignmentProfile: ALIGNMENT_PROFILE_STANDARD_5 }
     );
+
+    // New format-v6 symbols use 5x5 alignment eyes. Only if that geometry does
+    // not validate do we spend a compatibility attempt on format-v5's compact
+    // 3x3 secondary markers. This keeps the modern path fast.
+    if (!geometries.length && options.legacyAlignmentRecovery !== false && finders.length >= 3) {
+      const legacyMethod = `${pass.finderMethod}-legacy-align`;
+      const legacyOptions = {
+        ...geometryOptions,
+        finderMethod: legacyMethod,
+        alignmentProfile: ALIGNMENT_PROFILE_LEGACY_3
+      };
+      geometries = geometryCandidatesFromBinary(
+        pass.binary,
+        width,
+        height,
+        finders,
+        pass.threshold,
+        legacyOptions
+      );
+      if (geometries.length) {
+        pushFinderDiagnostic(
+          { ...options, width, height, diagnosticLabel: `${options.diagnosticLabel ?? "normal"}-legacy-align` },
+          legacyMethod,
+          pass.threshold,
+          finders,
+          geometries
+        );
+      }
+    }
 
     pushFinderDiagnostic(
       { ...options, width, height },
@@ -1162,9 +1793,123 @@ export function detectCodeGeometry(imageData, options = {}) {
     finderMethod: "rgb-value-otsu",
     binary: valueInfo.binary,
     threshold: valueInfo.threshold,
-    detector: {}
+    detector: {
+      toleranceScale: options.finderToleranceScale ?? 1.0,
+      moduleSpreadLimit: options.finderModuleSpreadLimit ?? 0.45,
+      minConfirmations: options.finderMinConfirmations ?? 2,
+      diagonalCheck: false
+    }
   }, false);
+  const fastEstimateMatched = fast.geometries.some((geometry) =>
+    Math.abs(sizeForVersion(geometry.version) - geometry.estimatedSize) <= (options.fastDimensionAcceptance ?? 2.0)
+  );
+  if (fast.geometries.length && fastEstimateMatched) {
+    return fast.geometries.slice(0, maxCandidates);
+  }
+
+  // Seeing three finder patterns should immediately unlock perspective-aware
+  // geometry. The previous first pass used stricter near-front-facing triple
+  // limits, so a code could visibly have all three eyes yet still fall through
+  // into color recovery. Reuse the exact same binary/finders with broader
+  // projective geometry before doing any additional pixel processing.
+  if (fast.finders.length >= 3) {
+    const finderMethod = "rgb-value-otsu-projective";
+    const projectiveGeometries = geometryCandidatesFromBinary(
+      valueInfo.binary,
+      width,
+      height,
+      fast.finders,
+      valueInfo.threshold,
+      {
+        ...options,
+        finderMethod,
+        perspectiveRecovery: true,
+        alignmentThreshold: 0.60,
+        alignmentGridThreshold: 0.58,
+        versionSearchLimit: options.fastPerspectiveVersionSearchLimit ?? 4,
+        perspectiveAlignmentFineSeeds: options.fastPerspectiveAlignmentFineSeeds ?? 3,
+        perspectiveAlignmentMaxRadius: options.fastPerspectiveAlignmentMaxRadius ?? 12
+      }
+    );
+    pushFinderDiagnostic(
+      { ...options, width, height, diagnosticLabel: `${options.diagnosticLabel ?? "normal"}-projective` },
+      finderMethod,
+      valueInfo.threshold,
+      fast.finders,
+      projectiveGeometries
+    );
+    if (projectiveGeometries.length) return projectiveGeometries.slice(0, maxCandidates);
+  }
+
+  // Keep the original strict geometry as a fallback if the projective pass did
+  // not produce anything better. This preserves historical behavior while
+  // avoiding an early wrong-version lock-in when the directional size estimate
+  // clearly points at another version.
   if (fast.geometries.length) return fast.geometries.slice(0, maxCandidates);
+
+  // A local block threshold is part of the normal locator path, not the heavy
+  // color/damage recovery stack. It is especially effective when one finder is
+  // under a shadow or a phone-screen gradient while the other two are bright.
+  // At camera locator resolution this costs far less than escalating to a
+  // high-resolution scan or running full-frame Auto Color.
+  let localBinary = null;
+  if (options.localFinderThreshold !== false && fast.finders.length < 3) {
+    localBinary = hybridLocalBinary(valueInfo.gray, width, height);
+    if (localBinary) {
+      const local = evaluatePass({
+        finderMethod: "rgb-value-hybrid-local",
+        binary: localBinary,
+        threshold: null,
+        detector: {
+          toleranceScale: 1.10,
+          moduleSpreadLimit: 0.58,
+          diagonalCheck: false
+        }
+      }, true);
+      if (local.geometries.length) return local.geometries.slice(0, maxCandidates);
+    }
+  }
+
+  if (options.componentFinderFallback !== false && fast.finders.length < 3) {
+    for (const [binary, method] of [
+      [valueInfo.binary, "rgb-value-component"],
+      [localBinary, "rgb-value-hybrid-component"]
+    ]) {
+      if (!binary) continue;
+      const componentFinders = detectFinderCandidatesByComponents(binary, width, height, options);
+      const merged = clusterFinderCandidates([
+        ...fast.finders.map((finder) => ({ ...finder })),
+        ...componentFinders
+      ], 1);
+      if (merged.length < 3) continue;
+      const componentGeometries = geometryCandidatesFromBinary(
+        binary,
+        width,
+        height,
+        merged,
+        method.includes("hybrid") ? null : valueInfo.threshold,
+        {
+          ...options,
+          finderMethod: method,
+          perspectiveRecovery: true,
+          alignmentThreshold: 0.60,
+          alignmentGridThreshold: 0.58,
+          versionSearchLimit: options.fastPerspectiveVersionSearchLimit ?? 4,
+          perspectiveAlignmentFineSeeds: options.fastPerspectiveAlignmentFineSeeds ?? 3,
+          perspectiveAlignmentMaxRadius: options.fastPerspectiveAlignmentMaxRadius ?? 12
+        }
+      );
+      pushFinderDiagnostic(
+        { ...options, width, height, diagnosticLabel: `${options.diagnosticLabel ?? "normal"}-component` },
+        method,
+        method.includes("hybrid") ? null : valueInfo.threshold,
+        merged,
+        componentGeometries
+      );
+      if (componentGeometries.length) return componentGeometries.slice(0, maxCandidates);
+    }
+  }
+
   if (options.finderRecovery === false) return [];
 
   // If the clean threshold already found exactly two strong locators, try the
@@ -1439,6 +2184,21 @@ export function autoColorImageData(imageData, options = {}) {
 }
 
 function buildAutoColorValueGray(imageData, options = {}) {
+  const canCache = imageData && typeof imageData === "object" && options.cache !== false;
+  const cacheKey = [
+    options.blackClip ?? 0.0001,
+    options.whiteClip ?? "default",
+    options.highlightPercentile ?? 0.95,
+    options.outputHighlight ?? 190,
+    options.analysisInset ?? 0,
+    options.minimumInputRange ?? 72,
+    options.targetSamples ?? "default"
+  ].join(":");
+  if (canCache) {
+    const cached = autoColorGrayCache.get(imageData)?.get(cacheKey);
+    if (cached) return cached;
+  }
+
   const levels = buildAutoColorLevels(imageData, options);
   const gray = new Uint8Array(imageData.width * imageData.height);
   for (let i = 0; i < gray.length; i++) {
@@ -1452,6 +2212,11 @@ function buildAutoColorValueGray(imageData, options = {}) {
       levels.mapChannel(g, 1),
       levels.mapChannel(b, 2)
     ));
+  }
+  if (canCache) {
+    let entries = autoColorGrayCache.get(imageData);
+    if (!entries) autoColorGrayCache.set(imageData, entries = new Map());
+    entries.set(cacheKey, gray);
   }
   return gray;
 }

@@ -31,7 +31,7 @@
 <aside class="sidebar" data-sidebar="">
 <div class="sidebar-inner">
 <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a class="active" href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
-<div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+<div class="version-pill">quadqr-js <strong>v1.5.0</strong></div>
 </div>
 </aside>
 <main class="main-content">
@@ -112,7 +112,7 @@ console.log(result.text);
 <div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const video = document.querySelector("#camera");
 
 const scanner = await startCameraScanner(video, {
-  scanInterval: 120,
+  scanInterval: 33,
   cameraFinderRecoveryEvery: 2,
   async onResult(result) {
     console.log(result);
@@ -145,7 +145,7 @@ if (locked.secure) {
 <h2 id="classic-script-tag">Classic script tag<a aria-label="Link to Classic script tag" class="heading-anchor" href="#classic-script-tag">#</a></h2>
 <p>The global browser build exposes <code>window.QuadQR</code> / <code>globalThis.QuadQR</code>.</p>
 <div class="code-block"><div class="code-toolbar"><span>HTML</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-html">&lt;canvas id="qr"&gt;&lt;/canvas&gt;
-&lt;script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.4.1/dist/quadqr.min.js"&gt;&lt;/script&gt;
+&lt;script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.5.0/dist/quadqr.min.js"&gt;&lt;/script&gt;
 &lt;script&gt;
   const code = QuadQR.encodeText("Hello CDN");
 
@@ -156,14 +156,14 @@ if (locked.secure) {
 &lt;/script&gt;
 </code></pre></div>
 <h2 id="unpkg">unpkg<a aria-label="Link to unpkg" class="heading-anchor" href="#unpkg">#</a></h2>
-<div class="code-block"><div class="code-toolbar"><span>HTML</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-html">&lt;script src="https://unpkg.com/quadqr-js@1.4.1/dist/quadqr.min.js"&gt;&lt;/script&gt;
+<div class="code-block"><div class="code-toolbar"><span>HTML</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-html">&lt;script src="https://unpkg.com/quadqr-js@1.5.0/dist/quadqr.min.js"&gt;&lt;/script&gt;
 </code></pre></div>
 <h2 id="direct-cdn-esm">Direct CDN ESM<a aria-label="Link to Direct CDN ESM" class="heading-anchor" href="#direct-cdn-esm">#</a></h2>
 <div class="code-block"><div class="code-toolbar"><span>HTML</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-html">&lt;script type="module"&gt;
   import {
     encodeText,
     renderToCanvas
-  } from "https://cdn.jsdelivr.net/npm/quadqr-js@1.4.1/dist/browser.js";
+  } from "https://cdn.jsdelivr.net/npm/quadqr-js@1.5.0/dist/browser.js";
 
   const code = encodeText("ES module CDN");
   renderToCanvas(code, document.querySelector("#qr"));
@@ -180,7 +180,7 @@ if (locked.secure) {
 </code></pre></div>
 <p>WASM is optional. The normal JavaScript implementation remains available if it cannot load.</p>
 <h2 id="production-recommendation">Production recommendation<a aria-label="Link to Production recommendation" class="heading-anchor" href="#production-recommendation">#</a></h2>
-<p>Pin a concrete package version such as <code>@1.4.1</code> in CDN URLs so an existing site does not silently change when a newer package version becomes available.</p>
+<p>Pin a concrete package version such as <code>@1.5.0</code> in CDN URLs so an existing site does not silently change when a newer package version becomes available.</p>
 <nav aria-label="Documentation pagination" class="page-pager"><a class="prev" href="getting-started.html"><span>Previous</span><strong>← Getting Started</strong></a><a class="next" href="node.html"><span>Next</span><strong>Node.js →</strong></a></nav>
 <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
 </article>

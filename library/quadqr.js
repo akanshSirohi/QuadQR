@@ -24,6 +24,8 @@ import {
   alignmentPatternCentersForVersion,
   alignmentPatternIsBlack,
   alignmentPatternRadius,
+  ALIGNMENT_PROFILE_STANDARD_5,
+  ALIGNMENT_PROFILE_LEGACY_3,
   sizeForVersion,
   versionFromSize
 } from "./geometry.js";
@@ -71,7 +73,8 @@ import {
   BROTLI_QUALITY_MAX
 } from "./brotli.js";
 
-export const FORMAT_VERSION = 5;
+export const FORMAT_VERSION = 6;
+export const LEGACY_FORMAT_VERSION = 5;
 export const MIN_VERSION = 1;
 export const MAX_VERSION = 40;
 export const DEFAULT_ECC_LEVEL = "M";
@@ -1133,7 +1136,7 @@ function getEffectiveEcc(version, eccLevel) {
   return version === COMPACT_VERSION ? COMPACT_ECC_LEVELS[normalized] : ECC_LEVELS[normalized];
 }
 
-function makeHeader(payloadLength, flags, version) {
+function makeHeader(payloadLength, flags, version, formatVersion = FORMAT_VERSION) {
   assert(payloadLength >= 0 && payloadLength <= 0xffffffff, "Payload is too large.");
 
   if (version === COMPACT_VERSION) {
@@ -1148,7 +1151,7 @@ function makeHeader(payloadLength, flags, version) {
 
   const header = new Uint8Array(HEADER_BYTES);
   header.set(MAGIC, 0);
-  header[4] = FORMAT_VERSION;
+  header[4] = formatVersion;
   header[5] = flags & 0xff;
   header.set(u32be(payloadLength), 6);
   return header;
@@ -1170,14 +1173,22 @@ function parseHeader(header, version) {
     return { flags: header[1], payloadLength: header[2] };
   }
 
-  if (!magicMatches(header) || header[4] !== FORMAT_VERSION) {
+  const formatVersion = header[4];
+  if (!magicMatches(header) || (formatVersion !== FORMAT_VERSION && formatVersion !== LEGACY_FORMAT_VERSION)) {
     throw new Error("QuadQR magic/version mismatch.");
   }
-  return { flags: header[5], payloadLength: readU32be(header, 6) };
+  return { formatVersion, flags: header[5], payloadLength: readU32be(header, 6) };
 }
 
-function createLayout(version) {
+function alignmentProfileForFormat(formatVersion = FORMAT_VERSION) {
+  return formatVersion === LEGACY_FORMAT_VERSION
+    ? ALIGNMENT_PROFILE_LEGACY_3
+    : ALIGNMENT_PROFILE_STANDARD_5;
+}
+
+function createLayout(version, options = {}) {
   validateVersion(version);
+  const alignmentProfile = options.alignmentProfile ?? alignmentProfileForFormat(options.formatVersion ?? FORMAT_VERSION);
   const size = sizeForVersion(version);
   const matrix = make2D(size, CELL.WHITE);
   const reserved = make2D(size, false);
@@ -1305,7 +1316,7 @@ function createLayout(version) {
     reserveAndSet(row, 6, row % 2 === 0 ? CELL.BLACK : CELL.WHITE);
   }
 
-  const alignments = alignmentPatternCentersForVersion(version).map(drawAlignmentPattern);
+  const alignments = alignmentPatternCentersForVersion(version, { profile: alignmentProfile }).map(drawAlignmentPattern);
   const alignment = alignments[alignments.length - 1];
   const calibrationStrip = drawCalibrationStrip();
 
@@ -1329,6 +1340,7 @@ function createLayout(version) {
   return {
     version,
     size,
+    alignmentProfile,
     matrix,
     reserved,
     dataPositions,
@@ -1977,8 +1989,8 @@ function alignmentPatternMismatchRatio(matrix, pattern) {
   return mismatches / total;
 }
 
-function alignmentGridMismatchRatio(matrix, version) {
-  const patterns = alignmentPatternCentersForVersion(version);
+function alignmentGridMismatchRatio(matrix, version, alignmentProfile = ALIGNMENT_PROFILE_STANDARD_5) {
+  const patterns = alignmentPatternCentersForVersion(version, { profile: alignmentProfile });
   let weightedMismatch = 0;
   let totalWeight = 0;
   for (const pattern of patterns) {
@@ -1990,7 +2002,7 @@ function alignmentGridMismatchRatio(matrix, version) {
   return totalWeight ? weightedMismatch / totalWeight : 0;
 }
 
-function validateStructure(matrix, tolerance = 0) {
+function validateStructure(matrix, tolerance = 0, alignmentProfile = ALIGNMENT_PROFILE_STANDARD_5) {
   const size = matrix.length;
   if (size < 21 || matrix.some((row) => row.length !== size)) return false;
   const version = versionFromSize(size);
@@ -2003,11 +2015,11 @@ function validateStructure(matrix, tolerance = 0) {
   if (finderRatios.some((ratio) => ratio > tolerance)) return false;
 
   const alignmentTolerance = Math.max(tolerance, 0.12);
-  const primary = alignmentPatternCentersForVersion(version).at(-1);
+  const primary = alignmentPatternCentersForVersion(version, { profile: alignmentProfile }).at(-1);
   if (primary && alignmentPatternMismatchRatio(matrix, primary) > alignmentTolerance) {
     return false;
   }
-  if (alignmentGridMismatchRatio(matrix, version) > alignmentTolerance) return false;
+  if (alignmentGridMismatchRatio(matrix, version, alignmentProfile) > alignmentTolerance) return false;
   return true;
 }
 
@@ -2195,13 +2207,13 @@ function decodeProtectedBody(rawCells, payloadLength, eccLevel, version, rawConf
   };
 }
 
-function decodeCanonical(matrix, rotation, tolerance = 0, confidenceMatrix = null, options = {}) {
+function decodeCanonicalWithProfile(matrix, rotation, tolerance = 0, confidenceMatrix = null, options = {}, alignmentProfile = ALIGNMENT_PROFILE_STANDARD_5) {
   const size = matrix.length;
   const version = versionFromSize(size);
   if (!version) throw new Error(`Unsupported matrix size ${size}.`);
-  if (!validateStructure(matrix, tolerance)) throw new Error("QuadQR finder/alignment structure does not match.");
+  if (!validateStructure(matrix, tolerance, alignmentProfile)) throw new Error("QuadQR finder/alignment structure does not match.");
 
-  const layout = createLayout(version);
+  const layout = createLayout(version, { alignmentProfile });
   const errors = [];
   const hintedEncoding = options.cellEncodingHint != null
     ? normalizeCellEncoding(options.cellEncodingHint)
@@ -2251,6 +2263,10 @@ function decodeCanonical(matrix, rotation, tolerance = 0, confidenceMatrix = nul
           );
           const header = headerDecoded.header;
           const flags = headerDecoded.flags;
+          const decodedFormatVersion = headerDecoded.formatVersion ?? FORMAT_VERSION;
+          if (version >= 7 && alignmentProfileForFormat(decodedFormatVersion) !== alignmentProfile) {
+            throw new Error(`Format v${decodedFormatVersion} uses a different alignment profile.`);
+          }
           const declaredCellEncoding = cellEncodingFromFlags(flags);
           if (declaredCellEncoding !== cellEncoding) {
             throw new Error(`Header declares ${declaredCellEncoding}, not ${cellEncoding}.`);
@@ -2288,10 +2304,11 @@ function decodeCanonical(matrix, rotation, tolerance = 0, confidenceMatrix = nul
           return {
             ok: true,
             format: "QuadQR",
-            formatVersion: FORMAT_VERSION,
+            formatVersion: decodedFormatVersion,
             version,
             size,
             alignmentPatterns: layout.alignments.length,
+            alignmentProfile,
             maskId,
             rotation,
             flags,
@@ -2339,17 +2356,42 @@ function decodeCanonical(matrix, rotation, tolerance = 0, confidenceMatrix = nul
   throw new Error(`QuadQR decode failed. ${errors.join(" | ")}`);
 }
 
+function decodeCanonical(matrix, rotation, tolerance = 0, confidenceMatrix = null, options = {}) {
+  const hinted = options.alignmentProfileHint;
+  const profiles = hinted
+    ? [hinted]
+    : [ALIGNMENT_PROFILE_STANDARD_5, ALIGNMENT_PROFILE_LEGACY_3];
+  const errors = [];
+  for (const alignmentProfile of profiles) {
+    try {
+      return decodeCanonicalWithProfile(matrix, rotation, tolerance, confidenceMatrix, options, alignmentProfile);
+    } catch (error) {
+      errors.push(`${alignmentProfile}: ${error.message}`);
+    }
+  }
+  throw new Error(`QuadQR decode failed for all alignment profiles. ${errors.join(" | ")}`);
+}
+
 function trySoftMatrixDecode(matrix, alternatives, confidenceMatrix, degrees, tolerance, options = {}) {
   if (!alternatives || !confidenceMatrix || options.softDecoding === false) return null;
   const version = versionFromSize(matrix.length);
   if (!version) return null;
   const layout = createLayout(version);
+  const legacyLayout = createLayout(version, { alignmentProfile: ALIGNMENT_PROFILE_LEGACY_3 });
+  const softPositions = [];
+  const seenSoftPositions = new Set();
+  for (const [row, col] of [...layout.dataPositions, ...legacyLayout.dataPositions]) {
+    const key = `${row},${col}`;
+    if (seenSoftPositions.has(key)) continue;
+    seenSoftPositions.add(key);
+    softPositions.push([row, col]);
+  }
   const threshold = clampNumber(options.softDecodeConfidence ?? 0.72, 0.05, 0.95);
   const maxCells = Math.max(2, Math.min(16, Math.round(options.softDecodeMaxCells ?? 10)));
   const pairCells = Math.max(2, Math.min(maxCells, Math.round(options.softDecodePairCells ?? 6)));
   const ranked = [];
 
-  for (const [row, col] of layout.dataPositions) {
+  for (const [row, col] of softPositions) {
     const alternative = alternatives[row]?.[col];
     const confidence = confidenceMatrix[row]?.[col] ?? 1;
     if (!Number.isInteger(alternative) || alternative === matrix[row][col] || confidence > threshold) continue;
@@ -3702,27 +3744,31 @@ function paletteClassifierAttempts(observedPalette) {
 }
 
 function tryPerspectiveScan(imageData, options) {
-  const geometryCandidates = detectCodeGeometry(imageData, {
-    minVersion: options.minVersion ?? MIN_VERSION,
-    maxVersion: options.maxVersion ?? MAX_VERSION,
-    maxCandidates: options.maxGeometryCandidates ?? 8,
-    finderRecovery: options.finderRecovery,
-    finderAutoColorBlackClip: options.finderAutoColorBlackClip,
-    finderAutoColorWhiteClip: options.finderAutoColorWhiteClip,
-    finderAutoColorHighlightPercentile: options.finderAutoColorHighlightPercentile,
-    finderAutoColorOutputHighlight: options.finderAutoColorOutputHighlight,
-    finderAutoColorAnalysisInset: options.finderAutoColorAnalysisInset,
-    finderAutoColorMinimumInputRange: options.finderAutoColorMinimumInputRange,
-    finderAutoColorTargetSamples: options.finderAutoColorTargetSamples,
-    preciseAlignment: options.preciseAlignment,
-    diagnostics: options._visionDiagnostics,
-    diagnosticLabel: options._diagnosticLabel ?? "normal"
-  });
+  const geometryCandidates = Array.isArray(options._geometryCandidatesOverride) && options._geometryCandidatesOverride.length
+    ? options._geometryCandidatesOverride
+    : detectCodeGeometry(imageData, {
+        minVersion: options.minVersion ?? MIN_VERSION,
+        maxVersion: options.maxVersion ?? MAX_VERSION,
+        maxCandidates: options.maxGeometryCandidates ?? 8,
+        finderRecovery: options.finderRecovery,
+        finderAutoColorBlackClip: options.finderAutoColorBlackClip,
+        finderAutoColorWhiteClip: options.finderAutoColorWhiteClip,
+        finderAutoColorHighlightPercentile: options.finderAutoColorHighlightPercentile,
+        finderAutoColorOutputHighlight: options.finderAutoColorOutputHighlight,
+        finderAutoColorAnalysisInset: options.finderAutoColorAnalysisInset,
+        finderAutoColorMinimumInputRange: options.finderAutoColorMinimumInputRange,
+        finderAutoColorTargetSamples: options.finderAutoColorTargetSamples,
+        preciseAlignment: options.preciseAlignment,
+        diagnostics: options._visionDiagnostics,
+        diagnosticLabel: options._diagnosticLabel ?? "normal"
+      });
   if (Array.isArray(options._geometryCollector)) options._geometryCollector.push(...geometryCandidates);
   const results = [];
 
   for (const geometry of geometryCandidates) {
-    const layout = createLayout(geometry.version);
+    const layout = createLayout(geometry.version, {
+      alignmentProfile: geometry.alignmentProfile ?? ALIGNMENT_PROFILE_STANDARD_5
+    });
     const sampleProfiles = [{
       sampleMode: options.sampleMode ?? "cross",
       sampleRadius: options.sampleRadius ?? 0.16,
@@ -3759,7 +3805,7 @@ function tryPerspectiveScan(imageData, options) {
         continue;
       }
 
-      const tryAttempt = (attempt, rgbGrid, metadata = {}) => {
+      const tryAttempt = (attempt, rgbGrid, metadata = {}, allowSoftDecoding = options.softDecoding !== false) => {
         const activeObservedPalette = metadata.observedPalette ?? observedPalette;
         const activeSamplingMode = metadata.samplingMode ?? profile.sampleMode;
         const classified = classifySampledRgbGrid(rgbGrid, attempt.classifier, layout);
@@ -3784,6 +3830,9 @@ function tryPerspectiveScan(imageData, options) {
             structureTolerance: options.structureTolerance ?? 0.18,
             cellConfidence: classified.confidence,
             cellAlternatives: classified.alternatives,
+            cellEncodingHint: CELL_ENCODINGS.RGBW,
+            alignmentProfileHint: geometry.alignmentProfile ?? ALIGNMENT_PROFILE_STANDARD_5,
+            softDecoding: allowSoftDecoding,
             maxErasureConfidence: options.maxErasureConfidence
           });
           if (decoded.version !== geometry.version) return false;
@@ -3812,7 +3861,7 @@ function tryPerspectiveScan(imageData, options) {
         }
       };
 
-      const tryTriangleAttempt = (attempt, metadata = {}) => {
+      const tryTriangleAttempt = (attempt, metadata = {}, allowSoftDecoding = options.softDecoding !== false) => {
         if (!triangleSampled?.triangleGrid) return false;
         const activeObservedPalette = metadata.observedPalette ?? observedPalette;
         const activeSamplingMode = metadata.samplingMode ?? `${profile.sampleMode}-triangle16`;
@@ -3845,6 +3894,8 @@ function tryPerspectiveScan(imageData, options) {
             cellConfidence: classified.confidence,
             cellAlternatives: classified.alternatives,
             cellEncodingHint: CELL_ENCODINGS.TRIANGLE16,
+            alignmentProfileHint: geometry.alignmentProfile ?? ALIGNMENT_PROFILE_STANDARD_5,
+            softDecoding: allowSoftDecoding,
             maxErasureConfidence: options.maxErasureConfidence
           });
           if (decoded.version !== geometry.version) return false;
@@ -3873,10 +3924,23 @@ function tryPerspectiveScan(imageData, options) {
       // Fast path: preserve the original observed-RGB classifier first, then
       // try per-channel white balancing. Most clean frames stop here without
       // paying for the more expensive spatial normalization fallback.
-      for (const attempt of paletteClassifierAttempts(observedPalette)) {
-        if (tryAttempt(attempt, sampled.rgbGrid) || tryTriangleAttempt(attempt)) {
+      const basePaletteAttempts = paletteClassifierAttempts(observedPalette);
+      for (const attempt of basePaletteAttempts) {
+        if (tryAttempt(attempt, sampled.rgbGrid, {}, false) || tryTriangleAttempt(attempt, {}, false)) {
           geometryDecoded = true;
           break;
+        }
+      }
+      // Spectrum ECC soft decoding is intentionally deferred until every cheap
+      // hard classifier has had a chance. This preserves the exact recovery
+      // candidates while avoiding expensive second-hypothesis RS searches when
+      // a later normal color model can decode the frame immediately.
+      if (!geometryDecoded && options.softDecoding !== false) {
+        for (const attempt of basePaletteAttempts) {
+          if (tryAttempt(attempt, sampled.rgbGrid, {}, true) || tryTriangleAttempt(attempt, {}, true)) {
+            geometryDecoded = true;
+            break;
+          }
         }
       }
 
@@ -3884,10 +3948,14 @@ function tryPerspectiveScan(imageData, options) {
         try {
           const normalizedGrid = spatiallyNormalizeRgbGrid(sampled.rgbGrid, layout.calibration);
           const normalizedPalette = sampleObservedPalette(normalizedGrid, layout.calibration, { robust: true });
-          geometryDecoded = tryAttempt({
+          const spatialAttempt = {
             classifier: classifierFromPaletteRgb(normalizedPalette, "raw"),
             colorNormalization: "spatial-white-balanced"
-          }, normalizedGrid);
+          };
+          geometryDecoded = tryAttempt(spatialAttempt, normalizedGrid, {}, false);
+          if (!geometryDecoded && options.softDecoding !== false) {
+            geometryDecoded = tryAttempt(spatialAttempt, normalizedGrid, {}, true);
+          }
         } catch {
           // Continue to the recovery profile below.
         }
@@ -3904,18 +3972,30 @@ function tryPerspectiveScan(imageData, options) {
             saturation: options.autoEnhanceSaturation
           });
           const enhancedPalette = sampleObservedPalette(enhancedGrid, layout.calibration, { robust: true });
-          for (const attempt of paletteClassifierAttempts(enhancedPalette)) {
-            const recoveredAttempt = {
-              ...attempt,
-              colorNormalization: `auto-tone-contrast-color/${attempt.colorNormalization}`
-            };
+          const enhancedAttempts = paletteClassifierAttempts(enhancedPalette).map((attempt) => ({
+            ...attempt,
+            colorNormalization: `auto-tone-contrast-color/${attempt.colorNormalization}`
+          }));
+          for (const recoveredAttempt of enhancedAttempts) {
             if (tryAttempt(recoveredAttempt, enhancedGrid, {
               observedPalette: enhancedPalette,
               autoEnhanced: true,
               recoveryMode: "module-grid-auto-tone-contrast-color"
-            })) {
+            }, false)) {
               geometryDecoded = true;
               break;
+            }
+          }
+          if (!geometryDecoded && options.softDecoding !== false) {
+            for (const recoveredAttempt of enhancedAttempts) {
+              if (tryAttempt(recoveredAttempt, enhancedGrid, {
+                observedPalette: enhancedPalette,
+                autoEnhanced: true,
+                recoveryMode: "module-grid-auto-tone-contrast-color"
+              }, true)) {
+                geometryDecoded = true;
+                break;
+              }
             }
           }
         } catch {
@@ -3962,19 +4042,32 @@ function tryPerspectiveScan(imageData, options) {
             layout.calibration,
             { robust: true }
           );
-          for (const attempt of paletteClassifierAttempts(enhancedPalette)) {
-            const recoveredAttempt = {
-              ...attempt,
-              colorNormalization: `rectified-auto-tone-contrast-color/${attempt.colorNormalization}`
-            };
+          const rectifiedAttempts = paletteClassifierAttempts(enhancedPalette).map((attempt) => ({
+            ...attempt,
+            colorNormalization: `rectified-auto-tone-contrast-color/${attempt.colorNormalization}`
+          }));
+          for (const recoveredAttempt of rectifiedAttempts) {
             if (tryAttempt(recoveredAttempt, enhancedSampled.rgbGrid, {
               observedPalette: enhancedPalette,
               samplingMode: "rectified-auto-enhance",
               autoEnhanced: true,
               recoveryMode: "rectified-auto-tone-contrast-color"
-            })) {
+            }, false)) {
               geometryDecoded = true;
               break;
+            }
+          }
+          if (!geometryDecoded && options.softDecoding !== false) {
+            for (const recoveredAttempt of rectifiedAttempts) {
+              if (tryAttempt(recoveredAttempt, enhancedSampled.rgbGrid, {
+                observedPalette: enhancedPalette,
+                samplingMode: "rectified-auto-enhance",
+                autoEnhanced: true,
+                recoveryMode: "rectified-auto-tone-contrast-color"
+              }, true)) {
+                geometryDecoded = true;
+                break;
+              }
             }
           }
         } catch {
@@ -3983,6 +4076,15 @@ function tryPerspectiveScan(imageData, options) {
       }
 
       if (geometryDecoded) break;
+    }
+
+    // A decoded QuadQR has already passed structural validation, Spectrum ECC,
+    // and the payload CRC. Continuing through every lower-ranked geometry after
+    // that point used to spend most of the camera scan time proving the same
+    // frame again. Return the first authenticated decode immediately. An opt-in
+    // diagnostic mode can still collect every successful geometry if needed.
+    if (geometryDecoded && options.collectAllGeometryResults !== true) {
+      return results[results.length - 1] ?? null;
     }
 
     // Slow-path geometry micro-refinement. Finder/alignment detection can be
@@ -4131,6 +4233,7 @@ function tryPerspectiveScan(imageData, options) {
             cellConfidence: candidate.classified.confidence,
             cellAlternatives: candidate.classified.alternatives,
             cellEncodingHint: candidate.cellEncoding,
+            alignmentProfileHint: geometry.alignmentProfile ?? ALIGNMENT_PROFILE_STANDARD_5,
             maxErasureConfidence: options.maxErasureConfidence
           });
           if (decoded.version !== geometry.version) continue;
@@ -4158,6 +4261,11 @@ function tryPerspectiveScan(imageData, options) {
           // Try the next high-scoring micro-refinement.
         }
       }
+    }
+
+
+    if (geometryDecoded && options.collectAllGeometryResults !== true) {
+      return results[results.length - 1] ?? null;
     }
   }
 
@@ -4981,6 +5089,38 @@ export function scanImageData(imageData, options = {}) {
   };
 
   if (options.perspective !== false) {
+    const geometryHints = Array.isArray(options._geometryHints)
+      ? options._geometryHints.filter((item) => item?.homography && Number.isInteger(item.version)).slice(0, 2)
+      : [];
+    if (geometryHints.length) {
+      try {
+        const hinted = tryPerspectiveScan(imageData, {
+          ...scanOptions,
+          _diagnosticLabel: options._diagnosticLabel ? `${options._diagnosticLabel}-geometry-reuse` : "geometry-reuse",
+          _geometryCandidatesOverride: geometryHints,
+          _geometryCollector: [],
+          _observationCollector: [],
+          adaptiveSampling: options._geometryReuseAdaptiveSampling ?? false,
+          geometryRefinement: false
+        });
+        if (hinted) {
+          geometryCollector.push(hinted.geometry ?? geometryHints[0]);
+          return decorateScanResult({
+            ...hinted,
+            geometryReused: true,
+            recoveryMode: hinted.recoveryMode ?? "geometry-reuse"
+          }, debugContext, options);
+        }
+      } catch {
+        // A stale geometry hint is expected when the camera/code moves. The
+        // camera worker can request a hint-only attempt when it is reusing
+        // low-resolution locator geometry on a higher-detail frame.
+      }
+      if (options._geometryHintOnly === true) {
+        throw new Error("Geometry hint did not decode this frame.");
+      }
+    }
+
     const perspective = tryPerspectiveScan(imageData, scanOptions);
     if (perspective) return decorateScanResult(perspective, debugContext, options);
   }
@@ -5306,6 +5446,21 @@ export function scanVideoFrame(video, options = {}) {
       _visionDiagnostics: visionDiagnostics
     });
     normalizeFrameDiagnostics(options._frameDiagnostics, source, width, height, visionDiagnostics);
+    if (options._frameDiagnostics && result?.geometry && !options._frameDiagnostics.geometry) {
+      const geometry = result.geometry;
+      options._frameDiagnostics.geometry = geometry;
+      options._frameDiagnostics.geometryReused = Boolean(result.geometryReused);
+      if (geometry.finders) {
+        const reusedFinders = [
+          geometry.finders.topLeft,
+          geometry.finders.topRight,
+          geometry.finders.bottomLeft
+        ].filter(Boolean);
+        options._frameDiagnostics.finders = reusedFinders;
+        options._frameDiagnostics.finderCount = reusedFinders.length;
+        if (result.geometryReused) options._frameDiagnostics.finderMethod = "geometry-reuse";
+      }
+    }
     if (!source.cropped) return result;
     return {
       ...result,
@@ -5458,7 +5613,7 @@ async function improveCameraTrack(stream) {
   }
 }
 
-export async function startCameraScanner(video, options = {}) {
+async function startCameraScannerMainThread(video, options = {}) {
   assert(typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia, "Camera API is unavailable.");
   assert(video, "A video element is required.");
 
@@ -5480,7 +5635,11 @@ export async function startCameraScanner(video, options = {}) {
   video.muted = true;
   await video.play();
 
-  const scanInterval = Math.max(80, options.scanInterval ?? 180);
+  // Keep scanning responsive without queueing stale camera frames. The old
+  // 180 ms post-scan timeout made effective cadence equal scan time + 180 ms.
+  // The scheduler below measures from scan start and uses real video frames
+  // when requestVideoFrameCallback() is available.
+  const scanInterval = Math.max(24, Number(options.scanInterval ?? 80));
   const scratchCanvas = document.createElement("canvas");
   const highResolutionCanvas = document.createElement("canvas");
   const multiFrameEnabled = options.multiFrame !== false;
@@ -5491,16 +5650,23 @@ export async function startCameraScanner(video, options = {}) {
   const cameraAutoEnhanceEvery = Math.max(1, Math.round(options.cameraAutoEnhanceEvery ?? 2));
   const cameraFinderRecoveryEvery = Math.max(1, Math.round(options.cameraFinderRecoveryEvery ?? 2));
   const cameraHighResolutionEvery = Math.max(1, Math.round(options.cameraHighResolutionEvery ?? 2));
-  const baseCameraMaxDimension = Math.max(480, Math.round(options.maxDimension ?? 1080));
+  const baseCameraMaxDimension = Math.max(480, Math.round(options.maxDimension ?? 640));
   const cameraHighResolutionMaxDimension = Math.max(
     baseCameraMaxDimension,
-    Math.round(options.cameraHighResolutionMaxDimension ?? 1600)
+    Math.round(options.cameraHighResolutionMaxDimension ?? 960)
   );
   let missStreak = 0;
   let stopped = false;
   let busy = false;
   let timer = null;
+  let frameCallbackId = null;
+  let lastScanStartedAt = -Infinity;
   let frameNumber = 0;
+  let cameraGeometryHint = null;
+  let cameraGeometryHintMisses = 0;
+  const cameraGeometryReuseMaxMisses = Math.max(1, Math.round(options.cameraGeometryReuseMaxMisses ?? 5));
+  const useVideoFrameCallback = options.useVideoFrameCallback !== false &&
+    typeof video.requestVideoFrameCallback === "function";
 
   const diagnosticsEnabled = typeof options.onDiagnostic === "function";
   const emitDiagnostic = (event) => {
@@ -5536,6 +5702,12 @@ export async function startCameraScanner(video, options = {}) {
   const stop = () => {
     stopped = true;
     if (timer) clearTimeout(timer);
+    if (frameCallbackId != null && typeof video.cancelVideoFrameCallback === "function") {
+      try { video.cancelVideoFrameCallback(frameCallbackId); } catch {}
+    }
+    timer = null;
+    frameCallbackId = null;
+    cameraGeometryHint = null;
     observationHistory.clear();
     for (const track of stream.getTracks()) track.stop();
     if (video.srcObject === stream) video.srcObject = null;
@@ -5544,8 +5716,29 @@ export async function startCameraScanner(video, options = {}) {
   const scanNow = () => scanVideoFrame(video, {
     ...options,
     maxDimension: baseCameraMaxDimension,
-    canvas: scratchCanvas
+    canvas: scratchCanvas,
+    _geometryHints: options.cameraGeometryReuse === false || !cameraGeometryHint ? undefined : [cameraGeometryHint]
   });
+
+  const updateCameraGeometryHint = (frameDiagnostics, result = null) => {
+    if (options.cameraGeometryReuse === false) {
+      cameraGeometryHint = null;
+      return;
+    }
+    const geometry = result?.geometry ?? frameDiagnostics?.geometry ?? null;
+    if (geometry?.homography && Number.isInteger(geometry.version)) {
+      cameraGeometryHint = geometry;
+      cameraGeometryHintMisses = 0;
+      return;
+    }
+    if (cameraGeometryHint) {
+      cameraGeometryHintMisses++;
+      if (cameraGeometryHintMisses >= cameraGeometryReuseMaxMisses) {
+        cameraGeometryHint = null;
+        cameraGeometryHintMisses = 0;
+      }
+    }
+  };
 
   const emitResult = (result, capturedFrame = null, diagnostic = null) => {
     const frameMeta = capturedFrame?.imageData ? {
@@ -5624,6 +5817,33 @@ export async function startCameraScanner(video, options = {}) {
     }
   };
 
+  const scheduleNextScan = () => {
+    if (stopped) return;
+    const runWhenDue = () => {
+      frameCallbackId = null;
+      if (stopped) return;
+      const remaining = scanInterval - (nowMs() - lastScanStartedAt);
+      if (remaining > 1) {
+        timer = setTimeout(() => {
+          timer = null;
+          scheduleNextScan();
+        }, remaining);
+        return;
+      }
+      void loop();
+    };
+
+    if (useVideoFrameCallback) {
+      frameCallbackId = video.requestVideoFrameCallback(runWhenDue);
+    } else {
+      const remaining = Math.max(0, scanInterval - (nowMs() - lastScanStartedAt));
+      timer = setTimeout(() => {
+        timer = null;
+        runWhenDue();
+      }, remaining);
+    }
+  };
+
   const loop = async () => {
     if (stopped) return;
     if (!busy && video.readyState >= 2) {
@@ -5633,6 +5853,7 @@ export async function startCameraScanner(video, options = {}) {
       const frameDiagnostics = {};
       const capturedFrame = {};
       const frameStarted = nowMs();
+      lastScanStartedAt = frameStarted;
       let allowAutoEnhance = false;
       let allowFinderRecovery = false;
       try {
@@ -5660,11 +5881,13 @@ export async function startCameraScanner(video, options = {}) {
           fullFrameAutoEnhanceRecovery: options.fullFrameAutoEnhanceRecovery ?? false,
           maxDimension: baseCameraMaxDimension,
           canvas: scratchCanvas,
+          _geometryHints: options.cameraGeometryReuse === false || !cameraGeometryHint ? undefined : [cameraGeometryHint],
           _capturedFrame: capturedFrame,
           _observationCollector: observations,
           _frameDiagnostics: frameDiagnostics
         });
         const elapsedMs = nowMs() - frameStarted;
+        updateCameraGeometryHint(frameDiagnostics, result);
         emitDiagnostic({
           type: "frame",
           state: "decoded",
@@ -5686,6 +5909,7 @@ export async function startCameraScanner(video, options = {}) {
         if (emitResult(result, capturedFrame, frameDiagnostics)) return;
       } catch (error) {
         missStreak++;
+        updateCameraGeometryHint(frameDiagnostics);
         const fastElapsedMs = nowMs() - frameStarted;
         emitDiagnostic({
           type: "frame",
@@ -5701,7 +5925,7 @@ export async function startCameraScanner(video, options = {}) {
 
         // Geometry-aware high-resolution retry. A dense QuadQR can look large
         // enough in the preview while each individual module has become too
-        // small after the normal 1080 px scanner cap. If the fast pass already
+        // small after the normal 640 px scanner cap. If the fast pass already
         // sees at least two convincing finders, spend one bounded retry on a
         // higher-resolution copy of the visible camera ROI. Empty frames and
         // ordinary small codes never pay this cost.
@@ -6007,11 +6231,353 @@ export async function startCameraScanner(video, options = {}) {
         busy = false;
       }
     }
-    timer = setTimeout(loop, scanInterval);
+    scheduleNextScan();
   };
 
-  timer = setTimeout(loop, 0);
+  scheduleNextScan();
   return { stream, stop, scanNow, video };
+}
+
+
+function cameraWorkerSupported(options = {}) {
+  if (options.cameraWorker === false) return false;
+  return typeof Worker === "function" &&
+    typeof createImageBitmap === "function" &&
+    typeof OffscreenCanvas === "function";
+}
+
+function serializableCameraWorkerOptions(options = {}) {
+  const skip = new Set([
+    "canvas",
+    "constraints",
+    "onDecode",
+    "onDiagnostic",
+    "onResult",
+    "onScanMiss",
+    "cameraWorkerUrl"
+  ]);
+  const out = {};
+  for (const [key, value] of Object.entries(options)) {
+    if (skip.has(key) || typeof value === "function" || value == null) continue;
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      out[key] = value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      out[key] = value.map((item) => {
+        if (item && typeof item === "object") return { ...item };
+        return item;
+      });
+      continue;
+    }
+    if (Object.getPrototypeOf(value) === Object.prototype) out[key] = { ...value };
+  }
+  return out;
+}
+
+function resolveCameraWorkerUrl(options = {}) {
+  if (options.cameraWorkerUrl) {
+    return new URL(
+      options.cameraWorkerUrl,
+      typeof document !== "undefined" ? document.baseURI : import.meta.url
+    );
+  }
+  return new URL("./camera-scanner-worker.js", import.meta.url);
+}
+
+async function initializeCameraWorker(options = {}) {
+  const worker = new Worker(resolveCameraWorkerUrl(options), {
+    type: "module",
+    name: "quadqr-camera-scanner"
+  });
+  let sequence = 0;
+  const pending = new Map();
+  let fatalError = null;
+
+  const rejectPending = (error) => {
+    fatalError = error instanceof Error ? error : new Error(String(error));
+    for (const { reject } of pending.values()) reject(fatalError);
+    pending.clear();
+  };
+
+  worker.addEventListener("message", (event) => {
+    const message = event.data ?? {};
+    const entry = pending.get(message.id);
+    if (!entry) return;
+    pending.delete(message.id);
+    if (message.ok) entry.resolve(message.result);
+    else {
+      const error = new Error(message.error?.message ?? "QuadQR camera worker failed.");
+      error.name = message.error?.name ?? "Error";
+      error.stack = message.error?.stack ?? error.stack;
+      error.debug = message.error?.debug ?? null;
+      entry.reject(error);
+    }
+  });
+  worker.addEventListener("error", (event) => {
+    rejectPending(new Error(event?.message || "QuadQR camera worker crashed."));
+  });
+  worker.addEventListener("messageerror", () => {
+    rejectPending(new Error("QuadQR camera worker returned an unreadable message."));
+  });
+
+  const request = (type, payload = {}, transfer = []) => {
+    if (fatalError) return Promise.reject(fatalError);
+    const id = `qqr-camera-${++sequence}`;
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      try {
+        worker.postMessage({ id, type, ...payload }, transfer);
+      } catch (error) {
+        pending.delete(id);
+        reject(error);
+      }
+    });
+  };
+
+  try {
+    const state = await request("init", { options: serializableCameraWorkerOptions(options) });
+    if (!state?.offscreenCanvas) throw new Error("OffscreenCanvas is unavailable in the QuadQR camera worker.");
+    return {
+      worker,
+      state,
+      request,
+      terminate() {
+        rejectPending(new Error("QuadQR camera worker stopped."));
+        worker.terminate();
+      }
+    };
+  } catch (error) {
+    worker.terminate();
+    throw error;
+  }
+}
+
+async function startCameraScannerWorker(video, options = {}) {
+  assert(typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia, "Camera API is unavailable.");
+  assert(video, "A video element is required.");
+
+  // Initialize the worker before requesting camera permission. If module workers
+  // are blocked by CSP or unsupported by the browser, startCameraScanner() can
+  // fall back to the proven main-thread engine without opening two streams.
+  const workerClient = await initializeCameraWorker(options);
+  let stream = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia(
+      options.constraints ?? {
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30 }
+        }
+      }
+    );
+    await improveCameraTrack(stream);
+
+    video.srcObject = stream;
+    video.setAttribute("playsinline", "");
+    video.muted = true;
+    await video.play();
+  } catch (error) {
+    workerClient.terminate();
+    for (const track of stream?.getTracks?.() ?? []) track.stop();
+    if (video.srcObject === stream) video.srcObject = null;
+    throw error;
+  }
+
+  // The worker can safely consume each ~30 fps camera frame without blocking
+  // the page. If decoding takes longer, the busy gate naturally drops stale
+  // frames instead of queueing them. Main-thread fallback keeps its gentler
+  // cadence.
+  const scanInterval = Math.max(24, Number(options.scanInterval ?? 33));
+  const useVideoFrameCallback = options.useVideoFrameCallback !== false &&
+    typeof video.requestVideoFrameCallback === "function";
+  let stopped = false;
+  let busy = false;
+  let timer = null;
+  let frameCallbackId = null;
+  let lastScanStartedAt = -Infinity;
+  let frameNumber = 0;
+  let requestToken = 0;
+
+  const diagnosticsEnabled = typeof options.onDiagnostic === "function";
+  const emitDiagnostic = (event) => {
+    if (!diagnosticsEnabled) return;
+    try {
+      options.onDiagnostic({
+        timestamp: Date.now(),
+        frame: event?.frame ?? frameNumber,
+        cameraWorker: true,
+        ...event
+      });
+    } catch {
+      // Diagnostics are UI-only and must never interrupt scanning.
+    }
+  };
+
+  const track = stream.getVideoTracks?.()[0];
+  const settings = track?.getSettings?.() ?? {};
+  emitDiagnostic({
+    type: "camera-ready",
+    method: "camera-worker",
+    message: `Camera ready · ${settings.width ?? video.videoWidth}×${settings.height ?? video.videoHeight} · background scanner`,
+    camera: {
+      width: settings.width ?? video.videoWidth,
+      height: settings.height ?? video.videoHeight,
+      frameRate: settings.frameRate ?? null,
+      facingMode: settings.facingMode ?? null
+    },
+    worker: workerClient.state
+  });
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    requestToken++;
+    if (timer) clearTimeout(timer);
+    if (frameCallbackId != null && typeof video.cancelVideoFrameCallback === "function") {
+      try { video.cancelVideoFrameCallback(frameCallbackId); } catch {}
+    }
+    timer = null;
+    frameCallbackId = null;
+    workerClient.terminate();
+    for (const cameraTrack of stream.getTracks()) cameraTrack.stop();
+    if (video.srcObject === stream) video.srcObject = null;
+  };
+
+  // Preserve the historical immediate/manual helper as a synchronous scan of
+  // the current video element. The continuous scanner itself stays off-thread.
+  const scanNow = () => scanVideoFrame(video, {
+    ...options,
+    maxDimension: Math.max(480, Math.round(options.maxDimension ?? 640))
+  });
+
+  const emitResult = (result, frameMeta = null) => {
+    const normalizedMeta = frameMeta ? { frame: frameNumber, ...frameMeta } : null;
+    options.onResult?.(result, normalizedMeta);
+    options.onDecode?.(result, normalizedMeta);
+    if (options.stopOnResult ?? true) {
+      stop();
+      return true;
+    }
+    return false;
+  };
+
+  const scheduleNextScan = () => {
+    if (stopped) return;
+    const runWhenDue = () => {
+      frameCallbackId = null;
+      if (stopped) return;
+      const remaining = scanInterval - (nowMs() - lastScanStartedAt);
+      if (remaining > 1) {
+        timer = setTimeout(() => {
+          timer = null;
+          scheduleNextScan();
+        }, remaining);
+        return;
+      }
+      void loop();
+    };
+
+    if (useVideoFrameCallback) {
+      frameCallbackId = video.requestVideoFrameCallback(runWhenDue);
+    } else {
+      const remaining = Math.max(0, scanInterval - (nowMs() - lastScanStartedAt));
+      timer = setTimeout(() => {
+        timer = null;
+        runWhenDue();
+      }, remaining);
+    }
+  };
+
+  const loop = async () => {
+    if (stopped) return;
+    if (!busy && video.readyState >= 2) {
+      busy = true;
+      frameNumber++;
+      lastScanStartedAt = nowMs();
+      const token = ++requestToken;
+      let bitmap = null;
+      try {
+        const source = visibleVideoSourceRect(video, options);
+        bitmap = await createImageBitmap(video);
+        if (stopped || token !== requestToken) {
+          bitmap.close?.();
+          return;
+        }
+        const workerResult = await workerClient.request(
+          "scan",
+          { bitmap, source, frame: frameNumber },
+          [bitmap]
+        );
+        bitmap = null;
+        if (stopped || token !== requestToken) return;
+
+        for (const diagnostic of workerResult?.diagnostics ?? []) emitDiagnostic(diagnostic);
+        if (workerResult?.ok) {
+          if (emitResult(workerResult.result, workerResult.frameMeta)) return;
+        } else {
+          const error = new Error(workerResult?.error?.message ?? "Unable to decode QuadQR frame.");
+          error.name = workerResult?.error?.name ?? "Error";
+          error.debug = workerResult?.error?.debug ?? null;
+          options.onScanMiss?.(error);
+        }
+      } catch (error) {
+        try { bitmap?.close?.(); } catch {}
+        if (!stopped) {
+          emitDiagnostic({
+            type: "worker-error",
+            state: "error",
+            method: "camera-worker",
+            message: error?.message ?? String(error)
+          });
+          options.onScanMiss?.(error);
+        }
+      } finally {
+        busy = false;
+      }
+    }
+    scheduleNextScan();
+  };
+
+  scheduleNextScan();
+  return {
+    stream,
+    stop,
+    scanNow,
+    video,
+    worker: true,
+    workerState: workerClient.state
+  };
+}
+
+/**
+ * Start continuous camera scanning. Modern browsers use a dedicated module
+ * worker by default so the complete recovery pipeline can remain enabled
+ * without blocking rendering/input. Unsupported/CSP-restricted environments
+ * automatically fall back to the original main-thread scanner.
+ */
+export async function startCameraScanner(video, options = {}) {
+  if (cameraWorkerSupported(options)) {
+    try {
+      return await startCameraScannerWorker(video, options);
+    } catch (error) {
+      if (options.cameraWorkerRequired) throw error;
+      try {
+        options.onDiagnostic?.({
+          timestamp: Date.now(),
+          frame: 0,
+          type: "worker-fallback",
+          state: "fallback",
+          method: "camera-main-thread",
+          message: `Background scanner unavailable · using main-thread fallback (${error?.message ?? String(error)})`
+        });
+      } catch {}
+    }
+  }
+  return startCameraScannerMainThread(video, options);
 }
 
 export function rectifyDetectedCode(imageData, options = {}) {

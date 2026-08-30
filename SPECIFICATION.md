@@ -4,7 +4,7 @@
 
 QuadQR is an experimental RGBW matrix symbology. Normal mode uses 4-state RGBW cells, while the optional **High Density Mode** is experimental and uses the 16-state Triangle16 physical layout. It is not ISO/IEC QR Code and is not intended to be decoded by standard QR readers.
 
-The physical matrix format remains **QuadQR Format v5**. Normal application data is always treated simply as UTF-8 text or arbitrary bytes. Compression, signatures, encryption, rendering, and diagnostics are optional features layered around that stable matrix codec.
+The physical matrix format remains **QuadQR Format v6**. Normal application data is always treated simply as UTF-8 text or arbitrary bytes. Compression, signatures, encryption, rendering, and diagnostics are optional features layered around that stable matrix codec.
 
 For exact matrix geometry and Reed-Solomon framing, see [`FORMAT.md`](./FORMAT.md).
 
@@ -17,7 +17,7 @@ Application bytes / UTF-8 text
         ├─ optional Ed25519 signature metadata (internal)
         ├─ optional Secure Payload v1 (AES-256-GCM)
         │
-        └─ QuadQR Format v5
+        └─ QuadQR Format v6
              ├─ protected header
              ├─ CRC-32
              ├─ GF(256) Reed-Solomon Spectrum ECC
@@ -53,9 +53,9 @@ version = 1..40
 
 Three 7×7 finder patterns are always present. Version 1 has the legacy QuadQR 5×5 bottom-right alignment marker. Versions 2–40 use the distributed alignment schedule defined in `FORMAT.md`.
 
-## 4. Format v5 header flags
+## 4. Format v6 header flags
 
-The protected Format v5 header uses:
+The protected Format v6 header uses:
 
 ```text
 bit 0      UTF-8 text flag
@@ -128,7 +128,7 @@ bit 1  compressed
 bit 2  public key embedded
 ```
 
-The envelope contains no semantic content type. The Format v5 text flag still determines whether the recovered application payload should be decoded as UTF-8 text.
+The envelope contains no semantic content type. The Format v6 text flag still determines whether the recovered application payload should be decoded as UTF-8 text.
 
 ## 7. Compression
 
@@ -167,11 +167,11 @@ lz
 
 `compression: "auto"` is the fast balanced policy. It evaluates LZ level 6, DEFLATE level 6, and Brotli quality 6 exactly once and chooses the smallest complete stored representation. For unsigned payloads that comparison includes the 16-byte extension-envelope cost, so Auto remains zero-overhead when compression is not useful.
 
-`compression: "smart"` is the opt-in CPU-heavy policy. It begins with the Auto candidates, computes the resulting Format v5 QuadQR version using the selected ECC/profile/version bounds, and only escalates when the next smaller matrix is plausibly reachable. The strong stage tests DEFLATE 8 and Brotli 9. If the symbol remains close to a smaller-version boundary, the maximum stage tests DEFLATE 9 and Brotli 11. With an explicitly requested fixed version, Smart does not chase a smaller matrix, but it may escalate when the balanced result does not fit and stronger compression can plausibly make that requested version fit. Signed and secure pipelines include their fixed envelope overhead when evaluating those version boundaries.
+`compression: "smart"` is the opt-in CPU-heavy policy. It begins with the Auto candidates, computes the resulting Format v6 QuadQR version using the selected ECC/profile/version bounds, and only escalates when the next smaller matrix is plausibly reachable. The strong stage tests DEFLATE 8 and Brotli 9. If the symbol remains close to a smaller-version boundary, the maximum stage tests DEFLATE 9 and Brotli 11. With an explicitly requested fixed version, Smart does not chase a smaller matrix, but it may escalate when the balanced result does not fit and stronger compression can plausibly make that requested version fit. Signed and secure pipelines include their fixed envelope overhead when evaluating those version boundaries.
 
 Explicit `compression: "lz"` and `compression: "deflate"` accept `compressionLevel` `1..9` and default to 6. Explicit `compression: "brotli"` accepts `compressionLevel` `0..11` and defaults to 11. Compression levels are encoder-only parameters and are intentionally not stored in the extension envelope because LZ, RFC 1951, and Brotli decoders do not require them. Auto and Smart use LZ level 6; Smart's staged escalation remains focused on DEFLATE/Brotli.
 
-Compression occurs before signing, encryption, and Format v5 ECC.
+Compression occurs before signing, encryption, and Format v6 ECC.
 
 ## 8. Signed QuadQR
 
@@ -211,13 +211,13 @@ application payload
 → optional compression
 → optional Ed25519 signature metadata
 → AES-256-GCM Secure Payload v1
-→ Format v5 ECC/matrix
+→ Format v6 ECC/matrix
 ```
 
 After scanning:
 
 ```text
-Format v5 decode
+Format v6 decode
 → AES-GCM authentication/decryption
 → internal compression/signature metadata processing
 → application payload
@@ -264,7 +264,7 @@ Recommended general-purpose starting module size is **0.40 mm/module**. Real pri
 
 ## 12. Logo safety
 
-Logos are rendering overlays and never modify Format v5 data structures.
+Logos are rendering overlays and never modify Format v6 data structures.
 
 `size: "auto"` estimates a conservative logo ratio from:
 
@@ -320,7 +320,7 @@ These scores are regression/testing aids. They do not replace validation with re
 
 ## 15. Capacity planning
 
-Capacity is determined from the actual Format v5 layout, protected header, CRC, and Spectrum ECC plan. Compression can reduce stored payload bytes, while signatures and encryption add metadata bytes before the matrix codec.
+Capacity is determined from the actual Format v6 layout, protected header, CRC, and Spectrum ECC plan. Compression can reduce stored payload bytes, while signatures and encryption add metadata bytes before the matrix codec.
 
 The benchmark helper can report:
 
@@ -340,7 +340,7 @@ Implementations should follow these rules:
 
 1. Keep RGBW mapping exactly `R=00, G=01, B=10, W=11`.
 2. Keep GF(256) Spectrum ECC and its errors+erasures behavior.
-3. Preserve Format v5 decoding for normal and Secure Payload symbols.
+3. Preserve Format v5 decoding as a legacy compatibility path while encoding new symbols as Format v6.
 4. Keep application semantics outside the QuadQR codec. Do not require a growing content-type registry.
 5. Treat compression/signature metadata as internal transport metadata, not a separate user payload mode.
 6. Treat `keyId` only as an identifier. Signer trust comes from an external trusted public-key binding.

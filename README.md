@@ -440,7 +440,7 @@ QuadQR currently uses:
 - square modules;
 - three 7×7 black-and-white finder patterns;
 - black-and-white timing structures;
-- one 5×5 primary alignment reference plus compact 3×3 secondary alignment markers on larger symbols;
+- distributed 5×5 nested alignment eyes on versions that use alignment patterns;
 - RGB calibration swatches;
 - structural black/white references;
 - a two-column zig-zag physical data-position path;
@@ -453,7 +453,7 @@ QuadQR currently uses:
 
 White is a valid data state.
 
-QuadQR still uses exactly three large finder patterns, just like standard QR. Starting at version 2, alignment markers follow the standard QR version-dependent center schedule. The bottom-right alignment reference remains a full 5×5 marker and is used as the fourth homography reference; additional distributed markers are compact 3×3 black rings with white centers. Version 1 keeps one QuadQR-specific 5×5 bottom-right bootstrap marker because it otherwise would have no fourth projective reference.
+QuadQR still uses exactly three large finder patterns, just like standard QR. Starting at version 2, Format v6 alignment markers follow the standard QR version-dependent center schedule and every scheduled alignment marker is a full 5×5 nested black/white/black eye. These distributed references give the detector stronger anchors for high-version and projectively distorted symbols. Version 1 keeps one QuadQR-specific 5×5 bottom-right bootstrap marker because it otherwise would have no fourth projective reference. The decoder retains the compact 3×3 secondary-marker profile used by Format v5 so existing v5 symbols remain readable.
 
 The decoder does not treat a white-looking area as automatically empty. It reconstructs the matrix geometry first and then determines whether a sampled position is structural or data.
 
@@ -481,7 +481,7 @@ White → (255, 255, 255)
 
 Real camera input is not expected to match those exact values.
 
-QuadQR includes calibration and nearest-color classification so the scanner can work with observed colors after lighting, camera processing, perspective changes, and other image transformations. The clean-frame path stays fast: QuadQR tries the normal detected geometry and observed palette first. Dense versions can refine an imperfect four-point homography with reliable secondary alignment markers already present in the matrix, without reserving any new cells. If a steep angle leaves exactly two strong finder patterns, a bounded looser third-finder pass runs before heavier color recovery. Only after geometry/color decoding still fails does QuadQR progressively try stronger recovery, including white balancing, a 3×4 affine color-calibration model learned from the known black/white/R/G/B references, spatial normalization, Auto Tone / Auto Contrast / QuadQR Auto Color-style enhancement, and bounded sub-module geometry refinement. For live video, QuadQR scans the CSS-visible `object-fit: cover` camera region instead of the hidden full sensor frame, so the code keeps the same apparent size/resolution the user sees in the guide. When a dense frame already exposes at least two finders, the camera scanner can also retry the visible ROI at up to 1600 px before expensive color recovery. If finder geometry is already strong but color decoding fails, a QR-only rectified pixel enhancement retry is performed immediately; whole-frame enhancement remains reserved for harder locator failures.
+QuadQR includes calibration and nearest-color classification so the scanner can work with observed colors after lighting, camera processing, perspective changes, and other image transformations. The clean-frame path starts with a streaming 1:1:3:1:1 finder detector on the RGB value channel, direct cross-checks, local-threshold fallback, and directional module-size/version estimation. Once the three finder eyes form a valid geometry, QuadQR immediately tries the highest-ranked perspective candidate instead of waiting for every lower-ranked geometry. Near-front-facing symbols can use a three-finder affine fast path, while projectively distorted symbols continue through the full homography/alignment solver. Format v6 distributed 5×5 alignment eyes provide stronger local perspective anchors, and a cheap nested-eye locator is tried before the broader alignment search. If a steep angle leaves exactly two strong finder patterns, the bounded looser third-finder pass still runs before heavier color recovery. Only after geometry/color decoding still fails does QuadQR progressively try the existing stronger recovery, including white balancing, a 3×4 affine color-calibration model learned from the known black/white/R/G/B references, spatial normalization, Auto Tone / Auto Contrast / QuadQR Auto Color-style enhancement, soft-decision ECC, and bounded sub-module geometry refinement. For live video, normal detection works from the CSS-visible `object-fit: cover` camera region at a 640 px working dimension. A bounded 960 px retry is reserved for difficult dense frames that already show useful finder evidence, rather than being part of the ordinary camera loop. If finder geometry is already strong but color decoding fails, a QR-only rectified pixel enhancement retry is performed immediately; whole-frame enhancement remains reserved for harder locator failures.
 
 ---
 
@@ -782,7 +782,7 @@ console.log(result.text);
 The `quadqr-js` package can be loaded directly from npm-backed CDNs:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.4.1/dist/quadqr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.5.0/dist/quadqr.min.js"></script>
 <script>
   const code = QuadQR.encodeText("Hello from a script tag");
 </script>
@@ -838,6 +838,16 @@ Build the distributable browser, Node.js, CDN, and WASM files:
 npm run build
 ```
 
+`npm run build` verifies the checked-in WASM binary against `wasm-src/quadqr_core.c`, the WASM compiler flags, and the recorded binary hash. If everything matches, the verified prebuilt binary is reused. If the C source or build flags changed, the build automatically recompiles WASM with LLVM/Clang. If WASM is stale and `clang` is unavailable, the build fails instead of silently shipping an old binary.
+
+To force only the WASM rebuild:
+
+```bash
+npm run build:wasm
+```
+
+A forced WASM rebuild requires `clang` in `PATH`. No Rust, Cargo, or Emscripten toolchain is required. The build records its verification data in `wasm/quadqr-core.build.json`.
+
 Start the interactive demo:
 
 ```bash
@@ -858,7 +868,7 @@ npm run benchmark
 
 ### Optional WASM acceleration
 
-The package ships a prebuilt WASM helper but never requires it.
+The package ships a prebuilt WASM helper but never requires it. It accelerates CRC-32 plus the scanner's RGBA-to-grayscale, Otsu-threshold, and binary finder preprocessing hot path.
 
 ```js
 import { initWasm } from "quadqr-js";
@@ -866,7 +876,7 @@ import { initWasm } from "quadqr-js";
 await initWasm();
 ```
 
-If WASM cannot load, the normal JavaScript codec remains available.
+If WASM cannot load, the normal JavaScript codec/scanner remains available. For camera or repeated image scanning, initialize WASM once during application startup.
 
 ---
 
@@ -901,7 +911,8 @@ wasm-src/
   quadqr_core.c      Small portable WASM accelerator source
 
 wasm/
-  quadqr-core.wasm   Source-tree WASM build output
+  quadqr-core.wasm        Source-tree WASM build output
+  quadqr-core.build.json  Source/build/binary verification metadata
 
 dist/
   index.js           ESM package entry
@@ -1093,7 +1104,7 @@ Scans one frame from an HTML video element. By default, if the video is displaye
 
 ### `startCameraScanner(video, options?)`
 
-Starts a reusable live-camera scanning loop. On supported browsers it requests continuous focus/exposure/white-balance camera modes and scans the CSS-visible preview crop. A normal frame always gets the fast RGB-value finder pass first. If a miss still exposes at least two strong finder patterns, QuadQR retries the visible camera ROI at up to 1600 px by default so dense symbols retain more pixels per module. This high-resolution retry is bounded and does not run on empty frames. If it still fails, the **same captured frame** enters a QR-guide recovery path: QuadQR progressively crops away 8%, 16%, and 22% of the surrounding camera frame (then tries the full frame as a final fallback), applies the QuadQR-specific QuadQR Auto Color correction inside that code-centric region, and runs finder detection again. This matters because a live preview can contain dark room pixels, browser chrome, a monitor bezel, or other content that completely changes global QuadQR Auto Color/Otsu statistics even though a manually cropped screenshot scans instantly. Normal scanning stays unchanged and fast because these recovery paths run only after a miss. Finder-only recovery also tries multiple center-weighted QuadQR Auto Color histograms before threshold bracketing. `cameraHighResolutionMaxDimension` defaults to 1600, `cameraHighResolutionEvery` defaults to 2, and `cameraAutoColorEvery` defaults to 1. Multi-frame confidence fusion remains enabled by default with a four-frame history. Frames are kept only when their high-confidence data cells are consistent with the current tracked symbol. Per-cell evidence is weighted by confidence, frame quality, and recency, while second hypotheses are retained for Spectrum ECC 2.0. The optional `onDiagnostic(event)` callback exposes finder candidates, active locator method, crop/geometry/version hypothesis, recovery method, timing, and scan dimensions. `onResult(result, frame)` receives the exact raw decoded camera frame and, when QuadQR Auto Color was used, the enhanced recovery pixels and their crop rectangle, so UIs can keep the frozen frame and finder overlay aligned.
+Starts a reusable live-camera scanning loop. On supported browsers it requests continuous focus/exposure/white-balance camera modes and scans the CSS-visible preview crop. Modern browsers run the complete scanner stack in a dedicated module worker, so finder detection, perspective correction, color recovery, ECC, and damaged-code recovery do not monopolize the UI thread. The scheduler uses `requestVideoFrameCallback()` when available and does not queue stale frames. Normal camera detection uses a 640 px working dimension, streaming finder acquisition, local-threshold fallback, directional version estimation, and cached/reused geometry. Once a candidate validates structure, Spectrum ECC, and CRC, scanning returns immediately instead of continuing through lower-ranked geometry candidates. If a miss still exposes at least two strong finder patterns, QuadQR can retry the visible ROI at up to 960 px so dense symbols retain more pixels per module; this high-detail retry is bounded and does not run on empty frames. If it still fails, the **same captured frame** enters the existing QR-guide recovery path: QuadQR progressively crops away 8%, 16%, and 22% of the surrounding camera frame (then tries the full frame as a final fallback), applies QuadQR Auto Color inside that code-centric region, and runs finder detection again. Finder-only recovery also retains center-weighted Auto Color histograms, threshold bracketing, precise alignment, perspective recovery, QR-region enhancement, multi-frame confidence fusion, and soft-decision Spectrum ECC. `cameraHighResolutionMaxDimension` defaults to 960, `cameraHighResolutionEvery` defaults to 2, and `cameraAutoColorEvery` defaults to 1. The optional `onDiagnostic(event)` callback exposes finder candidates, active locator method, crop/geometry/version hypothesis, recovery method, timing, and scan dimensions. `onResult(result, frame)` receives the exact raw decoded camera frame and, when QuadQR Auto Color was used, the enhanced recovery pixels and their crop rectangle, so UIs can keep the frozen frame and finder overlay aligned.
 
 ### `getVersionInfo(version, options?)`
 

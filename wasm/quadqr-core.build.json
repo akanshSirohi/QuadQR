@@ -1,0 +1,25 @@
+{
+  "metadataVersion": 1,
+  "source": "wasm-src/quadqr_core.c",
+  "output": "wasm/quadqr-core.wasm",
+  "sourceSha256": "283aad8a29b604f8c63929fb665fa4327b229cff1b150b986853fcaa8391f6ea",
+  "flagsSha256": "a9a8e98d42bd47b4564fb38e1dec738bd80519b2698a31bdb625ebacfa68f47a",
+  "buildFingerprint": "e24a0f02a493b54fe9c948f04960344d887e953e7323b2602bb5956155155c4b",
+  "wasmSha256": "9fa518890e487883b703612275dce9a7f009fae6c968fdb28970ed070a07c56e",
+  "compiler": "clang version 17.0.0 (https://github.com/swiftlang/llvm-project.git 10999b6d034fe318f3d56c83bddb6572593a8bb0)",
+  "compileArgs": [
+    "--target=wasm32",
+    "-O3",
+    "-fno-builtin",
+    "-nostdlib",
+    "-Wl,--no-entry",
+    "-Wl,--export=crc32_bytes",
+    "-Wl,--export=build_binary_rgba",
+    "-Wl,--export=__heap_base",
+    "-Wl,--export-memory",
+    "-Wl,--stack-first",
+    "-Wl,-z,stack-size=32768",
+    "-Wl,--initial-memory=131072",
+    "-Wl,--max-memory=67108864"
+  ]
+}

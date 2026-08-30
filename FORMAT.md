@@ -1,4 +1,4 @@
-# QuadQR Format v5
+# QuadQR Format v6
 
 ## Status
 
@@ -50,7 +50,7 @@ Three 7×7 black/white finder structures are placed at top-left, top-right, and 
 
 ## Alignment patterns
 
-QuadQR always keeps exactly three primary 7×7 finder patterns. Larger versions do **not** add more primary finders. Instead, versions 2 through 40 use distributed black/white alignment markers following the same center-position schedule used by standard QR Code versions. Exactly one bottom-right **primary alignment marker remains 5×5**. Every additional distributed alignment marker is **3×3**, encoded as a black outer ring with a white center.
+QuadQR always keeps exactly three primary 7×7 finder patterns. Larger versions do **not** add more primary finders. Instead, versions 2 through 40 use distributed black/white alignment markers following the same center-position schedule used by standard QR Code versions. **Format v6 uses a full 5×5 nested black/white/black alignment eye at every scheduled alignment position**, matching the strong structural signature used by proven QR detectors.
 
 The three alignment positions that would overlap the primary finder corners are omitted. This produces progressively more alignment references as the matrix grows. Examples:
 
@@ -64,7 +64,7 @@ v40  -> 46 alignment patterns
 
 Version 1 is a QuadQR-specific exception. Standard QR v1 has no alignment pattern, but QuadQR keeps one legacy 5×5 bottom-right bootstrap alignment marker with a one-cell white separator so the camera scanner still has a fourth projective reference point.
 
-For versions 2 through 40, the scanner uses the 5×5 bottom-right member of the distributed alignment grid as the primary fourth homography reference and then scores the full expected grid, including the 3×3 secondary markers, to strengthen version/geometry validation.
+For versions 2 through 40, the scanner uses the bottom-right 5×5 member of the distributed alignment grid as the primary fourth homography reference, then scores and refines against the full 5×5 alignment grid. A fast nested-eye locator is attempted before broader template recovery so perspective geometry can be established as soon as the three primary finder eyes are visible.
 
 ## Timing structures
 
@@ -411,7 +411,7 @@ Matrix decoding tries 0°, 90°, 180°, and 270° rotations.
 
 ## Compatibility
 
-Format v5 is intentionally incompatible with standard QR scanners and with the project's older ternary prototypes. The current encoder writes codeword cells using spectral-spatial placement. The current decoder also tries the pre-interleaver physical order as a compatibility fallback for older RGBW QuadQR matrices. Version 5 keeps the distributed alignment-center schedule introduced in v4, but shrinks every non-primary alignment marker from 5×5 to 3×3 while retaining the bottom-right primary marker at 5×5. Because reserved-cell geometry changed, v4 and v5 large-symbol matrices are not wire-compatible.
+Format v6 is intentionally incompatible with standard QR scanners and with the project's older ternary prototypes. The current encoder writes codeword cells using spectral-spatial placement and uses 5×5 nested alignment eyes at every scheduled alignment position. Format v5 used compact 3×3 secondary alignment markers while retaining the bottom-right primary marker at 5×5. The current decoder keeps a legacy Format v5 alignment-profile fallback, so existing v5 RGBW QuadQR symbols remain readable. The decoder also retains the pre-interleaver physical-order fallback for older RGBW matrices.
 
 ## Rendering profiles are not part of the wire format
 
@@ -419,7 +419,7 @@ The canonical QuadQR matrix is independent of presentation style. Renderers may 
 
 ## Compression and signature flags
 
-Format v5 keeps the physical matrix and ECC framing unchanged while reserving two protected-header flags for optional internal payload metadata:
+Format v6 keeps the physical matrix and ECC framing unchanged while reserving two protected-header flags for optional internal payload metadata:
 
 ```text
 bit 4 = internal payload-extension metadata present

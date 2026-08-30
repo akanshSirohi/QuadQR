@@ -104,14 +104,21 @@ console.log("Running package distribution tests...");
   assert.equal(cjs.decodeMatrix(compressed.matrix).compression, "brotli");
 }
 
-// Prebuilt WASM is loadable and transparently preserves CRC behavior.
+// Prebuilt WASM is loadable and transparently preserves CRC and scanner behavior.
 {
   const before = esm.crc32(new TextEncoder().encode("QuadQR WASM"));
   const state = await esm.initWasm();
   assert.equal(state.enabled, true);
   assert.ok(state.bytes > 0);
+  assert.ok(state.accelerators.includes("crc32"));
+  assert.ok(state.accelerators.includes("scanner-preprocess"));
   const after = esm.crc32(new TextEncoder().encode("QuadQR WASM"));
   assert.equal(after, before);
+
+  const code = esm.encodeText("WASM scanner roundtrip", { ecc: "M" });
+  const image = esm.renderToImageData(code, { imageSize: 320, quietZone: 4 });
+  const decoded = esm.scanImageData(image, { minVersion: code.version, maxVersion: code.version });
+  assert.equal(decoded.text, "WASM scanner roundtrip");
   esm.disableWasm();
 }
 
@@ -178,6 +185,20 @@ console.log("Running package distribution tests...");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+// Camera worker is shipped beside the browser/global bundles with valid ESM imports.
+{
+  const rootWorker = await readFile(new URL("../dist/camera-scanner-worker.js", import.meta.url), "utf8");
+  const esmWorker = await readFile(new URL("../dist/esm/camera-scanner-worker.js", import.meta.url), "utf8");
+  assert.match(rootWorker, /from "\.\/esm\/quadqr\.js"/);
+  assert.match(rootWorker, /from "\.\/esm\/vision\.js"/);
+  assert.match(rootWorker, /from "\.\/esm\/wasm\.js"/);
+  assert.match(esmWorker, /from "\.\/quadqr\.js"/);
+  assert.match(esmWorker, /OffscreenCanvas/);
+  assert.match(esmWorker, /camera-auto-color/);
+  assert.match(esmWorker, /high-resolution-geometry-recovery/);
+  assert.match(esmWorker, /multi-frame-confidence-fusion/);
 }
 
 // Classic CDN/global bundle exposes an immediate QuadQR global.

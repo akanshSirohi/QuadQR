@@ -13,6 +13,11 @@ import {
   MAX_VERSION
 } from "../library/quadqr.js";
 import { buildCapacityComparison, calculateCapacityPlan } from "../library/benchmark.js";
+import { initWasm } from "../library/wasm.js";
+
+// Scanner acceleration is optional in the library, but the demo enables the
+// bundled WASM core eagerly so image and camera examples exercise the fast path.
+const scannerWasmReady = initWasm().catch(() => null);
 
 const payloadEl = document.querySelector("#payload");
 const versionEl = document.querySelector("#version");
@@ -1820,9 +1825,10 @@ startCameraBtn.addEventListener("click", async () => {
   setPill(cameraPill, "neutral", "Starting");
 
   try {
+    await scannerWasmReady;
     cameraController = await startCameraScanner(cameraVideo, {
-      scanInterval: 160,
-      maxDimension: 1080,
+      scanInterval: 33,
+      maxDimension: 640,
       stopOnResult: true,
       onDiagnostic: handleCameraDiagnostic,
       onResult(result, frameMeta) {

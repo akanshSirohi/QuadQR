@@ -31,7 +31,7 @@
 <aside class="sidebar" data-sidebar="">
 <div class="sidebar-inner">
 <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a class="active" href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
-<div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+<div class="version-pill">quadqr-js <strong>v1.5.0</strong></div>
 </div>
 </aside>
 <main class="main-content">
@@ -89,7 +89,7 @@ range = 0..15
 <h2 id="finder-structures">Finder structures<a aria-label="Link to Finder structures" class="heading-anchor" href="#finder-structures">#</a></h2>
 <p>Three 7×7 black/white finder structures are placed at top-left, top-right, and bottom-left, with white separator cells where they fit inside the matrix.</p>
 <h2 id="alignment-patterns">Alignment patterns<a aria-label="Link to Alignment patterns" class="heading-anchor" href="#alignment-patterns">#</a></h2>
-<p>QuadQR always keeps exactly three primary 7×7 finder patterns. Larger versions do <strong>not</strong> add more primary finders. Instead, versions 2 through 40 use distributed black/white alignment markers following the same center-position schedule used by standard QR Code versions. Exactly one bottom-right <strong>primary alignment marker remains 5×5</strong>. Every additional distributed alignment marker is <strong>3×3</strong>, encoded as a black outer ring with a white center.</p>
+<p>QuadQR always keeps exactly three primary 7×7 finder patterns. Larger versions do <strong>not</strong> add more primary finders. Instead, versions 2 through 40 use distributed black/white alignment markers following the same center-position schedule used by standard QR Code versions. <strong>Format v6 uses a full 5×5 nested black/white/black alignment eye at every scheduled alignment position</strong>, giving the detector a stronger structural signature across large and perspective-distorted symbols.</p>
 <p>The three alignment positions that would overlap the primary finder corners are omitted. This produces progressively more alignment references as the matrix grows. Examples:</p>
 <div class="code-block"><div class="code-toolbar"><span>TEXT</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-text">v2   -&gt; 1 alignment pattern
 v7   -&gt; 6 alignment patterns
@@ -98,7 +98,7 @@ v28  -&gt; 33 alignment patterns
 v40  -&gt; 46 alignment patterns
 </code></pre></div>
 <p>Version 1 is a QuadQR-specific exception. Standard QR v1 has no alignment pattern, but QuadQR keeps one legacy 5×5 bottom-right bootstrap alignment marker with a one-cell white separator so the camera scanner still has a fourth projective reference point.</p>
-<p>For versions 2 through 40, the scanner uses the 5×5 bottom-right member of the distributed alignment grid as the primary fourth homography reference and then scores the full expected grid, including the 3×3 secondary markers, to strengthen version/geometry validation.</p>
+<p>For versions 2 through 40, the scanner uses the bottom-right 5×5 member of the distributed alignment grid as the primary fourth homography reference, then scores and refines against the full 5×5 alignment grid. A fast nested-eye locator is attempted before broader template recovery so perspective geometry can be established as soon as the three primary finder eyes are visible.</p>
 <h2 id="timing-structures">Timing structures<a aria-label="Link to Timing structures" class="heading-anchor" href="#timing-structures">#</a></h2>
 <p>Alternating black/white timing cells use row 6 and column 6 between the main finder regions.</p>
 <h2 id="color-calibration">Color calibration<a aria-label="Link to Color calibration" class="heading-anchor" href="#color-calibration">#</a></h2>
@@ -475,7 +475,7 @@ block0[1], block1[1], block2[1], ...
 <h2 id="rotation">Rotation<a aria-label="Link to Rotation" class="heading-anchor" href="#rotation">#</a></h2>
 <p>Matrix decoding tries 0°, 90°, 180°, and 270° rotations.</p>
 <h2 id="compatibility">Compatibility<a aria-label="Link to Compatibility" class="heading-anchor" href="#compatibility">#</a></h2>
-<p>Format v5 is intentionally incompatible with standard QR scanners and with the project's older ternary prototypes. The current encoder writes codeword cells using spectral-spatial placement. The current decoder also tries the pre-interleaver physical order as a compatibility fallback for older RGBW QuadQR matrices. Version 5 keeps the distributed alignment-center schedule introduced in v4, but shrinks every non-primary alignment marker from 5×5 to 3×3 while retaining the bottom-right primary marker at 5×5. Because reserved-cell geometry changed, v4 and v5 large-symbol matrices are not wire-compatible.</p>
+<p>Format v6 is intentionally incompatible with standard QR scanners and with the project's older ternary prototypes. The current encoder writes codeword cells using spectral-spatial placement and uses 5×5 nested alignment eyes at every scheduled alignment position. Format v5 used compact 3×3 secondary alignment markers while retaining the bottom-right primary marker at 5×5. The current decoder keeps a legacy Format v5 alignment-profile fallback, so existing v5 RGBW QuadQR symbols remain readable. The decoder also retains the pre-interleaver physical-order fallback for older RGBW matrices.</p>
 <h2 id="rendering-profiles-are-not-part-of-the-wire-format">Rendering profiles are not part of the wire format<a aria-label="Link to Rendering profiles are not part of the wire format" class="heading-anchor" href="#rendering-profiles-are-not-part-of-the-wire-format">#</a></h2>
 <p>The canonical QuadQR matrix is independent of presentation style. Renderers may offer styles such as <code>classic</code>, <code>depth</code>, <code>soft</code>, or <code>inset</code>, provided structural finder/timing/alignment/calibration references remain sufficiently faithful for decoding. Style selection is not encoded in the payload/header and does not change matrix cell values.</p>
 <h2 id="compression-and-signature-flags">Compression and signature flags<a aria-label="Link to Compression and signature flags" class="heading-anchor" href="#compression-and-signature-flags">#</a></h2>

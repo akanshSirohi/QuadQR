@@ -3,8 +3,9 @@
  *
  * Versions 2..40 use the same alignment-pattern center schedule as standard
  * QR Code matrices. QuadQR remains its own symbology, but reuses that proven
- * spatial distribution for alignment references. QuadQR uses one 5x5 primary
- * alignment reference at the bottom-right and compact 3x3 secondary markers.
+ * spatial distribution for alignment references. QuadQR format v6 uses the same
+ * proven 5x5 nested alignment marker shape at every scheduled alignment center.
+ * Legacy format v5 used one 5x5 primary marker plus compact 3x3 secondaries.
  * Version 1 keeps the legacy QuadQR bottom-right bootstrap marker because standard QR v1 has no
  * alignment pattern and the QuadQR camera scanner needs a fourth projective
  * reference point.
@@ -12,6 +13,14 @@
 
 export const MIN_GEOMETRY_VERSION = 1;
 export const MAX_GEOMETRY_VERSION = 40;
+
+export const ALIGNMENT_PROFILE_STANDARD_5 = "standard5";
+export const ALIGNMENT_PROFILE_LEGACY_3 = "compact3";
+
+export function normalizeAlignmentProfile(profile = ALIGNMENT_PROFILE_STANDARD_5) {
+  if (profile === ALIGNMENT_PROFILE_STANDARD_5 || profile === ALIGNMENT_PROFILE_LEGACY_3) return profile;
+  throw new Error(`Unsupported alignment profile ${profile}.`);
+}
 
 // Index by version. Entry 0 is unused. Values are module indices of alignment
 // pattern centers, matching the standard QR Code version layout for v2..v40.
@@ -79,9 +88,11 @@ export function versionFromSize(size) {
     : null;
 }
 
-export function alignmentPatternCentersForVersion(version) {
+export function alignmentPatternCentersForVersion(version, options = {}) {
   assertVersion(version);
   const size = sizeForVersion(version);
+  const requestedProfile = typeof options === "string" ? options : options.profile;
+  const profile = normalizeAlignmentProfile(requestedProfile ?? ALIGNMENT_PROFILE_STANDARD_5);
 
   if (version === 1) {
     const center = size - 4;
@@ -91,7 +102,8 @@ export function alignmentPatternCentersForVersion(version) {
       size: 5,
       primary: true,
       bootstrap: true,
-      separator: true
+      separator: true,
+      profile
     }];
   }
 
@@ -113,10 +125,13 @@ export function alignmentPatternCentersForVersion(version) {
       centers.push({
         row,
         col,
-        size: primary ? 5 : 3,
+        // Format v6 uses a real QR-style 5x5 black/white/black alignment eye
+        // everywhere. Legacy v5 kept compact 3x3 secondaries to save cells.
+        size: profile === ALIGNMENT_PROFILE_LEGACY_3 && !primary ? 3 : 5,
         primary,
         bootstrap: false,
-        separator: false
+        separator: false,
+        profile
       });
     }
   }
@@ -124,8 +139,8 @@ export function alignmentPatternCentersForVersion(version) {
   return centers;
 }
 
-export function primaryAlignmentPatternForVersion(version) {
-  const centers = alignmentPatternCentersForVersion(version);
+export function primaryAlignmentPatternForVersion(version, options = {}) {
+  const centers = alignmentPatternCentersForVersion(version, options);
   return centers.find((pattern) => pattern.primary) ?? centers[centers.length - 1];
 }
 
@@ -138,11 +153,11 @@ export function alignmentPatternIsBlack(pattern, rowOffset, colOffset) {
   if (Math.abs(rowOffset) > radius || Math.abs(colOffset) > radius) return null;
 
   if (pattern.size === 3) {
-    // Compact secondary marker: black 3x3 ring with a white center.
+    // Legacy format-v5 secondary marker: black 3x3 ring with a white center.
     return rowOffset !== 0 || colOffset !== 0;
   }
 
-  // Primary 5x5 marker: black outer ring, white inner ring, black center.
+  // QR-style 5x5 marker: black outer ring, white inner ring, black center.
   const outer = Math.abs(rowOffset) === 2 || Math.abs(colOffset) === 2;
   const center = rowOffset === 0 && colOffset === 0;
   return outer || center;

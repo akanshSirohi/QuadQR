@@ -31,7 +31,7 @@
 <aside class="sidebar" data-sidebar="">
 <div class="sidebar-inner">
 <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a class="active" href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
-<div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+<div class="version-pill">quadqr-js <strong>v1.5.0</strong></div>
 </div>
 </aside>
 <main class="main-content">
@@ -179,9 +179,10 @@ console.log(result.text);
 <div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const result = scanVideoFrame(video);
 </code></pre></div>
 <h3 id="startcamerascannervideo-options"><code>startCameraScanner(video, options?)</code><a aria-label="Link to startCameraScanner(video, options?)" class="heading-anchor" href="#startcamerascannervideo-options">#</a></h3>
-<p>Starts live camera scanning. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. It scans the CSS-visible preview region by default. Finder detection uses a QuadQR-specific RGB value channel (<code>max(R,G,B)</code>) on the fast pass so saturated blue/red/green data cells are not mistaken for structural black. If a miss still contains at least two strong finder patterns, the scanner can retry the visible ROI at up to 1600 px before heavier recovery, which preserves more pixels per module for dense versions. If that does not decode, the <strong>same captured frame</strong> is retried through QuadQR code-centric Auto Color recovery. The default recovery sequence crops 8%, 16%, and 22% from the camera-frame edges, then falls back to the full frame. This prevents dark room pixels, browser UI, or monitor bezels outside the guide from controlling QuadQR Auto Color and Otsu thresholds. Each crop uses the QuadQR-specific per-channel shadow/highlight correction with a neutral mid-high highlight target (190 by default). Finder-only recovery also tries multiple center-weighted QuadQR Auto Color histogram windows before raw threshold bracketing. The normal fast path is untouched; these extra passes run only after a miss. If geometry is found but color decoding fails, the captured ROI is retried with stronger color/geometry recovery, including affine cross-channel calibration. Consecutive failed frames can then be combined with tracked-symbol <strong>confidence fusion</strong>: cell evidence is weighted by source confidence, frame quality, and recency, and second hypotheses are carried forward into Spectrum ECC 2.0.</p>
+<p>Starts live camera scanning. On supported browsers, continuous decoding runs in a dedicated module Web Worker by default while preserving the complete perspective, color-recovery, ECC, damaged-code, and multi-frame scanner stack. Worker mode uses a 33 ms minimum cadence by default; automatic main-thread fallback uses 80 ms. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. Normal scanning uses the CSS-visible preview region at a 640 px working dimension. Finder acquisition uses a streaming 1:1:3:1:1 RGB-value pass, direct cross-checks, local-threshold fallback, and directional module-size/version estimation. Once a geometry candidate validates structure, ECC, and CRC, QuadQR returns it immediately instead of continuing through lower-ranked geometry candidates. Format v6 distributed 5×5 nested alignment eyes provide stronger perspective anchors, and a cheap nested-eye locator runs before the broader alignment search. If a miss still contains at least two strong finder patterns, the scanner can retry the visible ROI at up to 960 px before heavier recovery, which preserves more pixels per module for dense versions. If that does not decode, the <strong>same captured frame</strong> is retried through the existing QuadQR code-centric Auto Color recovery. The default recovery sequence crops 8%, 16%, and 22% from the camera-frame edges, then falls back to the full frame. Finder-only recovery, precise alignment, perspective recovery, affine color calibration, QR-region enhancement, multi-frame confidence fusion, erasure decoding, and soft-decision Spectrum ECC remain available after the fast path misses.</p>
 <div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const scanner = await startCameraScanner(video, {
-  scanInterval: 120,
+  maxDimension: 640,
+  scanInterval: 33,
   multiFrame: true,
   multiFrameWindow: 4,
   multiFrameMinFrames: 2,
@@ -194,7 +195,7 @@ console.log(result.text);
   cameraAutoEnhanceEvery: 2,
   cameraFinderRecoveryEvery: 2,
   cameraHighResolutionRecovery: true,
-  cameraHighResolutionMaxDimension: 1600,
+  cameraHighResolutionMaxDimension: 960,
   cameraHighResolutionEvery: 2,
   onResult(result) {
     console.log(result);
@@ -262,11 +263,11 @@ scanner.stop();
 </ul>
 <h2 id="wasm">WASM<a aria-label="Link to WASM" class="heading-anchor" href="#wasm">#</a></h2>
 <h3 id="initwasmoptions"><code>initWasm(options?)</code><a aria-label="Link to initWasm(options?)" class="heading-anchor" href="#initwasmoptions">#</a></h3>
-<p>Loads and activates the optional bundled WASM accelerator.</p>
+<p>Loads and activates the optional bundled WASM accelerator for CRC-32 and scanner pixel preprocessing: RGBA grayscale conversion, Otsu thresholding, and binary finder generation.</p>
 <div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { initWasm } from "quadqr-js";
 await initWasm();
 </code></pre></div>
-<p>An explicit URL or byte buffer can also be supplied.</p>
+<p>An explicit URL or byte buffer can also be supplied. Initialize WASM once before performance-sensitive synchronous image scans or camera scanning.</p>
 <h3 id="getwasmstate"><code>getWasmState()</code><a aria-label="Link to getWasmState()" class="heading-anchor" href="#getwasmstate">#</a></h3>
 <p>Returns the active WASM state or <code>null</code>.</p>
 <h3 id="disablewasm"><code>disableWasm()</code><a aria-label="Link to disableWasm()" class="heading-anchor" href="#disablewasm">#</a></h3>

@@ -31,7 +31,7 @@
 <aside class="sidebar" data-sidebar="">
 <div class="sidebar-inner">
 <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a class="active" href="specification.html">Technical Specification</a></div>
-<div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+<div class="version-pill">quadqr-js <strong>v1.5.0</strong></div>
 </div>
 </aside>
 <main class="main-content">
@@ -39,7 +39,7 @@
 <header class="page-header"><span class="eyebrow">QUADQR DOCUMENTATION</span><h1>Technical Specification</h1></header>
 <h2 id="status">Status<a aria-label="Link to Status" class="heading-anchor" href="#status">#</a></h2>
 <p>QuadQR is an experimental RGBW matrix symbology. Normal mode uses 4-state RGBW cells, while the optional <strong>High Density Mode</strong> is experimental and uses the 16-state Triangle16 physical layout. It is not ISO/IEC QR Code and is not intended to be decoded by standard QR readers.</p>
-<p>The physical matrix format remains <strong>QuadQR Format v5</strong>. Normal application data is always treated simply as UTF-8 text or arbitrary bytes. Compression, signatures, encryption, rendering, and diagnostics are optional features layered around that stable matrix codec.</p>
+<p>The physical matrix format remains <strong>QuadQR Format v6</strong>. Normal application data is always treated simply as UTF-8 text or arbitrary bytes. Compression, signatures, encryption, rendering, and diagnostics are optional features layered around that stable matrix codec.</p>
 <p>For exact matrix geometry and Reed-Solomon framing, see <a href="format.html">format reference</a>.</p>
 <h2 id="1-layer-model">1. Layer model<a aria-label="Link to 1. Layer model" class="heading-anchor" href="#1-layer-model">#</a></h2>
 <div class="code-block"><div class="code-toolbar"><span>TEXT</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-text">Application bytes / UTF-8 text
@@ -48,7 +48,7 @@
         ├─ optional Ed25519 signature metadata (internal)
         ├─ optional Secure Payload v1 (AES-256-GCM)
         │
-        └─ QuadQR Format v5
+        └─ QuadQR Format v6
              ├─ protected header
              ├─ CRC-32
              ├─ GF(256) Reed-Solomon Spectrum ECC
@@ -96,8 +96,8 @@
 version = 1..40
 </code></pre></div>
 <p>Three 7×7 finder patterns are always present. Version 1 has the legacy QuadQR 5×5 bottom-right alignment marker. Versions 2–40 use the distributed alignment schedule defined in <a href="format.html">format reference</a>.</p>
-<h2 id="4-format-v5-header-flags">4. Format v5 header flags<a aria-label="Link to 4. Format v5 header flags" class="heading-anchor" href="#4-format-v5-header-flags">#</a></h2>
-<p>The protected Format v5 header uses:</p>
+<h2 id="4-format-v6-header-flags">4. Format v6 header flags<a aria-label="Link to 4. Format v6 header flags" class="heading-anchor" href="#4-format-v6-header-flags">#</a></h2>
+<p>The protected Format v6 header uses:</p>
 <div class="code-block"><div class="code-toolbar"><span>TEXT</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-text">bit 0      UTF-8 text flag
 bits 1..2  ECC profile id
 bit 3      Secure Payload v1 envelope
@@ -218,7 +218,7 @@ primitive polynomial = 0x11d
 bit 1  compressed
 bit 2  public key embedded
 </code></pre></div>
-<p>The envelope contains no semantic content type. The Format v5 text flag still determines whether the recovered application payload should be decoded as UTF-8 text.</p>
+<p>The envelope contains no semantic content type. The Format v6 text flag still determines whether the recovered application payload should be decoded as UTF-8 text.</p>
 <h2 id="7-compression">7. Compression<a aria-label="Link to 7. Compression" class="heading-anchor" href="#7-compression">#</a></h2>
 <p>Compression IDs:</p>
 <div class="code-block"><div class="code-toolbar"><span>TEXT</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-text">0 = none
@@ -242,9 +242,9 @@ deflate
 lz
 </code></pre></div>
 <p><code>compression: "auto"</code> is the fast balanced policy. It evaluates LZ level 6, DEFLATE level 6, and Brotli quality 6 exactly once and chooses the smallest complete stored representation. For unsigned payloads that comparison includes the 16-byte extension-envelope cost, so Auto remains zero-overhead when compression is not useful.</p>
-<p><code>compression: "smart"</code> is the opt-in CPU-heavy policy. It begins with the Auto candidates, computes the resulting Format v5 QuadQR version using the selected ECC/profile/version bounds, and only escalates when the next smaller matrix is plausibly reachable. The strong stage tests DEFLATE 8 and Brotli 9. If the symbol remains close to a smaller-version boundary, the maximum stage tests DEFLATE 9 and Brotli 11. With an explicitly requested fixed version, Smart does not chase a smaller matrix, but it may escalate when the balanced result does not fit and stronger compression can plausibly make that requested version fit. Signed and secure pipelines include their fixed envelope overhead when evaluating those version boundaries.</p>
+<p><code>compression: "smart"</code> is the opt-in CPU-heavy policy. It begins with the Auto candidates, computes the resulting Format v6 QuadQR version using the selected ECC/profile/version bounds, and only escalates when the next smaller matrix is plausibly reachable. The strong stage tests DEFLATE 8 and Brotli 9. If the symbol remains close to a smaller-version boundary, the maximum stage tests DEFLATE 9 and Brotli 11. With an explicitly requested fixed version, Smart does not chase a smaller matrix, but it may escalate when the balanced result does not fit and stronger compression can plausibly make that requested version fit. Signed and secure pipelines include their fixed envelope overhead when evaluating those version boundaries.</p>
 <p>Explicit <code>compression: "lz"</code> and <code>compression: "deflate"</code> accept <code>compressionLevel</code> <code>1..9</code> and default to 6. Explicit <code>compression: "brotli"</code> accepts <code>compressionLevel</code> <code>0..11</code> and defaults to 11. Compression levels are encoder-only parameters and are intentionally not stored in the extension envelope because LZ, RFC 1951, and Brotli decoders do not require them. Auto and Smart use LZ level 6; Smart's staged escalation remains focused on DEFLATE/Brotli.</p>
-<p>Compression occurs before signing, encryption, and Format v5 ECC.</p>
+<p>Compression occurs before signing, encryption, and Format v6 ECC.</p>
 <h2 id="8-signed-quadqr">8. Signed QuadQR<a aria-label="Link to 8. Signed QuadQR" class="heading-anchor" href="#8-signed-quadqr">#</a></h2>
 <p>Signature algorithm ID <code>1</code> is <strong>Ed25519</strong>.</p>
 <p>Signed payloads in extension v2/v3 store:</p>
@@ -268,10 +268,10 @@ optional 32-byte raw Ed25519 public key only when explicitly requested
 → optional compression
 → optional Ed25519 signature metadata
 → AES-256-GCM Secure Payload v1
-→ Format v5 ECC/matrix
+→ Format v6 ECC/matrix
 </code></pre></div>
 <p>After scanning:</p>
-<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-text">Format v5 decode
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-text">Format v6 decode
 → AES-GCM authentication/decryption
 → internal compression/signature metadata processing
 → application payload
@@ -305,7 +305,7 @@ inset
 </ul>
 <p>Recommended general-purpose starting module size is <strong>0.40 mm/module</strong>. Real printer, paper, ink/toner, lamination, lighting, and camera validation remains necessary for production deployments.</p>
 <h2 id="12-logo-safety">12. Logo safety<a aria-label="Link to 12. Logo safety" class="heading-anchor" href="#12-logo-safety">#</a></h2>
-<p>Logos are rendering overlays and never modify Format v5 data structures.</p>
+<p>Logos are rendering overlays and never modify Format v6 data structures.</p>
 <p><code>size: "auto"</code> estimates a conservative logo ratio from:</p>
 <ul>
 <li>ECC profile;</li>
@@ -347,7 +347,7 @@ erasureSymbols
 </code></pre></div>
 <p>These scores are regression/testing aids. They do not replace validation with real phone cameras, printers, displays, paper stocks, lighting conditions, and physical damage.</p>
 <h2 id="15-capacity-planning">15. Capacity planning<a aria-label="Link to 15. Capacity planning" class="heading-anchor" href="#15-capacity-planning">#</a></h2>
-<p>Capacity is determined from the actual Format v5 layout, protected header, CRC, and Spectrum ECC plan. Compression can reduce stored payload bytes, while signatures and encryption add metadata bytes before the matrix codec.</p>
+<p>Capacity is determined from the actual Format v6 layout, protected header, CRC, and Spectrum ECC plan. Compression can reduce stored payload bytes, while signatures and encryption add metadata bytes before the matrix codec.</p>
 <p>The benchmark helper can report:</p>
 <ul>
 <li>minimum QuadQR version;</li>
@@ -363,7 +363,7 @@ erasureSymbols
 <ol>
 <li>Keep RGBW mapping exactly <code>R=00, G=01, B=10, W=11</code>.</li>
 <li>Keep GF(256) Spectrum ECC and its errors+erasures behavior.</li>
-<li>Preserve Format v5 decoding for normal and Secure Payload symbols.</li>
+<li>Preserve Format v5 decoding as a legacy compatibility path while encoding new symbols as Format v6.</li>
 <li>Keep application semantics outside the QuadQR codec. Do not require a growing content-type registry.</li>
 <li>Treat compression/signature metadata as internal transport metadata, not a separate user payload mode.</li>
 <li>Treat <code>keyId</code> only as an identifier. Signer trust comes from an external trusted public-key binding.</li>
@@ -375,7 +375,7 @@ erasureSymbols
 <nav aria-label="Documentation pagination" class="page-pager"><a class="prev" href="format.html"><span>Previous</span><strong>← Format Reference</strong></a></nav>
 <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
 </article>
-<aside class="toc"><div class="toc-title">On this page</div><a href="#status">Status</a><a href="#1-layer-model">1. Layer model</a><a href="#2-physical-cell-alphabet">2. Physical cell alphabet</a><a class="toc-sub" href="#high-density-mode">High Density Mode</a><a href="#3-matrix-sizing">3. Matrix sizing</a><a href="#4-format-v5-header-flags">4. Format v5 header flags</a><a href="#5-spectrum-ecc">5. Spectrum ECC</a><a href="#6-internal-payload-extension-envelope">6. Internal payload extension envelope</a><a href="#7-compression">7. Compression</a><a href="#8-signed-quadqr">8. Signed QuadQR</a><a href="#9-secure-signed-composition">9. Secure + signed composition</a><a href="#10-text-and-binary-apis">10. Text and binary APIs</a><a href="#11-rendering-profiles">11. Rendering profiles</a><a class="toc-sub" href="#screen-mode">Screen mode</a><a class="toc-sub" href="#print-mode">Print mode</a><a href="#12-logo-safety">12. Logo safety</a><a href="#13-scanner-diagnostics">13. Scanner diagnostics</a><a href="#14-scanability-score-and-torture-testing">14. Scanability score and torture testing</a><a href="#15-capacity-planning">15. Capacity planning</a><a href="#16-compatibility-principles">16. Compatibility principles</a><a href="#17-reference-implementation">17. Reference implementation</a></aside>
+<aside class="toc"><div class="toc-title">On this page</div><a href="#status">Status</a><a href="#1-layer-model">1. Layer model</a><a href="#2-physical-cell-alphabet">2. Physical cell alphabet</a><a class="toc-sub" href="#high-density-mode">High Density Mode</a><a href="#3-matrix-sizing">3. Matrix sizing</a><a href="#4-format-v6-header-flags">4. Format v6 header flags</a><a href="#5-spectrum-ecc">5. Spectrum ECC</a><a href="#6-internal-payload-extension-envelope">6. Internal payload extension envelope</a><a href="#7-compression">7. Compression</a><a href="#8-signed-quadqr">8. Signed QuadQR</a><a href="#9-secure-signed-composition">9. Secure + signed composition</a><a href="#10-text-and-binary-apis">10. Text and binary APIs</a><a href="#11-rendering-profiles">11. Rendering profiles</a><a class="toc-sub" href="#screen-mode">Screen mode</a><a class="toc-sub" href="#print-mode">Print mode</a><a href="#12-logo-safety">12. Logo safety</a><a href="#13-scanner-diagnostics">13. Scanner diagnostics</a><a href="#14-scanability-score-and-torture-testing">14. Scanability score and torture testing</a><a href="#15-capacity-planning">15. Capacity planning</a><a href="#16-compatibility-principles">16. Compatibility principles</a><a href="#17-reference-implementation">17. Reference implementation</a></aside>
 </main>
 </div>
 <div aria-hidden="true" class="search-modal" data-search-modal="">

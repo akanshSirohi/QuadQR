@@ -31,7 +31,7 @@
 <aside class="sidebar" data-sidebar="">
 <div class="sidebar-inner">
 <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a class="active" href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
-<div class="version-pill">quadqr-js <strong>v1.4.1</strong></div>
+<div class="version-pill">quadqr-js <strong>v1.5.0</strong></div>
 </div>
 </aside>
 <main class="main-content">
@@ -45,9 +45,10 @@
 <div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { initWasm } from "quadqr-js";
 
 const state = await initWasm();
-console.log(state);
+console.log(state.accelerators);
+// ["crc32", "scanner-preprocess"]
 </code></pre></div>
-<p>In QuadQR 1.x, the WASM module accelerates CRC-32. Once initialized, normal encode/decode operations automatically use the installed accelerator.</p>
+<p>The bundled WASM module accelerates CRC-32 and the scanner's hot full-frame preprocessing: RGBA-to-grayscale conversion, Otsu threshold calculation, and binary finder-image generation. Once initialized, <code>scanImageData()</code> and camera scanning use the faster preprocessing path automatically while preserving the JavaScript fallback.</p>
 <h2 id="check-the-current-state">Check the current state<a aria-label="Link to Check the current state" class="heading-anchor" href="#check-the-current-state">#</a></h2>
 <div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">import { getWasmState } from "quadqr-js";
 
@@ -69,17 +70,30 @@ disableWasm();
 <p>You can also provide WASM bytes directly through the <code>bytes</code> option.</p>
 <h2 id="cdn-behavior">CDN behavior<a aria-label="Link to CDN behavior" class="heading-anchor" href="#cdn-behavior">#</a></h2>
 <p>When the classic <code>quadqr.min.js</code> global build is loaded from a CDN, <code>QuadQR.initWasm()</code> resolves the bundled sibling WASM asset from the same package/version location.</p>
-<div class="code-block"><div class="code-toolbar"><span>HTML</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-html">&lt;script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.4.1/dist/quadqr.min.js"&gt;&lt;/script&gt;
+<div class="code-block"><div class="code-toolbar"><span>HTML</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-html">&lt;script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.5.0/dist/quadqr.min.js"&gt;&lt;/script&gt;
 &lt;script&gt;
   await QuadQR.initWasm();
 &lt;/script&gt;
 </code></pre></div>
+<h2 id="building-wasm-from-source">Building WASM from source<a aria-label="Link to Building WASM from source" class="heading-anchor" href="#building-wasm-from-source">#</a></h2>
+<p>QuadQR keeps the generated WASM binary and its verification metadata in the repository:</p>
+<div class="code-block"><div class="code-toolbar"><span>TEXT</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-text">wasm/quadqr-core.wasm
+wasm/quadqr-core.build.json
+</code></pre></div>
+<p>For normal development, run:</p>
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npm run build
+</code></pre></div>
+<p>The build verifies SHA-256 fingerprints for the C source, WASM compiler flags, and checked-in binary. If they match, the verified prebuilt binary is reused. If <code>wasm-src/quadqr_core.c</code> or the build flags changed, the normal build automatically recompiles WASM. If recompilation is required but <code>clang</code> is unavailable in <code>PATH</code>, the build fails rather than silently reusing stale WASM.</p>
+<p>To force only the WASM rebuild:</p>
+<div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npm run build:wasm
+</code></pre></div>
+<p>A forced rebuild always requires LLVM/Clang. Rust, Cargo, and Emscripten are not required by the current build. <code>npm publish</code> runs the normal build through <code>prepublishOnly</code>, so the same stale-WASM protection applies before publishing.</p>
 <h2 id="fallback-behavior">Fallback behavior<a aria-label="Link to Fallback behavior" class="heading-anchor" href="#fallback-behavior">#</a></h2>
-<p>WASM is never required for the QuadQR wire format. If your environment cannot load WebAssembly, simply do not call <code>initWasm()</code> and continue using the JavaScript implementation.</p>
+<p>WASM is never required for the QuadQR wire format or scanner correctness. If WebAssembly cannot load, the JavaScript scanner remains available. For performance-sensitive scanning, initialize WASM once during application startup before repeated <code>scanImageData()</code> calls or camera scanning.</p>
 <nav aria-label="Documentation pagination" class="page-pager"><a class="prev" href="cli.html"><span>Previous</span><strong>← CLI Reference</strong></a><a class="next" href="format.html"><span>Next</span><strong>Format Reference →</strong></a></nav>
 <footer class="footer"><div><strong>QuadQR</strong><span>Experimental RGBW matrix symbology.</span></div><span>AGPL-3.0 licensed</span></footer>
 </article>
-<aside class="toc"><div class="toc-title">On this page</div><a href="#enable-wasm">Enable WASM</a><a href="#check-the-current-state">Check the current state</a><a href="#disable-wasm">Disable WASM</a><a href="#custom-wasm-url">Custom WASM URL</a><a href="#cdn-behavior">CDN behavior</a><a href="#fallback-behavior">Fallback behavior</a></aside>
+<aside class="toc"><div class="toc-title">On this page</div><a href="#enable-wasm">Enable WASM</a><a href="#check-the-current-state">Check the current state</a><a href="#disable-wasm">Disable WASM</a><a href="#custom-wasm-url">Custom WASM URL</a><a href="#cdn-behavior">CDN behavior</a><a href="#building-wasm-from-source">Building WASM from source</a><a href="#fallback-behavior">Fallback behavior</a></aside>
 </main>
 </div>
 <div aria-hidden="true" class="search-modal" data-search-modal="">

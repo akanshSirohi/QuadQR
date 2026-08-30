@@ -1,8 +1,7 @@
 import { mkdir, readFile, rm, writeFile, copyFile } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureWasmBuild } from "./wasm-build.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const root = path.resolve(path.dirname(__filename), "..");
@@ -10,7 +9,7 @@ const dist = path.join(root, "dist");
 const esmDir = path.join(dist, "esm");
 const wasmRootDir = path.join(root, "wasm");
 const wasmDistDir = path.join(dist, "wasm");
-const sourceFiles = ["geometry.js", "reed-solomon.js", "security.js", "vision.js", "deflate.js", "brotli.js", "quadqr.js", "wasm.js", "benchmark.js"];
+const sourceFiles = ["geometry.js", "reed-solomon.js", "security.js", "vision.js", "deflate.js", "brotli.js", "quadqr.js", "wasm.js", "benchmark.js", "camera-scanner-worker.js"];
 
 function fail(message) {
   console.error(message);
@@ -19,35 +18,6 @@ function fail(message) {
 
 async function ensureDir(dir) {
   await mkdir(dir, { recursive: true });
-}
-
-function compileWasm() {
-  const source = path.join(root, "wasm-src", "quadqr_core.c");
-  const output = path.join(wasmRootDir, "quadqr-core.wasm");
-  const args = [
-    "--target=wasm32",
-    "-Oz",
-    "-nostdlib",
-    "-Wl,--no-entry",
-    "-Wl,--export=crc32_bytes",
-    "-Wl,--export=__heap_base",
-    "-Wl,--export-memory",
-    "-Wl,--stack-first",
-    "-Wl,-z,stack-size=32768",
-    "-Wl,--initial-memory=131072",
-    "-Wl,--max-memory=16777216",
-    "-o",
-    output,
-    source
-  ];
-  const result = spawnSync("clang", args, { encoding: "utf8" });
-  if (result.status !== 0) {
-    if (existsSync(output)) {
-      console.warn("QuadQR build: clang unavailable or WASM compilation failed; using the checked-in prebuilt wasm/quadqr-core.wasm asset.");
-      return;
-    }
-    fail(`Unable to compile QuadQR WASM and no prebuilt asset is available. Install clang or restore wasm/quadqr-core.wasm.\n${result.stderr || result.stdout || result.error?.message || ""}`);
-  }
 }
 
 function parseImports(source) {
@@ -169,6 +139,13 @@ async function buildGlobalBundle() {
   for (const file of moduleOrder) {
     const raw = await readFile(path.join(root, "library", file), "utf8");
     const transformed = transformModule(raw);
+    // library/quadqr.js uses import.meta.url to locate its module camera worker.
+    // The classic CDN/global bundle cannot contain import.meta syntax, so use
+    // the current script URL as the equivalent base in that build.
+    transformed.code = transformed.code.replace(
+      /\bimport\.meta\.url\b/g,
+      "(__qqrScriptSrc || (typeof location !== 'undefined' ? location.href : ''))"
+    );
     const injections = [];
     for (const dependency of transformed.imports) {
       const depName = path.basename(dependency.specifier);
@@ -208,19 +185,67 @@ QuadQR.initWasm = async function initWasm(options = {}) {
   const instance = result.instance;
   const memory = instance.exports.memory;
   const crc32Bytes = instance.exports.crc32_bytes;
+  const buildBinaryRgba = instance.exports.build_binary_rgba;
   const heapExport = instance.exports.__heap_base;
   const heapBase = Number((heapExport && heapExport.value) || heapExport || 65536);
   if (!(memory instanceof WebAssembly.Memory) || typeof crc32Bytes !== "function") {
     throw new Error("QuadQR WASM exports are invalid.");
   }
-  QuadQR.installCrc32Accelerator(function (input) {
-    const data = input instanceof Uint8Array ? input : new Uint8Array(input);
-    const required = heapBase + data.length;
+  const ensureMemory = function (required) {
     if (required > memory.buffer.byteLength) memory.grow(Math.ceil((required - memory.buffer.byteLength) / 65536));
+  };
+  QuadQR.installCrc32Accelerator(function (input) {
+    const data = input instanceof Uint8Array
+      ? input
+      : ArrayBuffer.isView(input)
+        ? new Uint8Array(input.buffer, input.byteOffset, input.byteLength)
+        : new Uint8Array(input);
+    const required = heapBase + data.length;
+    ensureMemory(required);
     new Uint8Array(memory.buffer, heapBase, data.length).set(data);
     return crc32Bytes(heapBase, data.length) >>> 0;
   });
-  return Object.freeze({ enabled: true, module: "quadqr-core", accelerators: Object.freeze(["crc32"]), bytes: bytes.length });
+  const accelerators = ["crc32"];
+  if (typeof buildBinaryRgba === "function") {
+    const align16 = function (value) { return (value + 15) & ~15; };
+    __qqr_vision_js.installVisionAccelerator({
+      buildBinary: function (imageData, scanOptions = {}) {
+        const width = Number(imageData && imageData.width) || 0;
+        const height = Number(imageData && imageData.height) || 0;
+        const pixels = width * height;
+        if (!pixels || !imageData || !imageData.data || imageData.data.length < pixels * 4) {
+          throw new Error("Valid ImageData is required for WASM preprocessing.");
+        }
+        const raw = imageData.data;
+        const rgba = raw instanceof Uint8Array
+          ? raw
+          : new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+        const rgbaBytes = pixels * 4;
+        const inputPtr = align16(heapBase);
+        const grayPtr = align16(inputPtr + rgbaBytes);
+        const binaryPtr = align16(grayPtr + pixels);
+        ensureMemory(binaryPtr + pixels);
+        new Uint8Array(memory.buffer, inputPtr, rgbaBytes).set(rgba.subarray(0, rgbaBytes));
+        const mode = scanOptions.grayMode === "value" ? 0 : 1;
+        const offset = Math.round(Number(scanOptions.thresholdOffset) || 0);
+        const packed = buildBinaryRgba(inputPtr, pixels, mode, offset, grayPtr, binaryPtr) >>> 0;
+        const gray = new Uint8Array(pixels);
+        const binary = new Uint8Array(pixels);
+        gray.set(new Uint8Array(memory.buffer, grayPtr, pixels));
+        binary.set(new Uint8Array(memory.buffer, binaryPtr, pixels));
+        return {
+          gray: gray,
+          binary: binary,
+          threshold: packed & 255,
+          baseThreshold: (packed >>> 8) & 255,
+          grayMode: scanOptions.grayMode || "luminance",
+          accelerated: "wasm"
+        };
+      }
+    });
+    accelerators.push("scanner-preprocess");
+  }
+  return Object.freeze({ enabled: true, module: "quadqr-core", accelerators: Object.freeze(accelerators), bytes: bytes.length });
 };`);
   pieces.push(
     "global.QuadQR = QuadQR;",
@@ -234,18 +259,31 @@ QuadQR.initWasm = async function initWasm(options = {}) {
 }
 
 async function build() {
+  // Verify/rebuild WASM before touching dist so a stale-WASM failure never
+  // deletes an otherwise usable existing distribution.
+  await ensureWasmBuild();
+
   await rm(dist, { recursive: true, force: true });
   await ensureDir(esmDir);
   await ensureDir(wasmRootDir);
   await ensureDir(wasmDistDir);
 
-  compileWasm();
   await copyFile(path.join(wasmRootDir, "quadqr-core.wasm"), path.join(wasmDistDir, "quadqr-core.wasm"));
 
   for (const file of sourceFiles) {
     await copyFile(path.join(root, "library", file), path.join(esmDir, file));
   }
   await copyFile(path.join(root, "library", "node.js"), path.join(esmDir, "node.js"));
+
+  // The ESM scanner resolves the worker beside dist/esm/quadqr.js. The classic
+  // CDN/global build resolves it beside dist/quadqr(.min).js, so generate a
+  // second tiny worker entry whose imports point into dist/esm.
+  const cameraWorkerSource = await readFile(path.join(root, "library", "camera-scanner-worker.js"), "utf8");
+  const globalCameraWorkerSource = cameraWorkerSource
+    .replace('from "./quadqr.js"', 'from "./esm/quadqr.js"')
+    .replace('from "./vision.js"', 'from "./esm/vision.js"')
+    .replace('from "./wasm.js"', 'from "./esm/wasm.js"');
+  await writeFile(path.join(dist, "camera-scanner-worker.js"), globalCameraWorkerSource);
 
   await writeFile(path.join(dist, "index.js"), [
     'export * from "./esm/quadqr.js";',
@@ -284,6 +322,7 @@ async function build() {
   console.log("  dist/node.js        Node PNG/file helpers");
   console.log("  dist/browser.js     Browser ESM");
   console.log("  dist/quadqr.min.js  CDN/global build");
+  console.log("  dist/camera-scanner-worker.js  Camera module worker");
   console.log("  dist/wasm/*         Prebuilt optional WASM accelerator");
 }
 

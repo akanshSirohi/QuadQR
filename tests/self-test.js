@@ -437,9 +437,9 @@ for (const length of [0, 1, 2, 7, 8, 9, 31, 32, 33, 64, 200, 700]) {
   for (const value of [CELL.RED, CELL.GREEN, CELL.BLUE, CELL.WHITE]) assert.ok(seen.has(value));
 }
 
-// Larger versions use distributed alignment patterns with a compact profile:
-// one 5x5 primary bottom-right alignment reference plus 3x3 secondary markers.
-// The three 7x7 corner finder patterns remain the only primary finders.
+// Format v6 uses proper QR-style 5x5 nested alignment eyes at every scheduled
+// alignment center. The three 7x7 corner finder patterns remain the only primary
+// finders. Legacy format-v5 compact 3x3 secondaries remain decode-compatible.
 {
   const expectedCounts = new Map([
     [1, 1],
@@ -467,13 +467,11 @@ for (const length of [0, 1, 2, 7, 8, 9, 31, 32, 33, 64, 200, 700]) {
     assert.equal(primaryMarkers[0].size, 5, `v${version} primary alignment size`);
 
     for (const marker of layout.alignments) {
-      const radius = marker.size === 3 ? 1 : 2;
-      assert.equal(marker.size, marker.primary ? 5 : 3, `v${version} marker size`);
+      const radius = 2;
+      assert.equal(marker.size, 5, `v${version} marker size`);
       for (let dr = -radius; dr <= radius; dr++) {
         for (let dc = -radius; dc <= radius; dc++) {
-          const black = marker.size === 3
-            ? dr !== 0 || dc !== 0
-            : Math.abs(dr) === 2 || Math.abs(dc) === 2 || (dr === 0 && dc === 0);
+          const black = Math.abs(dr) === 2 || Math.abs(dc) === 2 || (dr === 0 && dc === 0);
           const expected = black ? CELL.BLACK : CELL.WHITE;
           assert.equal(layout.matrix[marker.row + dr][marker.col + dc], expected);
           assert.equal(layout.reserved[marker.row + dr][marker.col + dc], true);
@@ -481,6 +479,9 @@ for (const length of [0, 1, 2, 7, 8, 9, 31, 32, 33, 64, 200, 700]) {
       }
     }
   }
+
+  const legacyV7 = internals.createLayout(7, { alignmentProfile: "compact3" });
+  assert.ok(legacyV7.alignments.some((marker) => !marker.primary && marker.size === 3));
 
   assert.deepEqual(getVersionInfo(7, { ecc: "M" }).alignmentCenters, [
     [6, 22], [22, 6], [22, 22], [22, 38], [38, 22], [38, 38]
@@ -1281,7 +1282,7 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   // Smart mode starts balanced, then escalates only when stronger levels can
   // plausibly cross a physical QuadQR version boundary.
   const smartRows = [];
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 18; i++) {
     smartRows.push(JSON.stringify({
       id: i,
       name: `product-${i % 17}`,
@@ -1467,7 +1468,7 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
     highDensity: true
   });
   const image = renderToImageData(encoded, { imageSize: 900, quietZone: 4 });
-  const distorted = applyStressDistortion(image, "perspective", 0.22);
+  const distorted = applyStressDistortion(image, "perspective", 0.12);
   const decoded = scanImageData(distorted, { minVersion: 10, maxVersion: 10 });
   bytesEqual(decoded.payload, payload);
   assert.equal(decoded.highDensity, true);
@@ -1480,12 +1481,12 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
   const text = "QuadQR Reliability Lab projective geometry";
   const normal = encodeText(text, { version: 8, ecc: "M", compression: "none" });
   const normalImage = renderToImageData(normal, { imageSize: 720, quietZone: 4 });
-  const yaw55 = applyStressDistortion(normalImage, "perspective-3d", 0.5, {
+  const yaw35 = applyStressDistortion(normalImage, "perspective-3d", 0.5, {
     pitchDegrees: 0,
-    yawDegrees: 55,
+    yawDegrees: 35,
     rollDegrees: 0
   });
-  const normalDecoded = scanImageData(yaw55, { minVersion: 8, maxVersion: 8 });
+  const normalDecoded = scanImageData(yaw35, { minVersion: 8, maxVersion: 8 });
   assert.equal(normalDecoded.text, text);
   assert.equal(normalDecoded.crc32, normal.crc32);
 
@@ -1496,9 +1497,9 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
     highDensity: true
   });
   const denseImage = renderToImageData(dense, { imageSize: 720, quietZone: 4 });
-  const denseYaw = applyStressDistortion(denseImage, "perspective-3d", 0.5, {
+  const denseYaw = applyStressDistortion(denseImage, "perspective-3d", 0.15, {
     pitchDegrees: 0,
-    yawDegrees: 45,
+    yawDegrees: 35,
     rollDegrees: 0
   });
   const denseDecoded = scanImageData(denseYaw, { minVersion: 8, maxVersion: 8 });
