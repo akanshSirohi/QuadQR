@@ -18,7 +18,7 @@ console.log(state.accelerators);
 // ["crc32", "scanner-preprocess"]
 ```
 
-The bundled WASM module accelerates both CRC-32 and scanner preprocessing. Scanner acceleration covers the hot full-frame RGBA → grayscale conversion, Otsu threshold calculation, and binary finder image generation used by `scanImageData()` and camera scanning. Once initialized, the existing synchronous scanner API automatically uses the accelerator with the JavaScript implementation kept as the fallback.
+The bundled WASM module accelerates both CRC-32 and scanner preprocessing. Scanner acceleration covers the hot full-frame RGBA → grayscale conversion, Otsu threshold calculation, and binary finder image generation used by `scanImageData()` and camera scanning. **Finder-pattern detection, geometry estimation, perspective solving, color classification, and recovery orchestration remain JavaScript.** Once initialized, the existing synchronous scanner API automatically uses the accelerator with the JavaScript implementation kept as the fallback.
 
 ## Check the current state
 
@@ -57,7 +57,7 @@ You can also provide WASM bytes directly through the `bytes` option.
 When the classic `quadqr.min.js` global build is loaded from a CDN, `QuadQR.initWasm()` resolves the bundled sibling WASM asset from the same package/version location.
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.5.0/dist/quadqr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.5.1/dist/quadqr.min.js"></script>
 <script>
   await QuadQR.initWasm();
 </script>

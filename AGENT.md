@@ -49,7 +49,7 @@ See `docs/HIGH_DENSITY_MODE.md` for the current physical mapping and reliability
 
 ## Geometry
 
-Keep exactly three primary 7×7 black/white finder patterns. Version 1 keeps its legacy 5×5 bottom-right bootstrap alignment marker. Versions 2–40 follow the standard QR alignment-center schedule, omitting the three positions occupied by primary finder corners. The bottom-right primary alignment marker is 5×5; every other distributed alignment marker is a compact 3×3 black ring with a white center.
+Keep exactly three primary 7×7 black/white finder patterns. Version 1 keeps its legacy 5×5 bottom-right bootstrap alignment marker. Versions 2–40 follow the standard QR alignment-center schedule, omitting the three positions occupied by primary finder corners. New Format v6 symbols use a proper 5×5 black/white/black nested alignment marker at every scheduled alignment center. The scanner must retain the legacy Format v5 profile, where only the bottom-right primary alignment marker is 5×5 and other distributed markers are compact 3×3 black rings with white centers.
 
 The camera scanner depends on these structures for finder detection, version estimation, and homography.
 

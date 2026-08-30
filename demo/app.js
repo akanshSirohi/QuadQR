@@ -1529,8 +1529,21 @@ function drawCameraFinderOverlay(diagnostic) {
 
 function updateCameraDiagnosticSummary(diagnostic) {
   if (!diagnostic) return;
-  if (diagnostic.type === "frame") lastCameraFrameDiagnostic = diagnostic;
-  const active = diagnostic.type === "frame" ? diagnostic : (lastCameraFrameDiagnostic ?? diagnostic);
+  let active = diagnostic.type === "frame" ? diagnostic : (lastCameraFrameDiagnostic ?? diagnostic);
+  if (diagnostic.type === "frame") {
+    // Parallel recovery can finish after several newer fast frames have already
+    // been displayed. Keep those older diagnostics in the log, but do not let
+    // them rewind the live finder overlay/HUD to a stale camera frame. A
+    // successful recovery still supplies its exact frame through onResult().
+    const current = lastCameraFrameDiagnostic;
+    const staleRecovery = Boolean(
+      diagnostic.recoveryWorker &&
+      current?.fastWorker &&
+      Number(current.frame) > Number(diagnostic.frame)
+    );
+    if (staleRecovery) active = current;
+    else lastCameraFrameDiagnostic = diagnostic;
+  }
   const pass = bestDiagnosticPass(active);
   const finderCount = Math.min(3, active.finderCount ?? pass?.finderCount ?? 0);
   const geometry = active.geometry ?? pass?.geometries?.[0] ?? null;

@@ -31,7 +31,7 @@
 <aside class="sidebar" data-sidebar="">
 <div class="sidebar-inner">
 <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a class="active" href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
-<div class="version-pill">quadqr-js <strong>v1.5.0</strong></div>
+<div class="version-pill">quadqr-js <strong>v1.5.1</strong></div>
 </div>
 </aside>
 <main class="main-content">
@@ -179,7 +179,7 @@ console.log(result.text);
 <div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const result = scanVideoFrame(video);
 </code></pre></div>
 <h3 id="startcamerascannervideo-options"><code>startCameraScanner(video, options?)</code><a aria-label="Link to startCameraScanner(video, options?)" class="heading-anchor" href="#startcamerascannervideo-options">#</a></h3>
-<p>Starts live camera scanning. On supported browsers, continuous decoding runs in a dedicated module Web Worker by default while preserving the complete perspective, color-recovery, ECC, damaged-code, and multi-frame scanner stack. Worker mode uses a 33 ms minimum cadence by default; automatic main-thread fallback uses 80 ms. On browsers that expose camera controls, QuadQR requests continuous autofocus, exposure, and white balance. Normal scanning uses the CSS-visible preview region at a 640 px working dimension. Finder acquisition uses a streaming 1:1:3:1:1 RGB-value pass, direct cross-checks, local-threshold fallback, and directional module-size/version estimation. Once a geometry candidate validates structure, ECC, and CRC, QuadQR returns it immediately instead of continuing through lower-ranked geometry candidates. Format v6 distributed 5×5 nested alignment eyes provide stronger perspective anchors, and a cheap nested-eye locator runs before the broader alignment search. If a miss still contains at least two strong finder patterns, the scanner can retry the visible ROI at up to 960 px before heavier recovery, which preserves more pixels per module for dense versions. If that does not decode, the <strong>same captured frame</strong> is retried through the existing QuadQR code-centric Auto Color recovery. The default recovery sequence crops 8%, 16%, and 22% from the camera-frame edges, then falls back to the full frame. Finder-only recovery, precise alignment, perspective recovery, affine color calibration, QR-region enhancement, multi-frame confidence fusion, erasure decoding, and soft-decision Spectrum ECC remain available after the fast path misses.</p>
+<p>Starts live camera scanning. On supported browsers, continuous decoding uses a dual-worker engine: a <strong>fast fresh-frame worker</strong> runs normal finder/geometry/decode attempts while an independent <strong>full-recovery worker</strong> retains the complete perspective, color-recovery, high-resolution, ECC, damaged-code, and multi-frame scanner stack. A slow recovery on an older frame therefore cannot prevent the fast worker from inspecting newer video frames. Finder detection remains JavaScript; optional WASM accelerates grayscale/binary preprocessing and CRC. Worker mode uses a 33 ms minimum cadence by default; automatic main-thread fallback uses 80 ms. The default camera request is around 1280×720, and the CSS-visible preview region is cropped/resized to a 640 px bitmap before worker transfer. Finder acquisition uses a streaming 1:1:3:1:1 RGB-value pass, direct cross-checks, local-threshold fallback, and directional module-size/version estimation. Once a geometry candidate validates structure, ECC, and CRC, QuadQR returns it immediately. Format v6 distributed 5×5 nested alignment eyes remain available for perspective refinement. After a fast miss, strong finder evidence triggers parallel recovery quickly; finder-less frames still receive periodic full recovery so severe color casts and damaged locators remain recoverable. The recovery worker can use up to 960 px and keeps QuadQR Auto Color, precise alignment, perspective recovery, affine color calibration, QR-region enhancement, multi-frame confidence fusion, erasure decoding, and soft-decision Spectrum ECC.</p>
 <div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">const scanner = await startCameraScanner(video, {
   maxDimension: 640,
   scanInterval: 33,
@@ -197,6 +197,9 @@ console.log(result.text);
   cameraHighResolutionRecovery: true,
   cameraHighResolutionMaxDimension: 960,
   cameraHighResolutionEvery: 2,
+  cameraRecoveryStrongFinderInterval: 120,
+  cameraRecoveryWeakFinderInterval: 260,
+  cameraRecoveryNoFinderInterval: 850,
   onResult(result) {
     console.log(result);
   },

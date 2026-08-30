@@ -189,6 +189,61 @@ assert.equal(dense.result.result.text, denseText);
 assert.equal(dense.result.result.highDensity, true);
 assert.equal(denseBitmap.closed, true);
 
+// The fresh-frame worker mode must never fall into Auto Color/high-resolution
+// recovery on the same frame. Those methods remain available in the separate
+// full-recovery worker, preventing an old miss from delaying new camera frames.
+await request("init", {
+  options: {
+    maxDimension: 640,
+    finderRecovery: true,
+    autoEnhanceRecovery: false,
+    cameraPipelineMode: "fast"
+  }
+});
+const blankData = new Uint8ClampedArray(420 * 420 * 4);
+for (let i = 0; i < blankData.length; i += 4) {
+  blankData[i] = 220;
+  blankData[i + 1] = 220;
+  blankData[i + 2] = 220;
+  blankData[i + 3] = 255;
+}
+const blankBitmap = new FakeImageBitmap({ width: 420, height: 420, data: blankData });
+const fastMiss = await request("scan", {
+  bitmap: blankBitmap,
+  source: { x: 0, y: 0, width: 420, height: 420, cropped: false },
+  frame: 5
+});
+assert.equal(fastMiss.ok, true);
+assert.equal(fastMiss.result.ok, false);
+assert.equal(fastMiss.result.fastPipeline, true);
+assert.equal(blankBitmap.closed, true);
+assert.equal(
+  fastMiss.result.diagnostics.some((event) => String(event.method).includes("camera-auto-color")),
+  false,
+  "Fresh-frame worker must not run heavy Auto Color recovery inline."
+);
+
+// If a browser refuses the second worker, the existing fast worker can be
+// asked to run one complete recovery request instead of losing capability.
+const fallbackBitmap = new FakeImageBitmap(perspectiveImage);
+const fallbackRecovery = await request("scan-full", {
+  bitmap: fallbackBitmap,
+  source: { x: 0, y: 0, width: perspectiveImage.width, height: perspectiveImage.height, cropped: false },
+  frame: 6,
+  options: {
+    maxDimension: 640,
+    finderRecovery: true,
+    autoEnhanceRecovery: true,
+    cameraHighResolutionRecovery: true,
+    cameraAutoColorRecovery: true,
+    cameraPipelineMode: "full"
+  }
+});
+assert.equal(fallbackRecovery.ok, true);
+assert.equal(fallbackRecovery.result.ok, true, fallbackRecovery.result.error?.message);
+assert.equal(fallbackRecovery.result.result.text, text);
+assert.equal(fallbackBitmap.closed, true);
+
 assert.equal(
   offscreenCanvasAllocations,
   1,

@@ -388,6 +388,23 @@ function processFrame(bitmap, source, frameNumber) {
       ...frameDiagnostics
     });
 
+    // The continuous camera engine can dedicate one worker to fresh-frame
+    // acquisition. In fast mode we intentionally stop here after the normal
+    // detector/decode attempt. A second worker runs the complete recovery
+    // stack in parallel, so Auto Color, high-resolution perspective recovery,
+    // multi-frame fusion, and damaged-code recovery can never block the next
+    // fresh camera frame. This changes scheduling only, not scanner capability.
+    if (scanOptions.cameraPipelineMode === "fast") {
+      return {
+        ok: false,
+        error: serializeError(error),
+        diagnostics: events,
+        elapsedMs: nowMs() - frameStarted,
+        missStreak,
+        fastPipeline: true
+      };
+    }
+
     const shouldTryHighResolution = scanOptions.cameraHighResolutionRecovery !== false &&
       cameraHighResolutionMaxDimension > baseCameraMaxDimension &&
       (frameDiagnostics?.finderCount ?? 0) >= (scanOptions.cameraHighResolutionMinFinders ?? 2) &&
@@ -748,12 +765,24 @@ self.addEventListener("message", async (event) => {
       self.postMessage({ id, ok: true, type: "reset" });
       return;
     }
-    if (message.type === "scan") {
+    if (message.type === "scan" || message.type === "scan-full") {
       if (!(message.bitmap instanceof ImageBitmap)) throw new Error("Camera worker expected an ImageBitmap frame.");
       if (typeof OffscreenCanvas !== "function") throw new Error("OffscreenCanvas is unavailable in the camera worker.");
-      const result = processFrame(message.bitmap, message.source, message.frame ?? 0);
+      const previousOptions = scanOptions;
+      if (message.type === "scan-full") {
+        // Safety fallback for browsers that allow one module worker but reject
+        // creation of the second recovery worker. Run the exact full pipeline
+        // in the existing worker rather than silently losing recovery power.
+        scanOptions = { ...previousOptions, ...(message.options ?? {}), cameraPipelineMode: "full" };
+      }
+      let result;
+      try {
+        result = processFrame(message.bitmap, message.source, message.frame ?? 0);
+      } finally {
+        scanOptions = previousOptions;
+      }
       const transfers = result.ok ? transferableBuffers(result.frameMeta) : [];
-      self.postMessage({ id, ok: true, type: "scan", result }, transfers);
+      self.postMessage({ id, ok: true, type: message.type, result }, transfers);
       return;
     }
     throw new Error(`Unknown camera worker message: ${message.type}`);
