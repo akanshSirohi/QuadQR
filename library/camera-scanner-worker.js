@@ -326,9 +326,10 @@ function processFrame(bitmap, source, frameNumber) {
   let allowFinderRecovery = false;
   let allowAutoEnhance = false;
   try {
-    allowFinderRecovery = scanOptions.finderRecovery !== false &&
+    const fastPipeline = scanOptions.cameraPipelineMode === "fast";
+    allowFinderRecovery = !fastPipeline && scanOptions.finderRecovery !== false &&
       missStreak > 0 && ((missStreak - 1) % cameraFinderRecoveryEvery === 0);
-    allowAutoEnhance = scanOptions.autoEnhanceRecovery !== false &&
+    allowAutoEnhance = !fastPipeline && scanOptions.autoEnhanceRecovery !== false &&
       missStreak > 0 && ((missStreak - 1) % cameraAutoEnhanceEvery === 0);
     const method = allowAutoEnhance
       ? "progressive-color-recovery"

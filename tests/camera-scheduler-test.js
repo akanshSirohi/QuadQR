@@ -7,6 +7,7 @@ let workerIndex = 0;
 let fastScans = 0;
 let recoveryScans = 0;
 let recoveryCompleted = 0;
+let firstRecoveryTriggeredAfterFastScan = null;
 const workers = [];
 
 class FakeWorker {
@@ -45,7 +46,7 @@ class FakeWorker {
       const scanNumber = fastScans;
       queueMicrotask(() => {
         if (this.terminated) return;
-        if (scanNumber >= 3) {
+        if (scanNumber >= 4) {
           this.emit("message", {
             id: message.id,
             ok: true,
@@ -69,7 +70,7 @@ class FakeWorker {
             result: {
               ok: false,
               error: { name: "Error", message: "miss" },
-              diagnostics: [{ type: "frame", state: "miss", finderCount: scanNumber === 2 ? 2 : 0 }]
+              diagnostics: [{ type: "frame", state: "miss", finderCount: scanNumber === 3 ? 2 : 0 }]
             }
           });
         }
@@ -78,6 +79,7 @@ class FakeWorker {
     }
 
     recoveryScans++;
+    if (firstRecoveryTriggeredAfterFastScan == null) firstRecoveryTriggeredAfterFastScan = fastScans;
     // Deliberately keep the full-recovery worker busy longer than several
     // fresh-frame scans. The fast worker must still reach its successful third
     // frame without waiting for this timeout.
@@ -195,8 +197,9 @@ const decoded = new Promise((resolve, reject) => {
 
 const result = await decoded;
 assert.equal(result.text, "fast-fresh-frame");
-assert.equal(fastScans, 3, "Fresh-frame worker should keep scanning while recovery is busy.");
-assert.ok(recoveryScans >= 1, "Full recovery worker should be dispatched after a miss.");
+assert.equal(fastScans, 4, "Fresh-frame worker should keep scanning while recovery is busy.");
+assert.ok(recoveryScans >= 1, "Full recovery worker should be dispatched after finder evidence appears.");
+assert.equal(firstRecoveryTriggeredAfterFastScan, 3, "Empty frames must not start recovery before a plausible QuadQR candidate appears.");
 assert.equal(recoveryCompleted, 0, "Successful fresh scan should not wait for slow recovery completion.");
 assert.equal(track.stopped, true, "Successful stopOnResult scan should stop the camera track.");
 assert.ok(workers.length >= 2, "Camera scanner should use independent fast and recovery workers.");

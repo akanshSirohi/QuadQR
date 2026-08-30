@@ -12607,6 +12607,12 @@ async function startCameraScannerWorker(video, options = {}) {
   const fastWorkerOptions = {
     ...options,
     cameraPipelineMode: "fast",
+    // The fresh-frame worker is intentionally detection/decode only. Recovery
+    // must never become more expensive merely because the camera has been
+    // looking at an empty scene for a while. The parallel recovery worker is
+    // armed only after finder/geometry evidence says a QuadQR candidate is in
+    // view.
+    finderRecovery: false,
     cameraHighResolutionRecovery: false,
     cameraAutoColorRecovery: false,
     autoEnhanceRecovery: false,
@@ -12649,7 +12655,7 @@ async function startCameraScannerWorker(video, options = {}) {
   );
   const recoveryStrongFinderInterval = Math.max(80, Number(options.cameraRecoveryStrongFinderInterval ?? 120));
   const recoveryWeakFinderInterval = Math.max(recoveryStrongFinderInterval, Number(options.cameraRecoveryWeakFinderInterval ?? 260));
-  const recoveryNoFinderInterval = Math.max(recoveryWeakFinderInterval, Number(options.cameraRecoveryNoFinderInterval ?? 850));
+  const recoveryWeakFinderFrames = Math.max(2, Math.round(options.cameraRecoveryWeakFinderFrames ?? 2));
   const useVideoFrameCallback = options.useVideoFrameCallback !== false &&
     typeof video.requestVideoFrameCallback === "function";
 
@@ -12666,6 +12672,7 @@ async function startCameraScannerWorker(video, options = {}) {
   let frameNumber = 0;
   let requestToken = 0;
   let recoveryToken = 0;
+  let weakFinderStreak = 0;
 
   const diagnosticsEnabled = typeof options.onDiagnostic === "function";
   const emitDiagnostic = (event) => {
@@ -12717,7 +12724,7 @@ async function startCameraScannerWorker(video, options = {}) {
   emitDiagnostic({
     type: "camera-ready",
     method: "camera-dual-worker",
-    message: `Camera ready · ${settings.width ?? video.videoWidth}×${settings.height ?? video.videoHeight} · fast fresh-frame scanner + parallel recovery`,
+    message: `Camera ready · ${settings.width ?? video.videoWidth}×${settings.height ?? video.videoHeight} · fast fresh-frame scanner + candidate-gated parallel recovery`,
     camera: {
       width: settings.width ?? video.videoWidth,
       height: settings.height ?? video.videoHeight,
@@ -12801,9 +12808,7 @@ async function startCameraScannerWorker(video, options = {}) {
         method: "parallel-full-recovery",
         frame: triggerFrame,
         finderCount,
-        message: finderCount > 0
-          ? `Fast frame saw ${finderCount} finder${finderCount === 1 ? "" : "s"} · full recovery running in parallel`
-          : "Periodic full recovery running in parallel while fast fresh-frame scanning continues"
+        message: `QuadQR candidate detected (${finderCount} finder${finderCount === 1 ? "" : "s"}) · full recovery running in parallel`
       });
 
       const recoveryPayload = { bitmap, source: captured.source, frame: triggerFrame };
@@ -12846,12 +12851,26 @@ async function startCameraScannerWorker(video, options = {}) {
   const maybeDispatchRecovery = (workerResult, triggerFrame) => {
     if (stopped || recoveryBusy) return;
     const finderCount = maximumFinderCount(workerResult);
+
+    // Do not run Auto Color, high-resolution, multi-frame, or damaged-code
+    // recovery just because time has passed. An empty scene stays on the cheap
+    // fresh-frame detector forever. Two or more finders are strong evidence and
+    // arm recovery immediately. One finder is treated as weak evidence and must
+    // persist across consecutive fresh frames before recovery is allowed.
+    let minimumInterval = null;
+    if (finderCount >= 2) {
+      weakFinderStreak = 0;
+      minimumInterval = recoveryStrongFinderInterval;
+    } else if (finderCount === 1) {
+      weakFinderStreak++;
+      if (weakFinderStreak < recoveryWeakFinderFrames) return;
+      minimumInterval = recoveryWeakFinderInterval;
+    } else {
+      weakFinderStreak = 0;
+      return;
+    }
+
     const elapsed = nowMs() - lastRecoveryStartedAt;
-    const minimumInterval = finderCount >= 2
-      ? recoveryStrongFinderInterval
-      : finderCount === 1
-        ? recoveryWeakFinderInterval
-        : recoveryNoFinderInterval;
     if (elapsed >= minimumInterval) void runRecovery(triggerFrame, finderCount);
   };
 
