@@ -9241,10 +9241,7 @@ function svgLogoHref(source) {
 
 function resolveRenderSizing(options, matrixSize) {
   const mode = normalizeRenderMode(options.mode ?? options.renderMode ?? RENDER_MODES.SCREEN);
-  const requestedQuietZone = Math.max(0, Math.floor(options.quietZone ?? 4));
-  const quietZone = mode === RENDER_MODES.PRINT && options.allowUnsafePrintQuietZone !== true
-    ? Math.max(4, requestedQuietZone)
-    : requestedQuietZone;
+  const quietZone = Math.max(0, Math.floor(options.quietZone ?? 4));
   const totalModules = matrixSize + quietZone * 2;
   const hasImageSize = options.imageSize !== undefined && options.imageSize !== null;
   const hasModuleSize = options.moduleSize !== undefined && options.moduleSize !== null;

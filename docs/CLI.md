@@ -21,7 +21,7 @@ Use the print-safe rendering profile when the symbol is intended for physical ou
 npx quadqr-js encode "Print me" --print -o print.svg
 ```
 
-Print mode enforces a minimum four-module quiet zone and uses the print-safe rendering defaults.
+Print mode uses the print-safe palette and Classic rendering defaults. `--quiet-zone` is honored unchanged, just as it is in screen mode; four modules remains recommended.
 
 ## Compression
 

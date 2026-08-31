@@ -531,7 +531,7 @@ All render APIs accept:
 { mode: "screen" | "print" }
 ```
 
-Print mode uses a darker print-safe palette, forces Classic modules by default, and enforces a minimum 4-module quiet zone unless `allowUnsafePrintQuietZone: true` is explicitly set.
+Print mode uses a darker print-safe palette and forces Classic modules by default. `quietZone` has the same behavior in print and screen modes, including support for values below the recommended four-module default.
 
 ### `getPrintGuidance(codeOrMatrix, options?)`
 

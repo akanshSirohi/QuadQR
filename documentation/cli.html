@@ -48,7 +48,7 @@ npx quadqr-js encode "Hello QuadQR" -o hello.svg
 <p>Use the print-safe rendering profile when the symbol is intended for physical output:</p>
 <div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "Print me" --print -o print.svg
 </code></pre></div>
-<p>Print mode enforces a minimum four-module quiet zone and uses the print-safe rendering defaults.</p>
+<p>Print mode uses the print-safe palette and Classic rendering defaults. <code>--quiet-zone</code> is honored unchanged, just as it is in screen mode; four modules remains recommended.</p>
 <h2 id="compression">Compression<a aria-label="Link to Compression" class="heading-anchor" href="#compression">#</a></h2>
 <p>Compression works directly with normal text payloads:</p>
 <div class="code-block"><div class="code-toolbar"><span>BASH</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-bash">npx quadqr-js encode "repeat repeat repeat repeat" \

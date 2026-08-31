@@ -389,7 +389,7 @@ const verified = await QuadQR.verifyDecodedSignature(decoded, {
 <p>All render APIs accept:</p>
 <div class="code-block"><div class="code-toolbar"><span>JS</span><button data-copy="" type="button">Copy</button></div><pre><code class="language-js">{ mode: "screen" | "print" }
 </code></pre></div>
-<p>Print mode uses a darker print-safe palette, forces Classic modules by default, and enforces a minimum 4-module quiet zone unless <code>allowUnsafePrintQuietZone: true</code> is explicitly set.</p>
+<p>Print mode uses a darker print-safe palette and forces Classic modules by default. <code>quietZone</code> has the same behavior in print and screen modes, including support for values below the recommended four-module default.</p>
 <h3 id="getprintguidancecodeormatrix-options"><code>getPrintGuidance(codeOrMatrix, options?)</code><a aria-label="Link to getPrintGuidance(codeOrMatrix, options?)" class="heading-anchor" href="#getprintguidancecodeormatrix-options">#</a></h3>
 <p>Returns physical module size, pixels/module at a DPI, recommended minimum physical size, and print recommendations.</p>
 <h2 id="automatic-logo-safety">Automatic logo safety<a aria-label="Link to Automatic logo safety" class="heading-anchor" href="#automatic-logo-safety">#</a></h2>

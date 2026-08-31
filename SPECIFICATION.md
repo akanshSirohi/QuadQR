@@ -253,9 +253,9 @@ inset
 
 ### Print mode
 
-`mode: "print"` applies conservative defaults:
+`mode: "print"` applies print-oriented defaults:
 
-- minimum quiet zone of 4 modules unless explicitly overridden;
+- caller-controlled quiet-zone sizing, identical to screen mode (4 modules recommended by default);
 - print-safe darker RGB primaries;
 - Classic solid-module rendering by default;
 - physical-size guidance through `getPrintGuidance()`.

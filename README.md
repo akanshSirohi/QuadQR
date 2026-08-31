@@ -258,7 +258,7 @@ Compression modes are `none`, `auto`, `smart`, `brotli`, `deflate`, and `lz`. `a
 
 Signing can also be composed with Secure Payload. QuadQR compresses if requested, signs the normal payload with the private key, then encrypts the protected bytes with AES-256-GCM. A verifier supplies the trusted public key separately, or resolves it from `keyId`.
 
-The renderer supports an explicit `mode: "print"`. Print mode enforces a minimum 4-module quiet zone, uses darker print-safe RGB defaults, and prefers Classic solid modules. `getPrintGuidance()` converts a chosen physical size into module millimeters/pixels so print layouts can be checked before production testing.
+The renderer supports an explicit `mode: "print"`. Print mode uses darker print-safe RGB defaults and prefers Classic solid modules, while `quietZone` behaves exactly as it does in screen mode. Four modules remains the recommended default. `getPrintGuidance()` converts a chosen physical size into module millimeters/pixels so print layouts can be checked before production testing.
 
 Centered logos support `size: "auto"`, which estimates a conservative ECC-aware ratio from code utilization and rendering choices. `findMaxSafeLogoSize()` can additionally probe ImageData output and empirically search for the largest size that still decodes.
 

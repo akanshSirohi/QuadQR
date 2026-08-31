@@ -1368,6 +1368,13 @@ for (const version of [1, 2, 5, 10, 16, 28, MAX_VERSION]) {
 // Print mode, scanner diagnostics, automatic logo sizing and deterministic stress tests.
 {
   const encoded = encodeText("Diagnostics and stress test", { ecc: "M", version: 5 });
+  const screenSizing = renderToImageData(encoded, { moduleSize: 6, mode: "screen", quietZone: 1 });
+  const printSizing = renderToImageData(encoded, { moduleSize: 6, mode: "print", quietZone: 1 });
+  const expectedSize = (encoded.matrix.length + 2) * 6;
+  assert.equal(screenSizing.width, expectedSize);
+  assert.equal(printSizing.width, expectedSize);
+  assert.equal(printSizing.height, screenSizing.height);
+
   const image = renderToImageData(encoded, { imageSize: 360, mode: "print", quietZone: 1 });
   assert.equal(image.width, 360);
   const decoded = scanImageData(image, { minVersion: 5, maxVersion: 5, debug: true });

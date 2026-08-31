@@ -486,9 +486,8 @@ function updateSigningUi() {
 function updateRenderModeUi() {
   const print = renderModeEl.value === "print";
   renderStyleEl.disabled = print;
-  if (print && Number(quietZoneEl.value) < 4) quietZoneEl.value = "4";
   if (print) {
-    styleHintEl.textContent = "Print mode forces Classic rendering, a minimum 4-module quiet zone, and darker print-safe RGB primaries. Use getPrintGuidance() when physical dimensions are known.";
+    styleHintEl.textContent = "Print mode forces Classic rendering and darker print-safe RGB primaries. Quiet-zone sizing stays under your control. Use getPrintGuidance() when physical dimensions are known.";
   }
 }
 
