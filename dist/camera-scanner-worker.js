@@ -1,794 +1,448 @@
-import {
-  CELL_ENCODINGS,
-  decodeMatrix,
-  scanImageData,
-  internals
-} from "./esm/quadqr.js";
-import { autoColorImageData } from "./esm/vision.js";
-import { initWasm } from "./esm/wasm.js";
+/*
+ * QuadQR camera worker guard.
+ *
+ * The scanner engine lives in camera-scanner-worker-core.js. This thin guard
+ * keeps the engine untouched while preventing false finder lookalikes from
+ * waking the expensive recovery lane, and resets worker-local tracking after
+ * continuous decodes so the next symbol starts fresh.
+ */
 
-const {
-  combineFrameObservations,
-  cropImageDataInset,
-  observationDataAgreement,
-  selectBestFrameObservation
-} = internals;
+const nativeAddEventListener = self.addEventListener.bind(self);
+const nativePostMessage = self.postMessage.bind(self);
 
-let scanOptions = {};
-let missStreak = 0;
-let cameraGeometryHint = null;
-let cameraGeometryHintMisses = 0;
-let observationHistory = new Map();
-let wasmState = null;
-const frameCanvasPool = new Map();
-
-function nowMs() {
-  return typeof performance !== "undefined" && typeof performance.now === "function"
-    ? performance.now()
-    : Date.now();
-}
+let coreMessageHandler = null;
+let coreReadyPromise = null;
+let activeOptions = {};
+let fastFinderTrack = null;
+let colorProbeCanvas = null;
+let colorProbeContext = null;
+let syntheticSequence = 0;
 
 function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function serializeError(error) {
-  return {
-    name: error?.name || "Error",
-    message: error?.message || String(error),
-    stack: error?.stack || "",
-    debug: error?.debug ?? null
-  };
+function resetGuardState() {
+  fastFinderTrack = null;
 }
 
-function bestVisionDiagnosticPass(visionDiagnostics) {
-  const passes = visionDiagnostics?.passes;
-  if (!Array.isArray(passes) || !passes.length) return null;
-  return passes.slice().sort((a, b) => {
-    const aGeometry = a.geometries?.[0];
-    const bGeometry = b.geometries?.[0];
-    return (Boolean(bGeometry) - Boolean(aGeometry)) ||
-      ((b.finderCount ?? 0) - (a.finderCount ?? 0)) ||
-      ((bGeometry?.score ?? 0) - (aGeometry?.score ?? 0));
-  })[0];
-}
-
-function normalizeFrameDiagnostics(frameDiagnostics, source, width, height, visionDiagnostics) {
-  if (!frameDiagnostics || typeof frameDiagnostics !== "object") return;
-  frameDiagnostics.scanWidth = width;
-  frameDiagnostics.scanHeight = height;
-  frameDiagnostics.frameWidth = width;
-  frameDiagnostics.frameHeight = height;
-  frameDiagnostics.scanRect = { x: 0, y: 0, width, height };
-  frameDiagnostics.sourceRect = {
-    x: source.x,
-    y: source.y,
-    width: source.width,
-    height: source.height,
-    cropped: Boolean(source.cropped)
-  };
-  frameDiagnostics.vision = visionDiagnostics;
-  const bestPass = bestVisionDiagnosticPass(visionDiagnostics);
-  frameDiagnostics.bestPass = bestPass;
-  frameDiagnostics.finderCount = bestPass?.finderCount ?? 0;
-  frameDiagnostics.finders = bestPass?.finders ?? [];
-  frameDiagnostics.finderMethod = bestPass?.finderMethod ?? null;
-  frameDiagnostics.finderPasses = Array.isArray(visionDiagnostics?.passes)
-    ? visionDiagnostics.passes.map((pass) => ({
-        method: pass.finderMethod ?? pass.label,
-        finderCount: pass.finderCount ?? 0,
-        threshold: pass.threshold,
-        geometryCount: pass.geometries?.length ?? 0
-      }))
-    : [];
-  frameDiagnostics.geometry = bestPass?.geometries?.[0] ?? null;
-}
-
-function attachGeometryDiagnostic(frameDiagnostics, result) {
-  if (!frameDiagnostics || !result?.geometry || frameDiagnostics.geometry) return;
-  const geometry = result.geometry;
-  frameDiagnostics.geometry = geometry;
-  frameDiagnostics.geometryReused = Boolean(result.geometryReused);
-  if (geometry.finders) {
-    const reusedFinders = [
-      geometry.finders.topLeft,
-      geometry.finders.topRight,
-      geometry.finders.bottomLeft
-    ].filter(Boolean);
-    frameDiagnostics.finders = reusedFinders;
-    frameDiagnostics.finderCount = reusedFinders.length;
-    if (result.geometryReused) frameDiagnostics.finderMethod = "geometry-reuse";
+function coreModuleUrl() {
+  const url = new URL(import.meta.url);
+  const path = url.pathname || "";
+  // Source and ESM builds keep the worker core beside this guard. The classic
+  // dist worker lives one directory above dist/esm, so load the same core from
+  // there instead of maintaining a second copy with rewritten imports.
+  if (path.includes("/library/") || path.includes("/esm/")) {
+    return new URL("./camera-scanner-worker-core.js", url);
   }
+  return new URL("./esm/camera-scanner-worker-core.js", url);
 }
 
-function scaleGeometryForFrame(geometry, fromFrame, toFrame) {
-  if (!geometry?.homography || !fromFrame?.scanWidth || !toFrame?.scanWidth) return null;
-  const sx = toFrame.scanWidth / fromFrame.scanWidth;
-  const sy = toFrame.scanHeight / fromFrame.scanHeight;
-  if (!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0) return null;
-  const moduleScale = Math.sqrt(sx * sy);
-  const scalePoint = (point) => point ? { ...point, x: point.x * sx, y: point.y * sy } : point;
-  const scaleFinder = (finder) => finder ? {
-    ...finder,
-    x: finder.x * sx,
-    y: finder.y * sy,
-    moduleSize: finder.moduleSize * moduleScale
-  } : finder;
-  const h = geometry.homography;
-  const scaled = {
-    ...geometry,
-    homography: [
-      h[0] * sx, h[1] * sx, h[2] * sx,
-      h[3] * sy, h[4] * sy, h[5] * sy,
-      h[6], h[7], h[8]
-    ],
-    sourcePoints: Array.isArray(geometry.sourcePoints)
-      ? geometry.sourcePoints.map(scalePoint)
-      : geometry.sourcePoints,
-    finders: geometry.finders ? {
-      topLeft: scaleFinder(geometry.finders.topLeft),
-      topRight: scaleFinder(geometry.finders.topRight),
-      bottomLeft: scaleFinder(geometry.finders.bottomLeft)
-    } : geometry.finders
-  };
-  if (geometry.alignment) {
-    scaled.alignment = {
-      ...geometry.alignment,
-      center: scalePoint(geometry.alignment.center),
-      predicted: scalePoint(geometry.alignment.predicted)
+function ensureCore() {
+  if (coreReadyPromise) return coreReadyPromise;
+  coreReadyPromise = (async () => {
+    const originalAddEventListener = self.addEventListener;
+    const capture = (type, listener, options) => {
+      if (type === "message" && !coreMessageHandler) {
+        coreMessageHandler = listener;
+        return;
+      }
+      return nativeAddEventListener(type, listener, options);
     };
-  }
-  return scaled;
+
+    self.addEventListener = capture;
+    try {
+      await import(coreModuleUrl());
+    } finally {
+      self.addEventListener = originalAddEventListener;
+    }
+
+    if (typeof coreMessageHandler !== "function") {
+      throw new Error("QuadQR camera worker core did not register its message handler.");
+    }
+  })();
+  return coreReadyPromise;
 }
 
-function updateCameraGeometryHint(frameDiagnostics, result = null) {
-  if (scanOptions.cameraGeometryReuse === false) {
-    cameraGeometryHint = null;
-    return;
-  }
-  const geometry = result?.geometry ?? frameDiagnostics?.geometry ?? null;
-  if (geometry?.homography && Number.isInteger(geometry.version)) {
-    cameraGeometryHint = geometry;
-    cameraGeometryHintMisses = 0;
-    return;
-  }
-  if (cameraGeometryHint) {
-    cameraGeometryHintMisses++;
-    const maxMisses = Math.max(1, Math.round(scanOptions.cameraGeometryReuseMaxMisses ?? 5));
-    if (cameraGeometryHintMisses >= maxMisses) {
-      cameraGeometryHint = null;
-      cameraGeometryHintMisses = 0;
+function tuneFastWorkerOptions(options = {}) {
+  if (options.cameraPipelineMode !== "fast") return options;
+  const tuned = { ...options };
+
+  // Connected-component finder recovery is useful for damaged eyes, but the
+  // original 600-component default is unnecessarily expensive on keyboards,
+  // text-heavy UIs, and other high-contrast scenes. Keep it available while
+  // bounding work in the fresh-frame lane. Full recovery keeps its old limits.
+  if (tuned.componentMaxCount == null) tuned.componentMaxCount = 360;
+  if (tuned.componentMaxCandidates == null) tuned.componentMaxCandidates = 8;
+  if (tuned.componentTemplateThreshold == null) tuned.componentTemplateThreshold = 0.68;
+  return tuned;
+}
+
+function maxFinderEvidence(workerResult) {
+  let best = null;
+  for (const diagnostic of workerResult?.diagnostics ?? []) {
+    const choices = [
+      {
+        count: Number(diagnostic?.finderCount) || 0,
+        finders: Array.isArray(diagnostic?.finders) ? diagnostic.finders : [],
+        method: diagnostic?.finderMethod ?? null,
+        geometry: diagnostic?.geometry ?? null,
+        width: Number(diagnostic?.scanWidth ?? diagnostic?.frameWidth) || 0,
+        height: Number(diagnostic?.scanHeight ?? diagnostic?.frameHeight) || 0
+      },
+      {
+        count: Number(diagnostic?.bestPass?.finderCount) || 0,
+        finders: Array.isArray(diagnostic?.bestPass?.finders) ? diagnostic.bestPass.finders : [],
+        method: diagnostic?.bestPass?.finderMethod ?? diagnostic?.bestPass?.label ?? null,
+        geometry: diagnostic?.bestPass?.geometries?.[0] ?? null,
+        width: Number(diagnostic?.scanWidth ?? diagnostic?.frameWidth) || 0,
+        height: Number(diagnostic?.scanHeight ?? diagnostic?.frameHeight) || 0
+      }
+    ];
+    for (const choice of choices) {
+      choice.count = Math.max(choice.count, choice.finders.length);
+      if (!best ||
+          Boolean(choice.geometry) > Boolean(best.geometry) ||
+          (Boolean(choice.geometry) === Boolean(best.geometry) && choice.count > best.count)) {
+        best = choice;
+      }
     }
   }
+  return best ?? { count: 0, finders: [], method: null, geometry: null, width: 0, height: 0 };
 }
 
-function tryMultiFrameDecode(observations) {
-  if (scanOptions.multiFrame === false) return null;
-  const multiFrameWindow = Math.max(2, Math.min(8, Math.round(scanOptions.multiFrameWindow ?? 4)));
-  const multiFrameMinFrames = Math.max(2, Math.min(multiFrameWindow, Math.round(scanOptions.multiFrameMinFrames ?? 2)));
-  const best = selectBestFrameObservation(observations);
-  if (!best) return null;
-  const trackKey = `${best.version}:${best.cellEncoding ?? "auto"}`;
-  let history = observationHistory.get(trackKey) ?? [];
+function plausibleFinderSet(evidence) {
+  const finders = evidence?.finders ?? [];
+  if (!finders.length) return false;
+  if (finders.length === 1) return true;
 
-  if (history.length) {
-    const agreement = observationDataAgreement(history[history.length - 1], best);
-    const minimumAgreement = best.cellEncoding === CELL_ENCODINGS.TRIANGLE16
-      ? (scanOptions.multiFrameMinAgreementHighDensity ?? 0.58)
-      : (scanOptions.multiFrameMinAgreement ?? 0.62);
-    if (agreement > 0 && agreement < minimumAgreement) history = [];
+  for (let i = 0; i < finders.length; i++) {
+    for (let j = i + 1; j < finders.length; j++) {
+      const a = finders[i];
+      const b = finders[j];
+      const ma = Math.max(0.1, Number(a?.moduleSize) || 0.1);
+      const mb = Math.max(0.1, Number(b?.moduleSize) || 0.1);
+      const ratio = Math.max(ma, mb) / Math.min(ma, mb);
+      if (ratio > 2.25) continue;
+      const modulesApart = Math.hypot((Number(a?.x) || 0) - (Number(b?.x) || 0), (Number(a?.y) || 0) - (Number(b?.y) || 0)) /
+        Math.max(0.1, (ma + mb) / 2);
+      if (modulesApart >= 7 && modulesApart <= 150) return true;
+    }
+  }
+  return false;
+}
+
+function normalizeFinders(evidence) {
+  const width = Math.max(1, evidence?.width || 1);
+  const height = Math.max(1, evidence?.height || 1);
+  const minDimension = Math.max(1, Math.min(width, height));
+  return (evidence?.finders ?? []).slice(0, 6).map((finder) => ({
+    x: clampNumber((Number(finder?.x) || 0) / width, 0, 1),
+    y: clampNumber((Number(finder?.y) || 0) / height, 0, 1),
+    module: Math.max(0.0001, (Number(finder?.moduleSize) || 0.1) / minDimension)
+  }));
+}
+
+function sameFinderTrack(previous, current) {
+  if (!previous?.finders?.length || !current?.length) return false;
+  const used = new Set();
+  let matches = 0;
+
+  for (const finder of current) {
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    for (let index = 0; index < previous.finders.length; index++) {
+      if (used.has(index)) continue;
+      const old = previous.finders[index];
+      const moduleRatio = Math.max(old.module, finder.module) / Math.max(0.0001, Math.min(old.module, finder.module));
+      if (moduleRatio > 2.5) continue;
+      const distance = Math.hypot(old.x - finder.x, old.y - finder.y);
+      const tolerance = Math.max(0.055, Math.max(old.module, finder.module) * 6);
+      if (distance <= tolerance && distance < bestDistance) {
+        bestIndex = index;
+        bestDistance = distance;
+      }
+    }
+    if (bestIndex >= 0) {
+      used.add(bestIndex);
+      matches++;
+    }
   }
 
-  history.push(best);
-  while (history.length > multiFrameWindow) history.shift();
-  observationHistory.set(trackKey, history);
-  if (history.length < multiFrameMinFrames) return null;
+  const required = previous.finders.length >= 2 && current.length >= 2 ? 2 : 1;
+  return matches >= required;
+}
 
-  const combined = combineFrameObservations(history);
-  if (!combined) return null;
+function colorProbeRect(bitmap, track) {
+  if (!track?.finders?.length) return { x: 0, y: 0, width: bitmap.width, height: bitmap.height };
+  const points = track.finders.map((finder) => ({
+    x: finder.x * bitmap.width,
+    y: finder.y * bitmap.height,
+    module: finder.module * Math.min(bitmap.width, bitmap.height)
+  }));
+  const centerX = points.reduce((sum, point) => sum + point.x, 0) / points.length;
+  const centerY = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+  let span = Math.max(...points.map((point) => point.module * 18), Math.min(bitmap.width, bitmap.height) * 0.16);
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      span = Math.max(span, Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y));
+    }
+  }
+  const half = span * (points.length >= 2 ? 0.78 : 0.62);
+  const x0 = clampNumber(Math.floor(centerX - half), 0, Math.max(0, bitmap.width - 1));
+  const y0 = clampNumber(Math.floor(centerY - half), 0, Math.max(0, bitmap.height - 1));
+  const x1 = clampNumber(Math.ceil(centerX + half), x0 + 1, bitmap.width);
+  const y1 = clampNumber(Math.ceil(centerY + half), y0 + 1, bitmap.height);
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+}
+
+function sampleQuadColorEvidence(bitmap) {
   try {
-    const decoded = decodeMatrix(combined.matrix, {
-      structureTolerance: scanOptions.structureTolerance ?? 0.20,
-      cellConfidence: combined.confidence,
-      cellAlternatives: combined.alternatives,
-      cellEncodingHint: best.cellEncoding ?? undefined,
-      maxErasureConfidence: scanOptions.maxErasureConfidence,
-      softDecoding: scanOptions.softDecoding
-    });
-    if (decoded.version !== best.version) return null;
+    const sampleSize = Math.max(32, Math.min(96, Math.round(activeOptions.cameraCandidateColorSampleSize ?? 56)));
+    if (!colorProbeCanvas) {
+      colorProbeCanvas = new OffscreenCanvas(sampleSize, sampleSize);
+      colorProbeContext = colorProbeCanvas.getContext("2d", { alpha: false, willReadFrequently: true });
+    } else if (colorProbeCanvas.width !== sampleSize || colorProbeCanvas.height !== sampleSize) {
+      colorProbeCanvas.width = sampleSize;
+      colorProbeCanvas.height = sampleSize;
+    }
+    if (!colorProbeContext) return null;
+
+    const rect = colorProbeRect(bitmap, fastFinderTrack);
+    if ("imageSmoothingEnabled" in colorProbeContext) colorProbeContext.imageSmoothingEnabled = true;
+    if ("imageSmoothingQuality" in colorProbeContext) colorProbeContext.imageSmoothingQuality = "medium";
+    colorProbeContext.drawImage(bitmap, rect.x, rect.y, rect.width, rect.height, 0, 0, sampleSize, sampleSize);
+    const data = colorProbeContext.getImageData(0, 0, sampleSize, sampleSize).data;
+
+    const minimumValue = Math.max(40, Number(activeOptions.cameraCandidateColorMinValue ?? 64));
+    const minimumChroma = Math.max(14, Number(activeOptions.cameraCandidateColorMinChroma ?? 26));
+    const minimumDominance = Math.max(4, Number(activeOptions.cameraCandidateColorMinDominance ?? 9));
+    const families = [0, 0, 0];
+    let chromatic = 0;
+    let dominant = 0;
+    const pixels = sampleSize * sampleSize;
+
+    for (let index = 0; index < data.length; index += 4) {
+      const r = data[index];
+      const g = data[index + 1];
+      const b = data[index + 2];
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      if (max < minimumValue || max - min < minimumChroma) continue;
+      chromatic++;
+      if (r - Math.max(g, b) >= minimumDominance) { families[0]++; dominant++; }
+      else if (g - Math.max(r, b) >= minimumDominance) { families[1]++; dominant++; }
+      else if (b - Math.max(r, g) >= minimumDominance) { families[2]++; dominant++; }
+    }
+
+    const minimumDominant = Math.max(10, Math.round(pixels * Number(activeOptions.cameraCandidateColorFraction ?? 0.008)));
+    const minimumFamily = Math.max(3, Math.round(pixels * Number(activeOptions.cameraCandidateColorFamilyFraction ?? 0.001)));
+    const strongFamilies = families.filter((count) => count >= minimumFamily).length;
+    const sortedFamilies = families.slice().sort((a, b) => b - a);
+    const balancedEnough = sortedFamilies[1] >= Math.max(minimumFamily, sortedFamilies[0] * 0.055);
+
     return {
-      ...decoded,
-      perspectiveCorrected: Boolean(best.geometry),
-      colorCalibrated: true,
-      colorNormalization: "multi-frame-confidence-fusion",
-      samplingMode: "multi-frame-confidence-fusion",
-      multiFrameCombined: history.length,
-      multiFrameAgreement: combined.frameAgreement,
-      multiFrameMode: "confidence-fusion",
-      geometry: best.geometry,
-      observedPalette: best.observedPalette,
-      averageCellConfidence: best.averageCellConfidence,
-      lowConfidenceCells: best.lowConfidenceCells
+      present: dominant >= minimumDominant && strongFamilies >= 2 && balancedEnough,
+      dominant,
+      chromatic,
+      families: { red: families[0], green: families[1], blue: families[2] },
+      sampled: pixels,
+      rect
     };
   } catch {
     return null;
   }
 }
 
-function pooledFrameCanvas(cap, width, height) {
-  let entry = frameCanvasPool.get(cap);
-  if (!entry) {
-    const canvas = new OffscreenCanvas(width, height);
-    const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
-    entry = { canvas, ctx };
-    frameCanvasPool.set(cap, entry);
-  } else if (entry.canvas.width !== width || entry.canvas.height !== height) {
-    entry.canvas.width = width;
-    entry.canvas.height = height;
-  }
-  return entry;
-}
-
-function makeCanvasFrameProvider(bitmap, source) {
-  // Cache ImageData per resolution for the current camera frame, and reuse the
-  // underlying OffscreenCanvas/context across frames. This avoids allocating
-  // fresh canvases at camera frame rate without changing any scanner stage.
-  const frames = new Map();
-  return (maxDimension) => {
-    const cap = Math.max(1, Math.round(maxDimension));
-    if (frames.has(cap)) return frames.get(cap);
-    const scale = Math.min(1, cap / Math.max(source.width, source.height));
-    const width = Math.max(1, Math.round(source.width * scale));
-    const height = Math.max(1, Math.round(source.height * scale));
-    const { ctx } = pooledFrameCanvas(cap, width, height);
-    if ("imageSmoothingEnabled" in ctx) ctx.imageSmoothingEnabled = true;
-    if ("imageSmoothingQuality" in ctx) ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(bitmap, source.x, source.y, source.width, source.height, 0, 0, width, height);
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const frame = { imageData, scanWidth: width, scanHeight: height, source: { ...source } };
-    frames.set(cap, frame);
-    return frame;
-  };
-}
-
-function scanCapturedFrame(frame, options, observations, frameDiagnostics) {
-  const visionDiagnostics = frameDiagnostics ? { passes: [] } : null;
-  try {
-    let result = scanImageData(frame.imageData, {
-      ...options,
-      _visionDiagnostics: visionDiagnostics,
-      _observationCollector: observations
-    });
-    normalizeFrameDiagnostics(frameDiagnostics, frame.source, frame.scanWidth, frame.scanHeight, visionDiagnostics);
-    attachGeometryDiagnostic(frameDiagnostics, result);
-    if (frame.source.cropped) {
-      result = {
-        ...result,
-        cameraVisibleCrop: true,
-        cameraSourceRect: {
-          x: frame.source.x,
-          y: frame.source.y,
-          width: frame.source.width,
-          height: frame.source.height
-        }
-      };
-    }
-    return result;
-  } catch (error) {
-    normalizeFrameDiagnostics(frameDiagnostics, frame.source, frame.scanWidth, frame.scanHeight, visionDiagnostics);
-    throw error;
-  }
-}
-
-function makeFrameMeta(frame, diagnostic, enhancement = null) {
+function sanitizeDiagnostic(diagnostic, gate) {
+  if (!diagnostic || typeof diagnostic !== "object") return diagnostic;
+  const rawBestPass = diagnostic.bestPass;
   return {
-    imageData: frame.imageData,
-    scanWidth: frame.scanWidth,
-    scanHeight: frame.scanHeight,
-    sourceRect: frame.source ? { ...frame.source } : null,
-    enhancedImageData: enhancement?.imageData ?? null,
-    enhancedRect: enhancement?.rect ? { ...enhancement.rect } : null,
-    enhancement: enhancement?.meta ? { ...enhancement.meta } : null,
-    diagnostic
+    ...diagnostic,
+    rawFinderCount: diagnostic.finderCount ?? rawBestPass?.finderCount ?? 0,
+    rawFinders: diagnostic.finders ?? rawBestPass?.finders ?? [],
+    rawFinderMethod: diagnostic.finderMethod ?? rawBestPass?.finderMethod ?? null,
+    rawGeometry: diagnostic.geometry ?? rawBestPass?.geometries?.[0] ?? null,
+    finderCount: 0,
+    finders: [],
+    geometry: null,
+    bestPass: rawBestPass ? { ...rawBestPass, finderCount: 0, finders: [], geometries: [] } : rawBestPass,
+    finderPasses: Array.isArray(diagnostic.finderPasses)
+      ? diagnostic.finderPasses.map((pass) => ({ ...pass, finderCount: 0, geometryCount: 0 }))
+      : diagnostic.finderPasses,
+    candidateGate: gate
   };
 }
 
-function transferableBuffers(frameMeta) {
-  const buffers = [];
-  const base = frameMeta?.imageData?.data?.buffer;
-  const enhanced = frameMeta?.enhancedImageData?.data?.buffer;
-  if (base instanceof ArrayBuffer) buffers.push(base);
-  if (enhanced instanceof ArrayBuffer && enhanced !== base) buffers.push(enhanced);
-  return buffers;
-}
+function gateFastFinderDiagnostics(workerResult, colorEvidence, frameNumber) {
+  if (!workerResult || workerResult.ok) {
+    resetGuardState();
+    return workerResult;
+  }
 
-function pushDiagnostic(events, event) {
-  events.push(event);
-}
+  const evidence = maxFinderEvidence(workerResult);
+  if (evidence.count <= 0 || !evidence.finders.length) {
+    resetGuardState();
+    return workerResult;
+  }
+  if (!plausibleFinderSet(evidence)) {
+    resetGuardState();
+    const gate = {
+      state: "rejected-implausible-finders",
+      stableFrames: 0,
+      requiredFrames: 2,
+      rawFinderCount: evidence.count,
+      finderMethod: evidence.method,
+      color: null
+    };
+    return {
+      ...workerResult,
+      candidateGate: gate,
+      diagnostics: (workerResult.diagnostics ?? []).map((diagnostic) => sanitizeDiagnostic(diagnostic, gate))
+    };
+  }
 
-function processFrame(bitmap, source, frameNumber) {
-  const events = [];
-  const observations = [];
-  const frameDiagnostics = {};
-  const frameStarted = nowMs();
-  const baseCameraMaxDimension = Math.max(480, Math.round(scanOptions.maxDimension ?? 640));
-  const cameraHighResolutionMaxDimension = Math.max(
-    baseCameraMaxDimension,
-    Math.round(scanOptions.cameraHighResolutionMaxDimension ?? 960)
+  const normalized = normalizeFinders(evidence);
+  const continued = sameFinderTrack(fastFinderTrack, normalized);
+  const streak = continued ? (fastFinderTrack.streak + 1) : 1;
+  fastFinderTrack = {
+    finders: normalized,
+    streak,
+    frame: frameNumber,
+    rawCount: evidence.count,
+    method: evidence.method
+  };
+
+  const geometryConfirmed = Boolean(
+    evidence.geometry?.homography && Number.isInteger(evidence.geometry?.version)
   );
-  const cameraAutoColorEvery = Math.max(1, Math.round(scanOptions.cameraAutoColorEvery ?? 1));
-  const cameraAutoEnhanceEvery = Math.max(1, Math.round(scanOptions.cameraAutoEnhanceEvery ?? 2));
-  const cameraFinderRecoveryEvery = Math.max(1, Math.round(scanOptions.cameraFinderRecoveryEvery ?? 2));
-  const cameraHighResolutionEvery = Math.max(1, Math.round(scanOptions.cameraHighResolutionEvery ?? 2));
-  const getFrame = makeCanvasFrameProvider(bitmap, source);
-  const baseFrame = getFrame(baseCameraMaxDimension);
+  const requiredFrames = geometryConfirmed
+    ? 1
+    : evidence.count >= 2
+      ? Math.max(2, Math.round(activeOptions.cameraCandidateStableFrames ?? 2))
+      : Math.max(3, Math.round(activeOptions.cameraCandidateWeakStableFrames ?? 3));
+  const colorRequired = activeOptions.cameraCandidateColorGate !== false;
+  const colorConfirmed = colorEvidence?.present === true;
+  const colorUnavailableFallback = colorEvidence == null && streak >= Math.max(requiredFrames + 1, 3);
+  const accepted = geometryConfirmed ||
+    (streak >= requiredFrames && (!colorRequired || colorConfirmed || colorUnavailableFallback));
 
-  let allowFinderRecovery = false;
-  let allowAutoEnhance = false;
-  try {
-    const fastPipeline = scanOptions.cameraPipelineMode === "fast";
-    allowFinderRecovery = !fastPipeline && scanOptions.finderRecovery !== false &&
-      missStreak > 0 && ((missStreak - 1) % cameraFinderRecoveryEvery === 0);
-    allowAutoEnhance = !fastPipeline && scanOptions.autoEnhanceRecovery !== false &&
-      missStreak > 0 && ((missStreak - 1) % cameraAutoEnhanceEvery === 0);
-    const method = allowAutoEnhance
-      ? "progressive-color-recovery"
-      : (allowFinderRecovery ? "finder-recovery" : "fast-scan");
+  const gate = {
+    state: geometryConfirmed
+      ? "confirmed-geometry"
+      : accepted
+        ? "confirmed"
+        : (colorEvidence && !colorConfirmed ? "rejected-non-quad-color" : "confirming"),
+    stableFrames: streak,
+    requiredFrames,
+    rawFinderCount: evidence.count,
+    finderMethod: evidence.method,
+    color: colorEvidence ? {
+      present: colorEvidence.present,
+      dominant: colorEvidence.dominant,
+      sampled: colorEvidence.sampled,
+      families: colorEvidence.families
+    } : null
+  };
 
-    const result = scanCapturedFrame(baseFrame, {
-      ...scanOptions,
-      _diagnosticLabel: method,
-      finderRecovery: allowFinderRecovery,
-      autoEnhanceRecovery: allowAutoEnhance,
-      autoEnhanceWhenNoGeometry: allowAutoEnhance,
-      fullFrameAutoEnhanceRecovery: scanOptions.fullFrameAutoEnhanceRecovery ?? false,
-      _geometryHints: scanOptions.cameraGeometryReuse === false || !cameraGeometryHint ? undefined : [cameraGeometryHint]
-    }, observations, frameDiagnostics);
-
-    const elapsedMs = nowMs() - frameStarted;
-    updateCameraGeometryHint(frameDiagnostics, result);
-    pushDiagnostic(events, {
-      type: "frame",
-      state: "decoded",
-      method: result.recoveryMode ?? result.samplingMode ?? method,
-      elapsedMs,
-      missStreak,
-      ...frameDiagnostics
-    });
-    pushDiagnostic(events, {
-      type: "success",
-      state: "decoded",
-      method: result.recoveryMode ?? result.samplingMode ?? method,
-      elapsedMs,
-      message: `Decoded v${result.version} · ECC ${result.eccLevel} · ${Math.round(elapsedMs)} ms`,
-      ...frameDiagnostics
-    });
-    missStreak = 0;
-    observationHistory.clear();
-    return {
-      ok: true,
-      result,
-      frameMeta: makeFrameMeta(baseFrame, frameDiagnostics),
-      diagnostics: events,
-      elapsedMs,
-      missStreak
-    };
-  } catch (error) {
-    missStreak++;
-    updateCameraGeometryHint(frameDiagnostics);
-    const fastElapsedMs = nowMs() - frameStarted;
-    pushDiagnostic(events, {
-      type: "frame",
-      state: "miss",
-      method: allowAutoEnhance
-        ? "progressive-color-recovery"
-        : (allowFinderRecovery ? "finder-recovery" : "fast-scan"),
-      elapsedMs: fastElapsedMs,
-      missStreak,
-      error: error?.message ?? String(error),
-      ...frameDiagnostics
-    });
-
-    // The continuous camera engine can dedicate one worker to fresh-frame
-    // acquisition. In fast mode we intentionally stop here after the normal
-    // detector/decode attempt. A second worker runs the complete recovery
-    // stack in parallel, so Auto Color, high-resolution perspective recovery,
-    // multi-frame fusion, and damaged-code recovery can never block the next
-    // fresh camera frame. This changes scheduling only, not scanner capability.
-    if (scanOptions.cameraPipelineMode === "fast") {
-      return {
-        ok: false,
-        error: serializeError(error),
-        diagnostics: events,
-        elapsedMs: nowMs() - frameStarted,
-        missStreak,
-        fastPipeline: true
-      };
-    }
-
-    const shouldTryHighResolution = scanOptions.cameraHighResolutionRecovery !== false &&
-      cameraHighResolutionMaxDimension > baseCameraMaxDimension &&
-      (frameDiagnostics?.finderCount ?? 0) >= (scanOptions.cameraHighResolutionMinFinders ?? 2) &&
-      ((missStreak - 1) % cameraHighResolutionEvery === 0);
-    if (shouldTryHighResolution) {
-      const highResolutionObservations = [];
-      const highResolutionDiagnostics = {};
-      pushDiagnostic(events, {
-        type: "method",
-        state: "trying",
-        method: "high-resolution-geometry-recovery",
-        message: `Finder geometry detected · refining detail at up to ${cameraHighResolutionMaxDimension}px`,
-        ...frameDiagnostics
-      });
-      try {
-        const recoveryStarted = nowMs();
-        const highResolutionFrame = getFrame(cameraHighResolutionMaxDimension);
-        const scaledGeometry = scaleGeometryForFrame(frameDiagnostics?.geometry, baseFrame, highResolutionFrame);
-        let recovered = null;
-
-        // If the low-resolution locator already established projective geometry,
-        // do not make the detailed frame rediscover the eyes. Scale the
-        // homography and sample/decode immediately. If that fast reuse misses,
-        // fall through to the complete high-detail detector/recovery path.
-        if (scaledGeometry) {
-          try {
-            recovered = scanCapturedFrame(highResolutionFrame, {
-              ...scanOptions,
-              _diagnosticLabel: "high-resolution-geometry-reuse",
-              _geometryHints: [scaledGeometry],
-              _geometryHintOnly: true,
-              finderRecovery: false,
-              autoEnhanceRecovery: false,
-              fullFrameAutoEnhanceRecovery: false
-            }, highResolutionObservations, highResolutionDiagnostics);
-          } catch {
-            recovered = null;
-          }
-        }
-
-        if (!recovered) {
-          recovered = scanCapturedFrame(highResolutionFrame, {
-            ...scanOptions,
-            _diagnosticLabel: "high-resolution-geometry-recovery",
-            finderRecovery: true,
-            autoEnhanceRecovery: false,
-            fullFrameAutoEnhanceRecovery: false
-          }, highResolutionObservations, highResolutionDiagnostics);
-        }
-        const recoveryElapsedMs = nowMs() - recoveryStarted;
-        pushDiagnostic(events, {
-          type: "success",
-          state: "decoded",
-          method: recovered.geometryReused ? "high-resolution-geometry-reuse" : "high-resolution-geometry-recovery",
-          elapsedMs: recoveryElapsedMs,
-          message: `Detail retry decoded v${recovered.version} · ${Math.round(recoveryElapsedMs)} ms`,
-          ...highResolutionDiagnostics
-        });
-        missStreak = 0;
-        observationHistory.clear();
-        return {
-          ok: true,
-          result: {
-            ...recovered,
-            cameraHighResolutionRecovery: true,
-            cameraProgressiveRecovery: true,
-            recoveryMode: recovered.recoveryMode ?? (recovered.geometryReused ? "high-resolution-geometry-reuse" : "high-resolution-geometry-recovery")
-          },
-          frameMeta: makeFrameMeta(highResolutionFrame, highResolutionDiagnostics),
-          diagnostics: events,
-          elapsedMs: nowMs() - frameStarted,
-          missStreak
-        };
-      } catch (highResolutionError) {
-        observations.push(...highResolutionObservations);
-        pushDiagnostic(events, {
-          type: "method",
-          state: "failed",
-          method: "high-resolution-geometry-recovery",
-          message: `High-detail geometry retry did not decode${highResolutionDiagnostics?.finderCount != null ? ` · ${highResolutionDiagnostics.finderCount} finder(s)` : ""}`,
-          error: highResolutionError?.message ?? String(highResolutionError),
-          ...(highResolutionDiagnostics ?? frameDiagnostics)
-        });
-      }
-    }
-
-    const shouldTryCameraAutoColor = scanOptions.cameraAutoColorRecovery !== false &&
-      baseFrame.imageData &&
-      ((missStreak - 1) % cameraAutoColorEvery === 0);
-    if (shouldTryCameraAutoColor) {
-      const requestedCrops = Array.isArray(scanOptions.cameraAutoColorCropInsets)
-        ? scanOptions.cameraAutoColorCropInsets
-        : [0.08, 0.16, 0.22, 0];
-      const cropInsets = [];
-      for (const value of requestedCrops) {
-        const inset = clampNumber(Number(value), 0, 0.30);
-        if (!cropInsets.some((item) => Math.abs(item - inset) < 0.001)) cropInsets.push(inset);
-      }
-      const explicitAnalysisInsets = Array.isArray(scanOptions.cameraAutoColorAnalysisInsets)
-        ? scanOptions.cameraAutoColorAnalysisInsets
-        : null;
-
-      pushDiagnostic(events, {
-        type: "method",
-        state: "trying",
-        method: "camera-auto-color",
-        message: `Fast scan failed · QuadQR Auto Color recovery inside camera guide (${cropInsets.map((v) => v ? `${Math.round(v * 100)}% crop` : "full frame").join(" → ")})`,
-        ...frameDiagnostics
-      });
-
-      for (let profileIndex = 0; profileIndex < cropInsets.length; profileIndex++) {
-        const cropInset = cropInsets[profileIndex];
-        const cropped = cropImageDataInset(baseFrame.imageData, cropInset);
-        const defaultAnalysisInsets = [0.10, 0.08, 0.04, 0.10];
-        const analysisInset = clampNumber(
-          Number(explicitAnalysisInsets?.[profileIndex]
-            ?? scanOptions.cameraAutoColorAnalysisInset
-            ?? defaultAnalysisInsets[Math.min(profileIndex, defaultAnalysisInsets.length - 1)]),
-          0,
-          0.30
-        );
-        const autoColorObservations = [];
-        const autoColorVisionDiagnostics = { passes: [] };
-        const autoColorFrameDiagnostics = {};
-        const cropLabel = cropInset ? `${Math.round(cropInset * 100)}pct-crop` : "full";
-        const profileName = `camera-auto-color-${cropLabel}`;
-        try {
-          const recoveryStarted = nowMs();
-          const correctedFrame = autoColorImageData(cropped.imageData, {
-            blackClip: scanOptions.cameraAutoColorBlackClip ?? 0.0001,
-            whiteClip: scanOptions.cameraAutoColorWhiteClip ?? 0.004,
-            highlightPercentile: scanOptions.cameraAutoColorHighlightPercentile ?? 0.95,
-            outputHighlight: scanOptions.cameraAutoColorOutputHighlight ?? 190,
-            analysisInset,
-            minimumInputRange: scanOptions.cameraAutoColorMinimumInputRange ?? 72,
-            targetSamples: scanOptions.cameraAutoColorTargetSamples ?? 90000
-          });
-          const recovered = scanImageData(correctedFrame, {
-            ...scanOptions,
-            _diagnosticLabel: profileName,
-            _visionDiagnostics: autoColorVisionDiagnostics,
-            finderRecovery: true,
-            autoEnhanceRecovery: false,
-            fullFrameAutoEnhanceRecovery: false,
-            _observationCollector: autoColorObservations
-          });
-          normalizeFrameDiagnostics(
-            autoColorFrameDiagnostics,
-            baseFrame.source,
-            correctedFrame.width,
-            correctedFrame.height,
-            autoColorVisionDiagnostics
-          );
-          autoColorFrameDiagnostics.frameWidth = baseFrame.scanWidth;
-          autoColorFrameDiagnostics.frameHeight = baseFrame.scanHeight;
-          autoColorFrameDiagnostics.scanRect = { ...cropped.rect };
-          autoColorFrameDiagnostics.autoColorCropInset = cropInset;
-          autoColorFrameDiagnostics.autoColorAnalysisInset = analysisInset;
-          attachGeometryDiagnostic(autoColorFrameDiagnostics, recovered);
-          const recoveryElapsedMs = nowMs() - recoveryStarted;
-          pushDiagnostic(events, {
-            type: "frame",
-            state: "decoded",
-            method: profileName,
-            elapsedMs: recoveryElapsedMs,
-            missStreak,
-            ...autoColorFrameDiagnostics
-          });
-          pushDiagnostic(events, {
-            type: "success",
-            state: "decoded",
-            method: "camera-auto-color",
-            elapsedMs: recoveryElapsedMs,
-            message: `QuadQR Auto Color ${cropInset ? `${Math.round(cropInset * 100)}% crop` : "full frame"} decoded v${recovered.version} · ECC ${recovered.eccLevel} · ${Math.round(recoveryElapsedMs)} ms`,
-            ...autoColorFrameDiagnostics
-          });
-          missStreak = 0;
-          observationHistory.clear();
-          return {
-            ok: true,
-            result: {
-              ...recovered,
-              autoColorCorrected: true,
-              cameraProgressiveRecovery: true,
-              recoveryMode: "camera-auto-color",
-              cameraAutoColorCropInset: cropInset,
-              cameraAutoColorAnalysisInset: analysisInset
-            },
-            frameMeta: makeFrameMeta(baseFrame, autoColorFrameDiagnostics, {
-              imageData: correctedFrame,
-              rect: cropped.rect,
-              meta: { method: "camera-auto-color", cropInset, analysisInset }
-            }),
-            diagnostics: events,
-            elapsedMs: nowMs() - frameStarted,
-            missStreak
-          };
-        } catch (recoveryError) {
-          observations.push(...autoColorObservations);
-          normalizeFrameDiagnostics(
-            autoColorFrameDiagnostics,
-            baseFrame.source,
-            cropped.imageData.width,
-            cropped.imageData.height,
-            autoColorVisionDiagnostics
-          );
-          autoColorFrameDiagnostics.frameWidth = baseFrame.scanWidth;
-          autoColorFrameDiagnostics.frameHeight = baseFrame.scanHeight;
-          autoColorFrameDiagnostics.scanRect = { ...cropped.rect };
-          autoColorFrameDiagnostics.autoColorCropInset = cropInset;
-          autoColorFrameDiagnostics.autoColorAnalysisInset = analysisInset;
-          pushDiagnostic(events, {
-            type: "frame",
-            state: "miss",
-            method: profileName,
-            elapsedMs: nowMs() - frameStarted,
-            missStreak,
-            error: recoveryError?.message ?? String(recoveryError),
-            ...autoColorFrameDiagnostics
-          });
-          pushDiagnostic(events, {
-            type: "method",
-            state: "failed",
-            method: profileName,
-            message: `QuadQR Auto Color ${cropInset ? `${Math.round(cropInset * 100)}% crop` : "full frame"} did not decode${autoColorFrameDiagnostics?.finderCount != null ? ` · ${autoColorFrameDiagnostics.finderCount} finder(s)` : ""}`,
-            ...autoColorFrameDiagnostics
-          });
-        }
-      }
-      pushDiagnostic(events, {
-        type: "method",
-        state: "failed",
-        method: "camera-auto-color",
-        message: "All camera QuadQR Auto Color profiles failed · continuing deeper recovery",
-        ...frameDiagnostics
-      });
-    }
-
-    if (!allowAutoEnhance && scanOptions.autoEnhanceRecovery !== false) {
-      const strongObservation = selectBestFrameObservation(observations);
-      if (strongObservation) {
-        pushDiagnostic(events, {
-          type: "method",
-          state: "trying",
-          method: "qr-region-auto-enhance",
-          message: "Fast decode failed · trying QR-region Auto Tone / Contrast / Color",
-          ...frameDiagnostics
-        });
-        try {
-          const recoveryStarted = nowMs();
-          const recoveryObservations = [];
-          const recoveryVisionDiagnostics = { passes: [] };
-          const recovered = scanImageData(baseFrame.imageData, {
-            ...scanOptions,
-            _diagnosticLabel: "qr-region-auto-enhance",
-            _visionDiagnostics: recoveryVisionDiagnostics,
-            autoEnhanceRecovery: true,
-            autoEnhanceWhenNoGeometry: false,
-            fullFrameAutoEnhanceRecovery: false,
-            _observationCollector: recoveryObservations
-          });
-          const recoveryElapsedMs = nowMs() - recoveryStarted;
-          pushDiagnostic(events, {
-            type: "success",
-            state: "decoded",
-            method: recovered.recoveryMode ?? recovered.samplingMode ?? "qr-region-auto-enhance",
-            elapsedMs: recoveryElapsedMs,
-            message: `Recovery decoded v${recovered.version} · ECC ${recovered.eccLevel} · ${Math.round(recoveryElapsedMs)} ms`,
-            ...frameDiagnostics
-          });
-          missStreak = 0;
-          observationHistory.clear();
-          return {
-            ok: true,
-            result: { ...recovered, cameraProgressiveRecovery: true },
-            frameMeta: makeFrameMeta(baseFrame, frameDiagnostics),
-            diagnostics: events,
-            elapsedMs: nowMs() - frameStarted,
-            missStreak
-          };
-        } catch {
-          pushDiagnostic(events, {
-            type: "method",
-            state: "failed",
-            method: "qr-region-auto-enhance",
-            message: "QR-region color recovery did not decode · trying multi-frame ECC",
-            ...frameDiagnostics
-          });
-        }
-      }
-    }
-
-    const combined = tryMultiFrameDecode(observations);
-    if (combined) {
-      pushDiagnostic(events, {
-        type: "success",
-        state: "decoded",
-        method: "multi-frame-confidence-fusion",
-        message: `Multi-frame confidence fusion decoded v${combined.version} from ${combined.multiFrameCombined} frames`,
-        ...frameDiagnostics
-      });
-      missStreak = 0;
-      return {
-        ok: true,
-        result: combined,
-        frameMeta: makeFrameMeta(baseFrame, frameDiagnostics),
-        diagnostics: events,
-        elapsedMs: nowMs() - frameStarted,
-        missStreak
-      };
-    }
-
-    return {
-      ok: false,
-      error: serializeError(error),
-      diagnostics: events,
-      elapsedMs: nowMs() - frameStarted,
-      missStreak
-    };
-  } finally {
-    try { bitmap.close(); } catch {}
+  if (accepted) {
+    for (const diagnostic of workerResult.diagnostics ?? []) diagnostic.candidateGate = gate;
+    return workerResult;
   }
-}
 
-async function initialize(options) {
-  scanOptions = options ?? {};
-  missStreak = 0;
-  cameraGeometryHint = null;
-  cameraGeometryHintMisses = 0;
-  observationHistory = new Map();
-  try {
-    wasmState = await initWasm();
-  } catch {
-    wasmState = null;
-  }
   return {
-    worker: true,
-    wasm: wasmState,
-    offscreenCanvas: typeof OffscreenCanvas === "function"
+    ...workerResult,
+    candidateGate: gate,
+    diagnostics: (workerResult.diagnostics ?? []).map((diagnostic) => sanitizeDiagnostic(diagnostic, gate))
   };
 }
 
-self.addEventListener("message", async (event) => {
-  const message = event.data ?? {};
-  const id = message.id;
-  if (!id) return;
+async function invokeCore(data) {
+  await ensureCore();
+  const emitted = [];
+  const originalPostMessage = self.postMessage;
+  self.postMessage = (message, transfer = []) => {
+    emitted.push({ message, transfer: Array.isArray(transfer) ? transfer : [] });
+  };
   try {
-    if (message.type === "init") {
-      const result = await initialize(message.options ?? {});
-      self.postMessage({ id, ok: true, type: "init", result });
-      return;
+    await coreMessageHandler({ data });
+  } finally {
+    self.postMessage = originalPostMessage;
+  }
+  return emitted;
+}
+
+async function resetCoreAfterContinuousDecode() {
+  const id = `qqr-camera-guard-reset-${++syntheticSequence}`;
+  try {
+    await invokeCore({ id, type: "reset" });
+  } catch {
+    // A failed freshness reset must not discard a successful decode.
+  }
+  resetGuardState();
+}
+
+nativeAddEventListener("message", async (event) => {
+  const incoming = event.data ?? {};
+  try {
+    await ensureCore();
+
+    let forwarded = incoming;
+    if (incoming.type === "init") {
+      activeOptions = { ...(incoming.options ?? {}) };
+      resetGuardState();
+      forwarded = {
+        ...incoming,
+        options: tuneFastWorkerOptions(activeOptions)
+      };
+      activeOptions = { ...forwarded.options };
+    } else if (incoming.type === "reset") {
+      resetGuardState();
     }
-    if (message.type === "reset") {
-      missStreak = 0;
-      cameraGeometryHint = null;
-      cameraGeometryHintMisses = 0;
-      observationHistory.clear();
-      self.postMessage({ id, ok: true, type: "reset" });
-      return;
-    }
-    if (message.type === "scan" || message.type === "scan-full") {
-      if (!(message.bitmap instanceof ImageBitmap)) throw new Error("Camera worker expected an ImageBitmap frame.");
-      if (typeof OffscreenCanvas !== "function") throw new Error("OffscreenCanvas is unavailable in the camera worker.");
-      const previousOptions = scanOptions;
-      if (message.type === "scan-full") {
-        // Safety fallback for browsers that allow one module worker but reject
-        // creation of the second recovery worker. Run the exact full pipeline
-        // in the existing worker rather than silently losing recovery power.
-        scanOptions = { ...previousOptions, ...(message.options ?? {}), cameraPipelineMode: "full" };
+
+    const fastPipeline = activeOptions.cameraPipelineMode === "fast";
+    const shouldProbeColor = fastPipeline &&
+      incoming.type === "scan" &&
+      incoming.bitmap instanceof ImageBitmap &&
+      fastFinderTrack?.finders?.length;
+    const colorEvidence = shouldProbeColor ? sampleQuadColorEvidence(incoming.bitmap) : null;
+
+    const emitted = await invokeCore(forwarded);
+    const processed = emitted.map(({ message, transfer }) => {
+      if (!fastPipeline || incoming.type !== "scan" || !message?.ok || message?.type !== "scan") {
+        return { message, transfer };
       }
-      let result;
-      try {
-        result = processFrame(message.bitmap, message.source, message.frame ?? 0);
-      } finally {
-        scanOptions = previousOptions;
-      }
-      const transfers = result.ok ? transferableBuffers(result.frameMeta) : [];
-      self.postMessage({ id, ok: true, type: message.type, result }, transfers);
-      return;
+      return {
+        message: {
+          ...message,
+          result: gateFastFinderDiagnostics(message.result, colorEvidence, incoming.frame ?? 0)
+        },
+        transfer
+      };
+    });
+
+    const successfulScan = processed.some(({ message }) =>
+      message?.ok &&
+      (message.type === "scan" || message.type === "scan-full") &&
+      message?.result?.ok
+    );
+    if (successfulScan && activeOptions.stopOnResult === false) {
+      await resetCoreAfterContinuousDecode();
     }
-    throw new Error(`Unknown camera worker message: ${message.type}`);
+
+    for (const item of processed) nativePostMessage(item.message, item.transfer);
   } catch (error) {
-    try { message.bitmap?.close?.(); } catch {}
-    self.postMessage({ id, ok: false, type: message.type, error: serializeError(error) });
+    try { incoming.bitmap?.close?.(); } catch {}
+    nativePostMessage({
+      id: incoming.id,
+      ok: false,
+      type: incoming.type,
+      error: {
+        name: error?.name || "Error",
+        message: error?.message || String(error),
+        stack: error?.stack || "",
+        debug: error?.debug ?? null
+      }
+    });
   }
 });

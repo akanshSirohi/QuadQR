@@ -46,7 +46,7 @@
     "quadqr": "./bin/quadqr.js"
   },
   "scripts": {
-    "build": "node scripts/build.js",
+    "build": "node scripts/build.js && node scripts/copy-camera-worker-core.js",
     "start": "node scripts/serve.js",
     "demo": "node scripts/serve.js",
     "docs": "node scripts/serve.js --docs",
