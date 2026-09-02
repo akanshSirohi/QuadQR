@@ -1,6 +1,6 @@
 {
   "name": "quadqr-js",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "description": "QuadQR: experimental RGBW matrix code with optional experimental High Density Mode, Spectrum ECC 2.0, multi-frame camera scanning, advanced calibration, Reliability Lab, and 3D perspective recovery.",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -50,13 +50,13 @@
     "start": "node scripts/serve.js",
     "demo": "node scripts/serve.js",
     "docs": "node scripts/serve.js --docs",
-    "test": "node tests/self-test.js && node tests/package-test.js && node tests/camera-worker-test.js && node tests/camera-scheduler-test.js",
+    "test": "node tests/self-test.js && node tests/package-test.js && node tests/camera-worker-test.js && node tests/camera-scheduler-test.js && node tests/camera-continuous-test.js && node tests/camera-lifecycle-test.js",
     "benchmark": "node scripts/benchmark.js",
     "pack:check": "npm run build && npm pack --dry-run",
     "prepublishOnly": "npm run build && npm test",
     "test:demo": "node tests/demo-worker-test.js",
     "build:wasm": "node scripts/build-wasm.js",
-    "test:camera": "node tests/camera-worker-test.js && node tests/camera-scheduler-test.js"
+    "test:camera": "node tests/camera-worker-test.js && node tests/camera-scheduler-test.js && node tests/camera-continuous-test.js && node tests/camera-lifecycle-test.js"
   },
   "engines": {
     "node": ">=20.19"

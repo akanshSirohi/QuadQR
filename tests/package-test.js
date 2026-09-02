@@ -187,18 +187,20 @@ console.log("Running package distribution tests...");
   }
 }
 
-// Camera worker is shipped beside the browser/global bundles with valid ESM imports.
+// Camera worker guard and core are shipped beside both browser bundle layouts.
 {
   const rootWorker = await readFile(new URL("../dist/camera-scanner-worker.js", import.meta.url), "utf8");
   const esmWorker = await readFile(new URL("../dist/esm/camera-scanner-worker.js", import.meta.url), "utf8");
-  assert.match(rootWorker, /from "\.\/esm\/quadqr\.js"/);
-  assert.match(rootWorker, /from "\.\/esm\/vision\.js"/);
-  assert.match(rootWorker, /from "\.\/esm\/wasm\.js"/);
-  assert.match(esmWorker, /from "\.\/quadqr\.js"/);
-  assert.match(esmWorker, /OffscreenCanvas/);
-  assert.match(esmWorker, /camera-auto-color/);
-  assert.match(esmWorker, /high-resolution-geometry-recovery/);
-  assert.match(esmWorker, /multi-frame-confidence-fusion/);
+  const workerCore = await readFile(new URL("../dist/esm/camera-scanner-worker-core.js", import.meta.url), "utf8");
+  assert.match(rootWorker, /\.\/esm\/camera-scanner-worker-core\.js/);
+  assert.match(esmWorker, /\.\/camera-scanner-worker-core\.js/);
+  assert.match(workerCore, /from "\.\/quadqr\.js"/);
+  assert.match(workerCore, /from "\.\/vision\.js"/);
+  assert.match(workerCore, /from "\.\/wasm\.js"/);
+  assert.match(workerCore, /OffscreenCanvas/);
+  assert.match(workerCore, /camera-auto-color/);
+  assert.match(workerCore, /high-resolution-geometry-recovery/);
+  assert.match(workerCore, /multi-frame-confidence-fusion/);
 }
 
 // Classic CDN/global bundle exposes an immediate QuadQR global.

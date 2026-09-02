@@ -163,7 +163,7 @@ PNG generation/decoding and SVG generation are built into the Node.js adapter.
 
 ```html
 <canvas id="qr"></canvas>
-<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.5.1/dist/quadqr.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quadqr-js@1.5.5/dist/quadqr.min.js"></script>
 <script>
   const code = QuadQR.encodeText("No build step");
   QuadQR.renderToCanvas(code, document.querySelector("#qr"));

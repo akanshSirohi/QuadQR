@@ -11560,6 +11560,23 @@ function nowMs() {
     : Date.now();
 }
 
+function cameraScannerStopsOnResult(options = {}) {
+  // `continuous` is the clearer public spelling. Preserve the older
+  // `stopOnResult` option as an explicit override for compatibility.
+  return options.stopOnResult ?? (options.continuous === true ? false : true);
+}
+
+function cameraResultIdentity(result) {
+  if (!result || !Number.isInteger(result.crc32)) return null;
+  return `${result.formatVersion ?? "?"}:${result.version ?? "?"}:${result.crc32 >>> 0}`;
+}
+
+function makeCameraAbortError() {
+  const error = new Error("Camera scanner aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
 function normalizeFrameDiagnostics(frameDiagnostics, source, width, height, visionDiagnostics) {
   if (!frameDiagnostics || typeof frameDiagnostics !== "object") return;
   frameDiagnostics.scanWidth = width;
@@ -11798,6 +11815,7 @@ async function improveCameraTrack(stream) {
 async function startCameraScannerMainThread(video, options = {}) {
   assert(typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia, "Camera API is unavailable.");
   assert(video, "A video element is required.");
+  if (options.signal?.aborted) throw makeCameraAbortError();
 
   const stream = await navigator.mediaDevices.getUserMedia(
     options.constraints ?? {
@@ -11816,6 +11834,7 @@ async function startCameraScannerMainThread(video, options = {}) {
   video.setAttribute("playsinline", "");
   video.muted = true;
   await video.play();
+  const track = stream.getVideoTracks?.()[0] ?? null;
 
   // Keep scanning responsive without queueing stale camera frames. The old
   // 180 ms post-scan timeout made effective cadence equal scan time + 180 ms.
@@ -11837,8 +11856,13 @@ async function startCameraScannerMainThread(video, options = {}) {
     baseCameraMaxDimension,
     Math.round(options.cameraHighResolutionMaxDimension ?? 960)
   );
+  const stopOnResult = cameraScannerStopsOnResult(options);
+  const duplicateCooldown = Math.max(0, Number(options.duplicateCooldown ?? (stopOnResult ? 0 : 1200)));
+  const pauseWhenHidden = options.pauseWhenHidden !== false;
+  const weakFinderFramesRequired = Math.max(2, Math.round(options.cameraRecoveryWeakFinderFrames ?? 2));
   let missStreak = 0;
   let stopped = false;
+  let paused = false;
   let busy = false;
   let timer = null;
   let frameCallbackId = null;
@@ -11846,6 +11870,13 @@ async function startCameraScannerMainThread(video, options = {}) {
   let frameNumber = 0;
   let cameraGeometryHint = null;
   let cameraGeometryHintMisses = 0;
+  let candidateRecoveryArmed = false;
+  let weakFinderStreak = 0;
+  let lastResultIdentity = null;
+  let lastResultAt = -Infinity;
+  let visibilityHandler = null;
+  let abortHandler = null;
+  let trackEndedHandler = null;
   const cameraGeometryReuseMaxMisses = Math.max(1, Math.round(options.cameraGeometryReuseMaxMisses ?? 5));
   const useVideoFrameCallback = options.useVideoFrameCallback !== false &&
     typeof video.requestVideoFrameCallback === "function";
@@ -11865,8 +11896,11 @@ async function startCameraScannerMainThread(video, options = {}) {
   };
 
 
+  const emitCameraState = (state, extra = {}) => {
+    try { options.onCameraState?.({ state, timestamp: Date.now(), ...extra }); } catch {}
+  };
+
   if (diagnosticsEnabled) {
-    const track = stream.getVideoTracks?.()[0];
     const settings = track?.getSettings?.() ?? {};
     emitDiagnostic({
       type: "camera-ready",
@@ -11881,18 +11915,55 @@ async function startCameraScannerMainThread(video, options = {}) {
     });
   }
 
-  const stop = () => {
-    stopped = true;
+  const cancelScheduledScan = () => {
     if (timer) clearTimeout(timer);
     if (frameCallbackId != null && typeof video.cancelVideoFrameCallback === "function") {
       try { video.cancelVideoFrameCallback(frameCallbackId); } catch {}
     }
     timer = null;
     frameCallbackId = null;
+  };
+
+  const resetFreshness = () => {
+    missStreak = 0;
     cameraGeometryHint = null;
+    cameraGeometryHintMisses = 0;
+    candidateRecoveryArmed = false;
+    weakFinderStreak = 0;
     observationHistory.clear();
-    for (const track of stream.getTracks()) track.stop();
+  };
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    paused = false;
+    cancelScheduledScan();
+    resetFreshness();
+    if (visibilityHandler && typeof document !== "undefined") document.removeEventListener("visibilitychange", visibilityHandler);
+    if (abortHandler && options.signal?.removeEventListener) options.signal.removeEventListener("abort", abortHandler);
+    if (trackEndedHandler && track?.removeEventListener) track.removeEventListener("ended", trackEndedHandler);
+    for (const cameraTrack of stream.getTracks()) cameraTrack.stop();
     if (video.srcObject === stream) video.srcObject = null;
+    emitCameraState("stopped");
+  };
+
+  const pause = () => {
+    if (stopped || paused) return;
+    paused = true;
+    cancelScheduledScan();
+    resetFreshness();
+    emitDiagnostic({ type: "camera-paused", state: "paused", method: "camera", message: "Camera scanning paused" });
+    emitCameraState("paused");
+  };
+
+  const resume = () => {
+    if (stopped || !paused) return;
+    paused = false;
+    resetFreshness();
+    lastScanStartedAt = -Infinity;
+    emitDiagnostic({ type: "camera-resumed", state: "running", method: "camera", message: "Camera scanning resumed with fresh state" });
+    emitCameraState("running", { resumed: true });
+    scheduleNextScan();
   };
 
   const scanNow = () => scanVideoFrame(video, {
@@ -11923,6 +11994,7 @@ async function startCameraScannerMainThread(video, options = {}) {
   };
 
   const emitResult = (result, capturedFrame = null, diagnostic = null) => {
+    if (stopped) return true;
     const frameMeta = capturedFrame?.imageData ? {
       frame: frameNumber,
       imageData: capturedFrame.imageData,
@@ -11934,9 +12006,27 @@ async function startCameraScannerMainThread(video, options = {}) {
       enhancement: capturedFrame.enhancement ? { ...capturedFrame.enhancement } : null,
       diagnostic
     } : null;
+
+    if (!stopOnResult) resetFreshness();
+    const identity = cameraResultIdentity(result);
+    const decodedAt = nowMs();
+    if (!stopOnResult && duplicateCooldown > 0 && identity && identity === lastResultIdentity && decodedAt - lastResultAt < duplicateCooldown) {
+      emitDiagnostic({
+        type: "duplicate-suppressed",
+        state: "ignored",
+        method: "continuous-scan",
+        message: `Duplicate QuadQR result suppressed for ${Math.round(duplicateCooldown)} ms`
+      });
+      return false;
+    }
+    if (identity) {
+      lastResultIdentity = identity;
+      lastResultAt = decodedAt;
+    }
+
     options.onResult?.(result, frameMeta);
     options.onDecode?.(result, frameMeta);
-    if (options.stopOnResult ?? true) {
+    if (stopOnResult) {
       stop();
       return true;
     }
@@ -12000,10 +12090,10 @@ async function startCameraScannerMainThread(video, options = {}) {
   };
 
   const scheduleNextScan = () => {
-    if (stopped) return;
+    if (stopped || paused || timer || frameCallbackId != null) return;
     const runWhenDue = () => {
       frameCallbackId = null;
-      if (stopped) return;
+      if (stopped || paused) return;
       const remaining = scanInterval - (nowMs() - lastScanStartedAt);
       if (remaining > 1) {
         timer = setTimeout(() => {
@@ -12027,7 +12117,7 @@ async function startCameraScannerMainThread(video, options = {}) {
   };
 
   const loop = async () => {
-    if (stopped) return;
+    if (stopped || paused) return;
     if (!busy && video.readyState >= 2) {
       busy = true;
       frameNumber++;
@@ -12046,9 +12136,9 @@ async function startCameraScannerMainThread(video, options = {}) {
         // stronger color recovery path. Empty camera frames therefore do not
         // pay every recovery cost on every scan tick.
         allowFinderRecovery = options.finderRecovery !== false &&
-          missStreak > 0 && ((missStreak - 1) % cameraFinderRecoveryEvery === 0);
+          candidateRecoveryArmed && ((missStreak - 1) % cameraFinderRecoveryEvery === 0);
         allowAutoEnhance = options.autoEnhanceRecovery !== false &&
-          missStreak > 0 && ((missStreak - 1) % cameraAutoEnhanceEvery === 0);
+          candidateRecoveryArmed && ((missStreak - 1) % cameraAutoEnhanceEvery === 0);
         const method = allowAutoEnhance
           ? "progressive-color-recovery"
           : (allowFinderRecovery ? "finder-recovery" : "fast-scan");
@@ -12087,6 +12177,8 @@ async function startCameraScannerMainThread(video, options = {}) {
           ...frameDiagnostics
         });
         missStreak = 0;
+        candidateRecoveryArmed = false;
+        weakFinderStreak = 0;
         observationHistory.clear();
         if (emitResult(result, capturedFrame, frameDiagnostics)) return;
       } catch (error) {
@@ -12104,6 +12196,27 @@ async function startCameraScannerMainThread(video, options = {}) {
           error: error?.message ?? String(error),
           ...frameDiagnostics
         });
+
+        // The main-thread fallback follows the same candidate-gated principle
+        // as the dual-worker scanner. Miss count alone never wakes expensive
+        // recovery. Two finders/geometry arm it immediately; a single finder
+        // must persist across fresh frames first.
+        const fastFinderCount = Math.max(
+          Number(frameDiagnostics?.finderCount) || 0,
+          Number(frameDiagnostics?.bestPass?.finderCount) || 0
+        );
+        const hasGeometryEvidence = Boolean(frameDiagnostics?.geometry?.homography);
+        const hasStrongObservation = Boolean(selectBestFrameObservation(observations));
+        if (hasGeometryEvidence || fastFinderCount >= 2 || hasStrongObservation) {
+          candidateRecoveryArmed = true;
+          weakFinderStreak = 0;
+        } else if (fastFinderCount === 1) {
+          weakFinderStreak++;
+          candidateRecoveryArmed = weakFinderStreak >= weakFinderFramesRequired;
+        } else {
+          weakFinderStreak = 0;
+          candidateRecoveryArmed = false;
+        }
 
         // Geometry-aware high-resolution retry. A dense QuadQR can look large
         // enough in the preview while each individual module has become too
@@ -12176,6 +12289,7 @@ async function startCameraScannerMainThread(video, options = {}) {
         // recovery. This runs only after the normal fast scan fails, and by
         // default only on every other missed frame after the first one.
         const shouldTryCameraAutoColor = options.cameraAutoColorRecovery !== false &&
+          candidateRecoveryArmed &&
           capturedFrame.imageData &&
           ((missStreak - 1) % cameraAutoColorEvery === 0);
         if (shouldTryCameraAutoColor) {
@@ -12416,8 +12530,44 @@ async function startCameraScannerMainThread(video, options = {}) {
     scheduleNextScan();
   };
 
-  scheduleNextScan();
-  return { stream, stop, scanNow, video };
+  if (pauseWhenHidden && typeof document !== "undefined" && document.addEventListener) {
+    visibilityHandler = () => {
+      if (document.hidden) pause();
+      else resume();
+    };
+    document.addEventListener("visibilitychange", visibilityHandler);
+    if (document.hidden) paused = true;
+  }
+  if (options.signal?.addEventListener) {
+    abortHandler = () => stop();
+    options.signal.addEventListener("abort", abortHandler, { once: true });
+    if (options.signal.aborted) {
+      stop();
+      throw makeCameraAbortError();
+    }
+  }
+  if (track?.addEventListener) {
+    trackEndedHandler = () => {
+      if (stopped) return;
+      emitDiagnostic({ type: "camera-ended", state: "ended", method: "camera", message: "Camera track ended unexpectedly" });
+      emitCameraState("ended");
+      stop();
+    };
+    track.addEventListener("ended", trackEndedHandler);
+  }
+  emitCameraState(paused ? "paused" : "running", { ready: true });
+
+  if (!paused) scheduleNextScan();
+  return {
+    stream,
+    stop,
+    pause,
+    resume,
+    scanNow,
+    video,
+    get paused() { return paused; },
+    continuous: !stopOnResult
+  };
 }
 
 
@@ -12436,6 +12586,8 @@ function serializableCameraWorkerOptions(options = {}) {
     "onDiagnostic",
     "onResult",
     "onScanMiss",
+    "onCameraState",
+    "signal",
     "cameraWorkerUrl"
   ]);
   const out = {};
@@ -12594,6 +12746,7 @@ function maximumFinderCount(workerResult) {
 async function startCameraScannerWorker(video, options = {}) {
   assert(typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia, "Camera API is unavailable.");
   assert(video, "A video element is required.");
+  if (options.signal?.aborted) throw makeCameraAbortError();
 
   // Keep fresh-frame scanning independent from the expensive damaged/color
   // recovery pipeline. Finder detection itself remains JavaScript; WASM is
@@ -12601,8 +12754,10 @@ async function startCameraScannerWorker(video, options = {}) {
   // The fast worker can therefore inspect the newest frame even while the
   // recovery worker is spending hundreds of milliseconds on an older difficult
   // frame. No recovery method is removed.
+  const stopOnResult = cameraScannerStopsOnResult(options);
+  const workerOptions = { ...options, stopOnResult };
   const fastWorkerOptions = {
-    ...options,
+    ...workerOptions,
     cameraPipelineMode: "fast",
     // The fresh-frame worker is intentionally detection/decode only. Recovery
     // must never become more expensive merely because the camera has been
@@ -12656,7 +12811,10 @@ async function startCameraScannerWorker(video, options = {}) {
   const useVideoFrameCallback = options.useVideoFrameCallback !== false &&
     typeof video.requestVideoFrameCallback === "function";
 
+  const duplicateCooldown = Math.max(0, Number(options.duplicateCooldown ?? (stopOnResult ? 0 : 1200)));
+  const pauseWhenHidden = options.pauseWhenHidden !== false;
   let stopped = false;
+  let paused = false;
   let busy = false;
   let recoveryBusy = false;
   let recoveryWorkerClient = null;
@@ -12670,6 +12828,14 @@ async function startCameraScannerWorker(video, options = {}) {
   let requestToken = 0;
   let recoveryToken = 0;
   let weakFinderStreak = 0;
+  let freshnessGeneration = 0;
+  let fastWorkerGeneration = 0;
+  let recoveryWorkerGeneration = 0;
+  let lastResultIdentity = null;
+  let lastResultAt = -Infinity;
+  let visibilityHandler = null;
+  let abortHandler = null;
+  let trackEndedHandler = null;
 
   const diagnosticsEnabled = typeof options.onDiagnostic === "function";
   const emitDiagnostic = (event) => {
@@ -12686,13 +12852,17 @@ async function startCameraScannerWorker(video, options = {}) {
     }
   };
 
+  const emitCameraState = (state, extra = {}) => {
+    try { options.onCameraState?.({ state, timestamp: Date.now(), ...extra }); } catch {}
+  };
+
   const ensureRecoveryWorker = async () => {
     if (recoveryWorkerClient) return recoveryWorkerClient;
     if (recoveryWorkerFailed) return null;
     if (!recoveryWorkerPromise) {
-      recoveryWorkerPromise = initializeCameraWorker({ ...options, cameraPipelineMode: "full" })
+      recoveryWorkerPromise = initializeCameraWorker({ ...workerOptions, cameraPipelineMode: "full" })
         .then((client) => {
-          if (stopped) {
+          if (stopped || paused) {
             client.terminate();
             return null;
           }
@@ -12733,17 +12903,32 @@ async function startCameraScannerWorker(video, options = {}) {
     recoveryMaxDimension: recoveryCaptureMaxDimension
   });
 
-  const stop = () => {
-    if (stopped) return;
-    stopped = true;
-    requestToken++;
-    recoveryToken++;
+  const cancelScheduledScan = () => {
     if (timer) clearTimeout(timer);
     if (frameCallbackId != null && typeof video.cancelVideoFrameCallback === "function") {
       try { video.cancelVideoFrameCallback(frameCallbackId); } catch {}
     }
     timer = null;
     frameCallbackId = null;
+  };
+
+  const invalidateFreshness = () => {
+    freshnessGeneration++;
+    requestToken++;
+    recoveryToken++;
+    weakFinderStreak = 0;
+    lastRecoveryStartedAt = -Infinity;
+  };
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    paused = false;
+    invalidateFreshness();
+    cancelScheduledScan();
+    if (visibilityHandler && typeof document !== "undefined") document.removeEventListener("visibilitychange", visibilityHandler);
+    if (abortHandler && options.signal?.removeEventListener) options.signal.removeEventListener("abort", abortHandler);
+    if (trackEndedHandler && track?.removeEventListener) track.removeEventListener("ended", trackEndedHandler);
     fastWorkerClient.terminate();
     if (recoveryWorkerClient) {
       recoveryWorkerClient.terminate();
@@ -12753,6 +12938,30 @@ async function startCameraScannerWorker(video, options = {}) {
     }
     for (const cameraTrack of stream.getTracks()) cameraTrack.stop();
     if (video.srcObject === stream) video.srcObject = null;
+    emitCameraState("stopped");
+  };
+
+  const pause = () => {
+    if (stopped || paused) return;
+    paused = true;
+    invalidateFreshness();
+    cancelScheduledScan();
+    if (recoveryWorkerClient) {
+      recoveryWorkerClient.terminate();
+      recoveryWorkerClient = null;
+    }
+    emitDiagnostic({ type: "camera-paused", state: "paused", method: "camera-dual-worker", message: "Camera scanning paused" });
+    emitCameraState("paused");
+  };
+
+  const resume = () => {
+    if (stopped || !paused) return;
+    paused = false;
+    invalidateFreshness();
+    lastScanStartedAt = -Infinity;
+    emitDiagnostic({ type: "camera-resumed", state: "running", method: "camera-dual-worker", message: "Camera scanning resumed with fresh worker state" });
+    emitCameraState("running", { resumed: true });
+    scheduleNextScan();
   };
 
   // Preserve the historical immediate/manual helper as a synchronous scan of
@@ -12767,9 +12976,27 @@ async function startCameraScannerWorker(video, options = {}) {
     const normalizedMeta = frameMeta
       ? { frame: frameMeta.frame ?? frameNumber, ...frameMeta }
       : null;
+
+    if (!stopOnResult) invalidateFreshness();
+    const identity = cameraResultIdentity(result);
+    const decodedAt = nowMs();
+    if (!stopOnResult && duplicateCooldown > 0 && identity && identity === lastResultIdentity && decodedAt - lastResultAt < duplicateCooldown) {
+      emitDiagnostic({
+        type: "duplicate-suppressed",
+        state: "ignored",
+        method: "continuous-scan",
+        message: `Duplicate QuadQR result suppressed for ${Math.round(duplicateCooldown)} ms`
+      });
+      return false;
+    }
+    if (identity) {
+      lastResultIdentity = identity;
+      lastResultAt = decodedAt;
+    }
+
     options.onResult?.(result, normalizedMeta);
     options.onDecode?.(result, normalizedMeta);
-    if (options.stopOnResult ?? true) {
+    if (stopOnResult) {
       stop();
       return true;
     }
@@ -12777,16 +13004,28 @@ async function startCameraScannerWorker(video, options = {}) {
   };
 
   const runRecovery = async (triggerFrame, finderCount) => {
-    if (stopped || recoveryBusy) return;
+    if (stopped || paused || recoveryBusy) return;
     recoveryBusy = true;
     lastRecoveryStartedAt = nowMs();
     const token = ++recoveryToken;
     let bitmap = null;
     try {
       const client = await ensureRecoveryWorker();
-      if (stopped || token !== recoveryToken) return;
+      if (stopped || paused || token !== recoveryToken) return;
       const recoveryClient = client ?? fastWorkerClient;
       const singleWorkerFallback = !client;
+      if (!stopOnResult) {
+        if (singleWorkerFallback) {
+          // The fast worker guard already resets itself after a successful
+          // continuous decode. Avoid concurrent reset/scan messages when one
+          // worker is temporarily serving both lanes.
+          fastWorkerGeneration = freshnessGeneration;
+        } else if (recoveryWorkerGeneration !== freshnessGeneration) {
+          await recoveryClient.request("reset");
+          recoveryWorkerGeneration = freshnessGeneration;
+        }
+      }
+      const dispatchGeneration = freshnessGeneration;
 
       // Capture only after the recovery execution path is ready. This guarantees
       // the expensive path receives a fresh frame rather than a bitmap that sat
@@ -12794,7 +13033,7 @@ async function startCameraScannerWorker(video, options = {}) {
       const visibleSource = visibleVideoSourceRect(video, options);
       const captured = await captureCameraBitmap(video, visibleSource, recoveryCaptureMaxDimension);
       bitmap = captured.bitmap;
-      if (stopped || token !== recoveryToken) {
+      if (stopped || paused || token !== recoveryToken || dispatchGeneration !== freshnessGeneration) {
         bitmap.close?.();
         return;
       }
@@ -12809,14 +13048,14 @@ async function startCameraScannerWorker(video, options = {}) {
       });
 
       const recoveryPayload = { bitmap, source: captured.source, frame: triggerFrame };
-      if (singleWorkerFallback) recoveryPayload.options = serializableCameraWorkerOptions(options);
+      if (singleWorkerFallback) recoveryPayload.options = serializableCameraWorkerOptions(workerOptions);
       const workerResult = await recoveryClient.request(
         singleWorkerFallback ? "scan-full" : "scan",
         recoveryPayload,
         [bitmap]
       );
       bitmap = null;
-      if (stopped || token !== recoveryToken) return;
+      if (stopped || paused || token !== recoveryToken || dispatchGeneration !== freshnessGeneration) return;
 
       for (const diagnostic of workerResult?.diagnostics ?? []) {
         emitDiagnostic({
@@ -12831,7 +13070,7 @@ async function startCameraScannerWorker(video, options = {}) {
       }
     } catch (error) {
       try { bitmap?.close?.(); } catch {}
-      if (!stopped) {
+      if (!stopped && !paused) {
         emitDiagnostic({
           type: "recovery-worker-error",
           state: "error",
@@ -12846,7 +13085,7 @@ async function startCameraScannerWorker(video, options = {}) {
   };
 
   const maybeDispatchRecovery = (workerResult, triggerFrame) => {
-    if (stopped || recoveryBusy) return;
+    if (stopped || paused || recoveryBusy) return;
     const finderCount = maximumFinderCount(workerResult);
 
     // Do not run Auto Color, high-resolution, multi-frame, or damaged-code
@@ -12872,10 +13111,10 @@ async function startCameraScannerWorker(video, options = {}) {
   };
 
   const scheduleNextScan = () => {
-    if (stopped) return;
+    if (stopped || paused || timer || frameCallbackId != null) return;
     const runWhenDue = () => {
       frameCallbackId = null;
-      if (stopped) return;
+      if (stopped || paused) return;
       const remaining = scanInterval - (nowMs() - lastScanStartedAt);
       if (remaining > 1) {
         timer = setTimeout(() => {
@@ -12899,7 +13138,7 @@ async function startCameraScannerWorker(video, options = {}) {
   };
 
   const loop = async () => {
-    if (stopped) return;
+    if (stopped || paused) return;
     if (!busy && video.readyState >= 2) {
       busy = true;
       frameNumber++;
@@ -12908,11 +13147,17 @@ async function startCameraScannerWorker(video, options = {}) {
       const token = ++requestToken;
       let bitmap = null;
       try {
+        if (!stopOnResult && fastWorkerGeneration !== freshnessGeneration) {
+          await fastWorkerClient.request("reset");
+          fastWorkerGeneration = freshnessGeneration;
+        }
+        const dispatchGeneration = freshnessGeneration;
         const visibleSource = visibleVideoSourceRect(video, options);
         const captured = await captureCameraBitmap(video, visibleSource, fastCaptureMaxDimension);
         bitmap = captured.bitmap;
-        if (stopped || token !== requestToken) {
+        if (stopped || paused || token !== requestToken || dispatchGeneration !== freshnessGeneration) {
           bitmap.close?.();
+          if (!stopped && !paused) scheduleNextScan();
           return;
         }
         const workerResult = await fastWorkerClient.request(
@@ -12921,7 +13166,10 @@ async function startCameraScannerWorker(video, options = {}) {
           [bitmap]
         );
         bitmap = null;
-        if (stopped || token !== requestToken) return;
+        if (stopped || paused || token !== requestToken || dispatchGeneration !== freshnessGeneration) {
+          if (!stopped && !paused) scheduleNextScan();
+          return;
+        }
 
         for (const diagnostic of workerResult?.diagnostics ?? []) {
           emitDiagnostic({ ...diagnostic, fastWorker: true, frame: currentFrame });
@@ -12940,7 +13188,7 @@ async function startCameraScannerWorker(video, options = {}) {
         }
       } catch (error) {
         try { bitmap?.close?.(); } catch {}
-        if (!stopped) {
+        if (!stopped && !paused) {
           emitDiagnostic({
             type: "worker-error",
             state: "error",
@@ -12957,15 +13205,46 @@ async function startCameraScannerWorker(video, options = {}) {
     scheduleNextScan();
   };
 
-  scheduleNextScan();
+  if (pauseWhenHidden && typeof document !== "undefined" && document.addEventListener) {
+    visibilityHandler = () => {
+      if (document.hidden) pause();
+      else resume();
+    };
+    document.addEventListener("visibilitychange", visibilityHandler);
+    if (document.hidden) paused = true;
+  }
+  if (options.signal?.addEventListener) {
+    abortHandler = () => stop();
+    options.signal.addEventListener("abort", abortHandler, { once: true });
+    if (options.signal.aborted) {
+      stop();
+      throw makeCameraAbortError();
+    }
+  }
+  if (track?.addEventListener) {
+    trackEndedHandler = () => {
+      if (stopped) return;
+      emitDiagnostic({ type: "camera-ended", state: "ended", method: "camera-dual-worker", message: "Camera track ended unexpectedly" });
+      emitCameraState("ended");
+      stop();
+    };
+    track.addEventListener("ended", trackEndedHandler);
+  }
+  emitCameraState(paused ? "paused" : "running", { ready: true });
+
+  if (!paused) scheduleNextScan();
   return {
     stream,
     stop,
+    pause,
+    resume,
     scanNow,
     video,
     worker: true,
     workerMode: "dual-pipeline",
-    workerState: fastWorkerClient.state
+    workerState: fastWorkerClient.state,
+    get paused() { return paused; },
+    continuous: !stopOnResult
   };
 }
 

@@ -275,9 +275,10 @@ async function build() {
   }
   await copyFile(path.join(root, "library", "node.js"), path.join(esmDir, "node.js"));
 
-  // The ESM scanner resolves the worker beside dist/esm/quadqr.js. The classic
-  // CDN/global build resolves it beside dist/quadqr(.min).js, so generate a
-  // second tiny worker entry whose imports point into dist/esm.
+  // The worker guard resolves its scanner core relative to its own location:
+  // dist/esm uses ./camera-scanner-worker-core.js while the classic/global
+  // entry automatically resolves ./esm/camera-scanner-worker-core.js. Keep a
+  // root copy so both package layouts can start the same guarded worker.
   const cameraWorkerSource = await readFile(path.join(root, "library", "camera-scanner-worker.js"), "utf8");
   const globalCameraWorkerSource = cameraWorkerSource
     .replace('from "./quadqr.js"', 'from "./esm/quadqr.js"')
