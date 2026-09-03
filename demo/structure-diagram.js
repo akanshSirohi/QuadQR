@@ -326,21 +326,56 @@ function generateSVG(options = {}) {
   function cellCenter(row, col) {
     return { x: mx + (col + 0.5) * module, y: my + (row + 0.5) * module };
   }
-  function callout(box, target, side = 'right', accent = PALETTE.cyan) {
-    const sx = side === 'right' ? box.x + box.width : box.x;
-    const sy = box.y + Math.min(box.height * 0.5, 48);
-    const bendX = side === 'right' ? sx + 48 : sx - 48;
-    push(`<polyline points="${sx},${sy} ${bendX},${sy} ${target.x},${target.y}" fill="none" stroke="${accent}" stroke-width="2" stroke-linejoin="round"/>`);
-    push(`<circle cx="${target.x}" cy="${target.y}" r="4" fill="${accent}"/>`);
+  function normalizeTarget(target, side) {
+    if (target.rect) {
+      const rect = target.rect;
+      const anchorY = rect.y + (target.anchorYRatio != null ? rect.h * target.anchorYRatio : rect.h / 2);
+      const anchorX = side === 'right' ? rect.x : rect.x + rect.w;
+      return {
+        x: anchorX,
+        y: anchorY,
+        dotX: target.dotX != null ? target.dotX : rect.x + rect.w / 2,
+        dotY: target.dotY != null ? target.dotY : rect.y + rect.h / 2
+      };
+    }
+    return {
+      x: target.x,
+      y: target.y,
+      dotX: target.dotX != null ? target.dotX : target.x,
+      dotY: target.dotY != null ? target.dotY : target.y
+    };
   }
 
-  push(`<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:auto;max-width:${W}px" role="img" aria-labelledby="title desc">`);
-  push(`<title id="title">QuadQR Format v6 basic structure diagram, Version ${version}</title>`);
+  function callout(box, target, side = 'right', accent = PALETTE.cyan, lane = 0) {
+    const sx = side === 'right' ? box.x + box.width : box.x;
+    const sy = box.y + Math.min(box.height * 0.5, 48);
+    const t = normalizeTarget(target, side);
+
+    if (side === 'right') {
+      // Left-side labels point at finder/separator/timing features that live
+      // very close together. A stack of orthogonal rails becomes ambiguous,
+      // so use independent smooth leaders that remain inside the label-to-code
+      // gutter and terminate directly on the selected feature.
+      const startX = sx + 8;
+      const control1X = sx + 28 + lane * 4;
+      const control2X = Math.min(t.x - 18, ox + 18 + lane * 5);
+      push(`<path d="M ${sx} ${sy} L ${startX} ${sy} C ${control1X} ${sy}, ${control2X} ${t.y}, ${t.x} ${t.y}" fill="none" stroke="${accent}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`);
+    } else {
+      // Mirror the same smooth-leader treatment on the right side so long
+      // callouts stay readable even when box positions or matrix targets shift.
+      const startX = sx - 8;
+      const control1X = sx - 28 - lane * 4;
+      const control2X = Math.max(t.x + 18, ox + symbolPx - 18 - lane * 5);
+      push(`<path d="M ${sx} ${sy} L ${startX} ${sy} C ${control1X} ${sy}, ${control2X} ${t.y}, ${t.x} ${t.y}" fill="none" stroke="${accent}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`);
+    }
+    push(`<circle cx="${t.dotX}" cy="${t.dotY}" r="2.2" fill="${accent}"/>`);
+  }
+
+  push(`<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:auto;max-width:${W}px" role="img" aria-label="QuadQR Format v6 basic structure diagram, Version ${version}" aria-describedby="desc">`);
   push(`<desc id="desc">Accurate structural blueprint showing QuadQR finder patterns, timing patterns, distributed alignment eyes, RGB calibration strip, quiet zone, and RGBW data cells.</desc>`);
   push(`<defs>
     <pattern id="bp-grid-small" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M 20 0 L 0 0 0 20" fill="none" stroke="#0d3047" stroke-width="1"/></pattern>
     <pattern id="bp-grid-large" width="100" height="100" patternUnits="userSpaceOnUse"><rect width="100" height="100" fill="url(#bp-grid-small)"/><path d="M100 0H0V100" fill="none" stroke="#154765" stroke-width="1.2"/></pattern>
-    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L6,3 z" fill="${PALETTE.yellow}"/></marker>
   </defs>`);
 
   rect(0, 0, W, H, PALETTE.blueprint);
@@ -387,53 +422,90 @@ function generateSVG(options = {}) {
   // A short, explicit physical zig-zag sample at the bottom-right.
   const pathPoints = dataPositions.slice(0, Math.min(24, dataPositions.length)).map(([r,c]) => cellCenter(r,c));
   if (pathPoints.length > 1) {
-    push(`<polyline points="${pathPoints.map(p => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="${PALETTE.yellow}" stroke-width="2.2" stroke-opacity="0.85" stroke-dasharray="4 4" marker-end="url(#arrow)"/>`);
+    push(`<polyline points="${pathPoints.map(p => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="${PALETTE.yellow}" stroke-width="1.8" stroke-opacity="0.82" stroke-dasharray="4 4" stroke-linecap="round" stroke-linejoin="round"/>`);
+    const pathEnd = pathPoints[pathPoints.length - 1];
+    push(`<circle cx="${pathEnd.x}" cy="${pathEnd.y}" r="2.4" fill="${PALETTE.yellow}"/>`);
   }
+
+  // Feature highlight rectangles used by callouts so leaders terminate at
+  // explicit in-symbol targets instead of stopping at the quiet-zone edge.
+  const finderRect = { x: mx - 2, y: my - 2, w: 7 * module + 4, h: 7 * module + 4 };
+  push(`<rect x="${finderRect.x}" y="${finderRect.y}" width="${finderRect.w}" height="${finderRect.h}" fill="none" stroke="${PALETTE.cyan}" stroke-width="2" stroke-opacity="0.9" rx="3"/>`);
+  const separatorRect = { x: mx - module - 2, y: my - module - 2, w: 9 * module + 4, h: 9 * module + 4 };
+  push(`<rect x="${separatorRect.x}" y="${separatorRect.y}" width="${separatorRect.w}" height="${separatorRect.h}" fill="none" stroke="#8ee7ff" stroke-width="2" stroke-opacity="0.85" rx="3"/>`);
+  const timingHRect = { x: mx + 8 * module - 2, y: my + 6 * module - 2, w: (Math.max(0, size - 16)) * module + 4, h: module + 4 };
+  push(`<rect x="${timingHRect.x}" y="${timingHRect.y}" width="${timingHRect.w}" height="${timingHRect.h}" fill="none" stroke="${PALETTE.violet}" stroke-width="2" stroke-opacity="0.85" rx="3"/>`);
+  const timingVRect = { x: mx + 6 * module - 2, y: my + 8 * module - 2, w: module + 4, h: (Math.max(0, size - 16)) * module + 4 };
+  push(`<rect x="${timingVRect.x}" y="${timingVRect.y}" width="${timingVRect.w}" height="${timingVRect.h}" fill="none" stroke="${PALETTE.violet}" stroke-width="1.6" stroke-opacity="0.6" rx="3"/>`);
+  const quietRect = { x: ox, y: oy, w: symbolPx, h: symbolPx };
 
   // Left callouts.
   const finderBox = labelBox(65, 220, 270, 'Finder patterns', ['Three primary 7×7 eyes', 'Top-left, top-right, bottom-left'], PALETTE.cyan);
-  callout(finderBox, cellCenter(3, 3), 'right', PALETTE.cyan);
+  callout(finderBox, cellCenter(3, 3), 'right', PALETTE.cyan, 0);
 
   const sepBox = labelBox(65, 350, 270, 'Finder separators', ['1-module structural white border', 'reserved wherever it fits'], '#8ee7ff');
-  callout(sepBox, cellCenter(7, 3), 'right', '#8ee7ff');
+  callout(sepBox, cellCenter(7, 3), 'right', '#8ee7ff', 1);
 
   const timingBox = labelBox(65, 480, 270, 'Timing patterns', ['Alternating black / white', 'row 6 and column 6'], PALETTE.violet);
-  callout(timingBox, cellCenter(6, Math.min(13, size - 10)), 'right', PALETTE.violet);
-  const timingVertical = cellCenter(Math.min(17, size - 10), 6);
-  line(timingBox.x + timingBox.width, timingBox.y + timingBox.height - 18, timingVertical.x, timingVertical.y, PALETTE.violet, 1.5, 'stroke-opacity="0.8"');
+  callout(timingBox, cellCenter(6, Math.min(12, size - 9)), 'right', PALETTE.violet, 2);
 
   const quietBox = labelBox(65, 620, 270, 'Quiet zone', ['Renderer default: 4 modules', 'outside the encoded matrix'], '#7dd3fc');
-  callout(quietBox, { x: ox + module * 1.8, y: oy + symbolPx * 0.58 }, 'right', '#7dd3fc');
+  callout(quietBox, { x: ox + module * 2, y: oy + symbolPx * 0.70 }, 'right', '#7dd3fc', 3);
 
-  // Right callouts.
+  // Right callouts. Keep labels in the same top-to-bottom order as their
+  // physical target positions. Together with dedicated gutter lanes this
+  // guarantees leader lines do not cross or visually point at another label.
   const alignTarget = alignments.find(a => a.row !== 6 && a.col !== 6) || alignments[0];
-  const alignBox = labelBox(1190, 220, 420, 'Distributed alignment eyes', [
-    `${alignments.length} nested 5×5 eyes in Version ${version}`,
-    'scheduled positions refine perspective geometry'
-  ], PALETTE.yellow);
-  callout(alignBox, cellCenter(alignTarget.row, alignTarget.col), 'left', PALETTE.yellow);
-
-  const calBox = labelBox(1190, 365, 420, 'RGB calibration strip', [
-    '12 physically reserved cells: RR | GG | BB',
-    `2×6 strip origin: row ${calibration.row}, col ${calibration.col}`,
-    'black / white calibration comes from structure'
-  ], '#ff8fa3');
-  callout(calBox, cellCenter(calibration.row, calibration.col + 2.5), 'left', '#ff8fa3');
+  let alignRect = null;
+  if (alignTarget) {
+    const ar = 2;
+    alignRect = { x: mx + (alignTarget.col - ar) * module - 2, y: my + (alignTarget.row - ar) * module - 2, w: 5 * module + 4, h: 5 * module + 4 };
+    push(`<rect x="${alignRect.x}" y="${alignRect.y}" width="${alignRect.w}" height="${alignRect.h}" fill="none" stroke="${PALETTE.yellow}" stroke-width="2" stroke-opacity="0.9" rx="3"/>`);
+  }
 
   const dataSample = dataPositions[Math.floor(dataPositions.length * 0.58)];
-  const dataBox = labelBox(1190, 535, 420, 'RGBW data cells', [
+  let dataRect = null;
+  if (dataSample) {
+    dataRect = { x: mx + dataSample[1] * module - 2, y: my + dataSample[0] * module - 2, w: module + 4, h: module + 4 };
+    push(`<rect x="${dataRect.x}" y="${dataRect.y}" width="${dataRect.w}" height="${dataRect.h}" fill="none" stroke="#72f1b8" stroke-width="2" rx="3"/>`);
+  }
+  const calRect = { x: mx + calibration.col * module - 2, y: my + calibration.row * module - 2, w: 6 * module + 4, h: 2 * module + 4 };
+  const pathAnchor = pathPoints[Math.min(12, pathPoints.length - 1)];
+  const pathRect = pathAnchor ? { x: pathAnchor.x - module * 1.1, y: pathAnchor.y - module * 1.6, w: module * 2.2, h: module * 3.2 } : null;
+  if (pathRect) {
+    push(`<rect x="${pathRect.x}" y="${pathRect.y}" width="${pathRect.w}" height="${pathRect.h}" fill="none" stroke="${PALETTE.yellow}" stroke-width="1.8" stroke-opacity="0.9" rx="3"/>`);
+  }
+
+  // 1. Highest physical target: representative RGBW data cell.
+  const dataBox = labelBox(1190, 220, 420, 'RGBW data cells', [
     'All non-reserved cells belong to the data plane',
     'R / G / B / W = 2 raw bits in normal mode',
     `${counts.dataPositions} physical data positions in this geometry`
   ], '#72f1b8');
-  callout(dataBox, cellCenter(dataSample[0], dataSample[1]), 'left', '#72f1b8');
+  callout(dataBox, { rect: dataRect }, 'left', '#72f1b8', 0);
 
-  const pathBox = labelBox(1190, 715, 420, 'Physical position order', [
+  // 2. Alignment target sits below the selected data sample.
+  const alignBox = labelBox(1190, 370, 420, 'Distributed alignment eyes', [
+    `${alignments.length} nested 5×5 eyes in Version ${version}`,
+    'scheduled positions refine perspective geometry'
+  ], PALETTE.yellow);
+  callout(alignBox, { rect: alignRect }, 'left', PALETTE.yellow, 1);
+
+  // 3. Calibration strip is lower in the physical matrix.
+  const calBox = labelBox(1190, 495, 420, 'RGB calibration strip', [
+    '12 physically reserved cells: RR | GG | BB',
+    `2×6 strip origin: row ${calibration.row}, col ${calibration.col}`,
+    'black / white calibration comes from structure'
+  ], '#ff8fa3');
+  callout(calBox, { rect: calRect }, 'left', '#ff8fa3', 2);
+
+  // 4. The physical zig-zag sample is at the bottom-right.
+  const pathBox = labelBox(1190, 650, 420, 'Physical position order', [
     'Two-column vertical zig-zag starts bottom-right',
     'reserved cells are skipped',
     'logical cells are spectrally permuted before placement'
   ], PALETTE.yellow);
-  callout(pathBox, pathPoints[Math.min(12, pathPoints.length - 1)], 'left', PALETTE.yellow);
+  callout(pathBox, { rect: pathRect, dotX: pathAnchor.x, dotY: pathAnchor.y }, 'left', PALETTE.yellow, 3);
 
   // Reserved-area classification and legend.
   const infoY = 900;
