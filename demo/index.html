@@ -17,7 +17,7 @@
           with spectral interleaving, confidence-aware Reed-Solomon ECC, and camera color calibration.
         </p>
       </div>
-      <div class="badge"><span>QuadQR</span><span>High Density experimental</span><span>format v5</span></div>
+      <div class="badge"><span>QuadQR</span><span>High Density experimental</span><span>format v6</span></div>
     </header>
 
     <nav class="tabs" aria-label="Demo sections">
@@ -25,6 +25,7 @@
       <button class="tab" data-tab="camera" type="button" aria-label="Camera scanner">Camera</button>
       <button class="tab" data-tab="reliability" type="button">Reliability Lab</button>
       <button class="tab" data-tab="benchmark" type="button">Benchmark</button>
+      <button class="tab" data-tab="structure" type="button" aria-label="QuadQR structure diagram">Structure</button>
     </nav>
 
     <section id="labView" class="tab-view active" data-view="lab">
@@ -276,12 +277,46 @@
             <p><strong>High Density Mode.</strong> When enabled, the experimental Triangle16 layout splits each payload module on a fixed / diagonal. Each triangle uses multiple protected interior samples with instability-aware confidence, creating 16 states and 4 bits per body cell while keeping the protected header solid-color. It is disabled by default.</p>
             <p><strong>Spectrum ECC 2.0.</strong> GF(256) Reed-Solomon first tries normal correction, then confidence-guided erasures. If that still fails, a bounded soft-decision pass can try the scanner's second hypothesis for a few least-confident cells without adding ECC overhead.</p>
             <p><strong>Spectral-spatial interleaving.</strong> Logical codeword cells are scattered across distant physical modules with a reversible zero-overhead permutation, improving resistance to localized damage without reducing capacity.</p>
-            <p><strong>Perspective geometry.</strong> Three large finder patterns stay fixed. Larger versions keep one 5×5 primary alignment reference and add compact 3×3 secondary markers for stronger geometry and version validation with less capacity overhead.</p>
+            <p><strong>Perspective geometry.</strong> Three large finder patterns stay fixed. Versions 2 through 40 use distributed 5×5 nested alignment eyes on the scheduled alignment grid, while Version 1 keeps its bottom-right bootstrap alignment marker.</p>
             <p><strong>Advanced color calibration.</strong> RGB swatches plus structural black/white references support observed-palette matching, white balance, and a learned affine cross-channel correction. Every data cell keeps confidence plus a second hypothesis for Spectrum ECC 2.0.</p>
             <p><strong>Secure Payload v1.</strong> Optional AES-256-GCM authenticated encryption supports password-derived keys and exact raw 256-bit keys. Encryption sits above Spectrum ECC, so standard symbols keep their existing scan path.</p>
             <p><strong>Compact v1.</strong> The 21×21 symbol uses a reduced protected header and size-appropriate ECC, giving v1-M 24 payload bytes while retaining CRC-32.</p>
           </div>
           <p class="warning">This is a custom experimental symbology. Standard QR scanner apps cannot decode it.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="structureView" class="tab-view" data-view="structure" hidden>
+      <div class="structure-page">
+        <article class="panel structure-panel">
+          <div class="panel-head structure-panel-head">
+            <div>
+              <p class="kicker">FORMAT BLUEPRINT</p>
+              <h2>QuadQR physical structure</h2>
+              <p class="structure-intro">Explore the actual Format v6 matrix geometry. Reserved roles are derived from the same finder, timing, alignment, calibration and data-placement rules used by QuadQR.</p>
+            </div>
+            <div class="structure-actions">
+              <label class="field structure-version-field" for="structureVersion">
+                <span>Version</span>
+                <select id="structureVersion" aria-label="Structure diagram version"></select>
+              </label>
+              <button id="downloadStructureSvgBtn" class="secondary" type="button">Download SVG</button>
+            </div>
+          </div>
+
+          <div class="structure-summary" aria-label="Structure summary">
+            <div><span>Matrix</span><strong id="structureMatrixStat">45 × 45</strong></div>
+            <div><span>Alignment eyes</span><strong id="structureAlignmentStat">6</strong></div>
+            <div><span>Structural reserved</span><strong id="structureReservedStat">--</strong></div>
+            <div><span>Data positions</span><strong id="structureDataStat">--</strong></div>
+          </div>
+
+          <div id="structureDiagram" class="structure-diagram-stage" aria-live="polite">
+            <div class="structure-placeholder">Open this tab to render the structure diagram.</div>
+          </div>
+
+          <p class="structure-note"><strong>Important:</strong> white is not a structural-only color. White can represent either structural white or the RGBW data value <code>11</code>; the reserved-position geometry determines its role. Red, green and blue can likewise be payload colors or calibration cells. Header, ECC, CRC-32, payload and padding are logical contents mapped into ordinary data positions, not fixed physical blocks.</p>
         </article>
       </div>
     </section>
@@ -535,6 +570,7 @@
     </section>
   </main>
 
+  <script src="./structure-diagram.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
 </html>

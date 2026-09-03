@@ -2070,3 +2070,166 @@ button.compact {
     animation-duration: 1.4s;
   }
 }
+
+
+/* --------------------------------------------------------------------------
+   QuadQR structure blueprint
+   -------------------------------------------------------------------------- */
+
+.structure-page {
+  display: grid;
+  place-items: start center;
+}
+
+.structure-panel {
+  width: min(1180px, 100%);
+}
+
+.structure-panel-head {
+  align-items: flex-end;
+}
+
+.structure-intro {
+  max-width: 720px;
+  margin: 10px 0 0;
+  color: #9aa4b3;
+  line-height: 1.65;
+  font-size: 13px;
+}
+
+.structure-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.structure-version-field {
+  width: 210px;
+  margin: 0;
+}
+
+.structure-actions button {
+  min-height: 42px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.structure-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 4px 0 16px;
+}
+
+.structure-summary > div {
+  min-width: 0;
+  border: 1px solid #252c35;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #0c1014;
+}
+
+.structure-summary span,
+.structure-summary strong {
+  display: block;
+}
+
+.structure-summary span {
+  margin-bottom: 5px;
+  color: #7f8998;
+  font-size: 11px;
+}
+
+.structure-summary strong {
+  color: #f5f7fa;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+.structure-diagram-stage {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #20252d;
+  border-radius: 16px;
+  background: #071827;
+}
+
+.structure-diagram-stage svg {
+  display: block;
+  width: 100%;
+  max-width: 100% !important;
+  height: auto;
+}
+
+.structure-placeholder {
+  display: grid;
+  min-height: 280px;
+  place-items: center;
+  padding: 24px;
+  color: #7e8795;
+  text-align: center;
+}
+
+.structure-note {
+  margin: 14px 0 0;
+  border-left: 3px solid #56d8ff;
+  padding: 10px 0 10px 14px;
+  color: #9aa4b3;
+  line-height: 1.65;
+  font-size: 13px;
+}
+
+.structure-note strong {
+  color: #dceff7;
+}
+
+.structure-note code {
+  color: #dfe8ff;
+}
+
+@media (max-width: 760px) {
+  .structure-panel-head {
+    align-items: flex-start;
+  }
+
+  .structure-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .structure-version-field {
+    flex: 1 1 190px;
+    width: auto;
+  }
+
+  .structure-actions button {
+    flex: 0 0 auto;
+  }
+
+  .structure-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .tabs {
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+
+  .tab {
+    flex: 0 0 auto;
+  }
+
+  .structure-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .structure-version-field,
+  .structure-actions button {
+    width: 100%;
+  }
+}

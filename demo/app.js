@@ -91,6 +91,13 @@ const cameraPill = document.querySelector("#cameraPill");
 const cameraResultEl = document.querySelector("#cameraResult");
 const tabButtons = [...document.querySelectorAll("[data-tab]")];
 const tabViews = [...document.querySelectorAll("[data-view]")];
+const structureVersionEl = document.querySelector("#structureVersion");
+const structureDiagramEl = document.querySelector("#structureDiagram");
+const downloadStructureSvgBtn = document.querySelector("#downloadStructureSvgBtn");
+const structureMatrixStatEl = document.querySelector("#structureMatrixStat");
+const structureAlignmentStatEl = document.querySelector("#structureAlignmentStat");
+const structureReservedStatEl = document.querySelector("#structureReservedStat");
+const structureDataStatEl = document.querySelector("#structureDataStat");
 const benchmarkEccEl = document.querySelector("#benchmarkEcc");
 const benchmarkIterationsEl = document.querySelector("#benchmarkIterations");
 const runBenchmarkBtn = document.querySelector("#runBenchmarkBtn");
@@ -135,6 +142,8 @@ let currentLogoDataUrl = null;
 let signingKeyPair = null;
 let cameraController = null;
 let cameraLogLines = [];
+let structureRenderedVersion = null;
+let currentStructureSvg = "";
 let lastCameraLogSignature = "";
 let lastCameraFrameDiagnostic = null;
 let lastCameraUiUpdate = 0;
@@ -1659,6 +1668,52 @@ async function stopCamera() {
   appendCameraLog("Camera stopped", "muted", "camera-stopped");
 }
 
+function setupStructureVersions() {
+  if (!structureVersionEl) return;
+  structureVersionEl.innerHTML = "";
+  for (let version = 1; version <= MAX_VERSION; version++) {
+    const option = document.createElement("option");
+    option.value = String(version);
+    option.textContent = `Version ${version} · ${21 + 4 * (version - 1)}×${21 + 4 * (version - 1)}`;
+    option.selected = version === 7;
+    structureVersionEl.appendChild(option);
+  }
+}
+
+function renderStructureDiagram(force = false) {
+  if (!structureDiagramEl || !structureVersionEl) return;
+  const diagramApi = window.QuadQRStructureDiagram;
+  if (!diagramApi) {
+    structureDiagramEl.innerHTML = '<div class="structure-placeholder">Structure diagram generator failed to load.</div>';
+    return;
+  }
+
+  const version = Math.max(1, Math.min(MAX_VERSION, Number(structureVersionEl.value) || 7));
+  if (!force && structureRenderedVersion === version && currentStructureSvg) return;
+
+  const layout = diagramApi.buildLayout(version);
+  currentStructureSvg = diagramApi.generateSVG({ version });
+  structureDiagramEl.innerHTML = currentStructureSvg;
+  structureRenderedVersion = version;
+
+  structureMatrixStatEl.textContent = `${layout.size} × ${layout.size}`;
+  structureAlignmentStatEl.textContent = String(layout.alignments.length);
+  structureReservedStatEl.textContent = `${layout.counts.structuralReserved} + ${layout.counts.calibrationReserved}`;
+  structureDataStatEl.textContent = String(layout.counts.dataPositions);
+}
+
+function downloadStructureSvg() {
+  renderStructureDiagram();
+  if (!currentStructureSvg || !structureRenderedVersion) return;
+  const blob = new Blob([currentStructureSvg], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.download = `quadqr-format-v6-structure-v${structureRenderedVersion}.svg`;
+  link.href = url;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 function activateTab(tabName) {
   for (const button of tabButtons) {
     button.classList.toggle("active", button.dataset.tab === tabName);
@@ -1669,11 +1724,15 @@ function activateTab(tabName) {
     view.hidden = !active;
   }
   if (tabName !== "camera" && cameraController) stopCamera();
+  if (tabName === "structure") renderStructureDiagram();
 }
 
 for (const button of tabButtons) {
   button.addEventListener("click", () => activateTab(button.dataset.tab));
 }
+
+structureVersionEl?.addEventListener("change", () => renderStructureDiagram(true));
+downloadStructureSvgBtn?.addEventListener("click", downloadStructureSvg);
 
 generateBtn.addEventListener("click", generate);
 scanabilityBtn.addEventListener("click", runScanabilityTest);
@@ -1917,6 +1976,7 @@ window.addEventListener("pagehide", () => {
   analysisWorker.reset("Page closed.");
 });
 
+setupStructureVersions();
 resetCameraDiagnosticsUi();
 updateLogoUploadUi();
 updateCompressionUi();
