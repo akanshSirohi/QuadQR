@@ -39,6 +39,10 @@ class FakeWorker {
       return;
     }
 
+    if (message.type === "probe") {
+      queueMicrotask(() => this.emit("message", { id: message.id, ok: true, result: { probe: true, transport: "bitmap" } }));
+      return;
+    }
     if (message.type !== "scan") throw new Error(`Unexpected worker message ${message.type}`);
 
     if (this.index === 1) {

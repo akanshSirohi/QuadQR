@@ -316,7 +316,8 @@ function gateFastFinderDiagnostics(workerResult, colorEvidence, frameNumber) {
   const geometryConfirmed = Boolean(
     evidence.geometry?.homography && Number.isInteger(evidence.geometry?.version)
   );
-  const requiredFrames = geometryConfirmed
+  const strongThreeFinderEvidence = evidence.count >= 3;
+  const requiredFrames = geometryConfirmed || strongThreeFinderEvidence
     ? 1
     : evidence.count >= 2
       ? Math.max(2, Math.round(activeOptions.cameraCandidateStableFrames ?? 2))
@@ -324,7 +325,10 @@ function gateFastFinderDiagnostics(workerResult, colorEvidence, frameNumber) {
   const colorRequired = activeOptions.cameraCandidateColorGate !== false;
   const colorConfirmed = colorEvidence?.present === true;
   const colorUnavailableFallback = colorEvidence == null && streak >= Math.max(requiredFrames + 1, 3);
-  const accepted = geometryConfirmed ||
+  // Three geometrically plausible finder eyes are already strong QuadQR
+  // evidence. Do not add an artificial extra-frame/color-gate delay before
+  // dispatching the full decoder. We stay conservative for one/two-eye cases.
+  const accepted = geometryConfirmed || strongThreeFinderEvidence ||
     (streak >= requiredFrames && (!colorRequired || colorConfirmed || colorUnavailableFallback));
 
   const gate = {
@@ -403,6 +407,7 @@ nativeAddEventListener("message", async (event) => {
     const fastPipeline = activeOptions.cameraPipelineMode === "fast";
     const shouldProbeColor = fastPipeline &&
       incoming.type === "scan" &&
+      typeof ImageBitmap === "function" &&
       incoming.bitmap instanceof ImageBitmap &&
       fastFinderTrack?.finders?.length;
     const colorEvidence = shouldProbeColor ? sampleQuadColorEvidence(incoming.bitmap) : null;
@@ -423,7 +428,7 @@ nativeAddEventListener("message", async (event) => {
 
     const successfulScan = processed.some(({ message }) =>
       message?.ok &&
-      (message.type === "scan" || message.type === "scan-full") &&
+      (message.type === "scan" || message.type === "scan-full" || message.type === "scan-hinted") &&
       message?.result?.ok
     );
     if (successfulScan && activeOptions.stopOnResult === false) {

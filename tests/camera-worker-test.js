@@ -130,6 +130,22 @@ assert.equal(clean.result.ok, true, clean.result.error?.message);
 assert.equal(clean.result.result.text, text);
 assert.equal(cleanBitmap.closed, true, "Worker must close transferred camera bitmaps after scanning.");
 
+// Safari/WebKit compatibility path: the worker must also accept a transferred
+// ImageData-shaped frame so camera capture can fall back without moving decode
+// work back to the UI thread.
+const imageDataTransport = await request("scan", {
+  imageData: {
+    width: image.width,
+    height: image.height,
+    data: new Uint8ClampedArray(image.data)
+  },
+  source: { x: 0, y: 0, width: image.width, height: image.height, cropped: false },
+  frame: 2
+});
+assert.equal(imageDataTransport.ok, true);
+assert.equal(imageDataTransport.result.ok, true, imageDataTransport.result.error?.message);
+assert.equal(imageDataTransport.result.result.text, text);
+
 // Exercise the same worker with a projective distortion. This verifies that
 // moving scanning off-thread did not replace the perspective-capable scanner
 // with a reduced/fast-only decoder.
@@ -189,12 +205,79 @@ assert.equal(dense.result.result.text, denseText);
 assert.equal(dense.result.result.highDensity, true);
 assert.equal(denseBitmap.closed, true);
 
+// A clean candidate with enough locator resolution should now decode directly
+// from the locator homography instead of waiting for the full recovery lane.
+await request("init", {
+  options: {
+    maxDimension: 640,
+    cameraLocatorMaxDimension: 420,
+    cameraPipelineMode: "fast",
+    finderRecovery: false,
+    autoEnhanceRecovery: false
+  }
+});
+const locatorDirectBitmap = new FakeImageBitmap(image);
+const locatorDirect = await request("scan", {
+  bitmap: locatorDirectBitmap,
+  source: { x: 0, y: 0, width: image.width, height: image.height, cropped: false },
+  frame: 5
+});
+assert.equal(locatorDirect.ok, true);
+assert.equal(locatorDirect.result.ok, true, locatorDirect.result.error?.message);
+assert.equal(locatorDirect.result.result.text, text);
+assert.equal(locatorDirect.result.result.locatorDirectDecoded, true);
+assert.equal(locatorDirectBitmap.closed, true);
+
+// The handoff path must also accept a locator homography and perform a bounded
+// geometry-only decode without rediscovering finder patterns.
+await request("init", {
+  options: {
+    maxDimension: 640,
+    cameraLocatorMaxDimension: 420,
+    cameraLocatorDirectDecode: false,
+    cameraPipelineMode: "fast",
+    finderRecovery: false,
+    autoEnhanceRecovery: false
+  }
+});
+const locatorHintBitmap = new FakeImageBitmap(image);
+const locatorHint = await request("scan", {
+  bitmap: locatorHintBitmap,
+  source: { x: 0, y: 0, width: image.width, height: image.height, cropped: false },
+  frame: 6
+});
+assert.equal(locatorHint.ok, true);
+assert.equal(locatorHint.result.ok, false);
+assert.ok(locatorHint.result.candidate?.geometry?.homography, "Locator must expose geometry for fast handoff.");
+
+await request("init", {
+  options: {
+    maxDimension: 640,
+    cameraPipelineMode: "full",
+    finderRecovery: true,
+    autoEnhanceRecovery: true
+  }
+});
+const hintedBitmap = new FakeImageBitmap(image);
+const hinted = await request("scan-hinted", {
+  bitmap: hintedBitmap,
+  source: { x: 0, y: 0, width: image.width, height: image.height, cropped: false },
+  frame: 7,
+  geometryHint: locatorHint.result.candidate.geometry
+});
+assert.equal(hinted.ok, true);
+assert.equal(hinted.result.ok, true, hinted.result.error?.message);
+assert.equal(hinted.result.result.text, text);
+assert.equal(hinted.result.result.geometryReused, true);
+assert.equal(hintedBitmap.closed, true);
+
 // The fresh-frame worker mode must never fall into Auto Color/high-resolution
 // recovery on the same frame. Those methods remain available in the separate
 // full-recovery worker, preventing an old miss from delaying new camera frames.
 await request("init", {
   options: {
     maxDimension: 640,
+    cameraLocatorMaxDimension: 420,
     finderRecovery: true,
     autoEnhanceRecovery: false,
     cameraPipelineMode: "fast"
@@ -255,8 +338,8 @@ assert.equal(fallbackBitmap.closed, true);
 
 assert.equal(
   offscreenCanvasAllocations,
-  1,
-  "Camera worker should reuse its pooled OffscreenCanvas across clean, damaged, and dense frames."
+  2,
+  "Camera worker should reuse one pooled OffscreenCanvas per full-decode/locator resolution lane."
 );
 
 console.log("Camera worker tests passed.");

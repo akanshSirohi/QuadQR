@@ -12573,9 +12573,12 @@ async function startCameraScannerMainThread(video, options = {}) {
 
 function cameraWorkerSupported(options = {}) {
   if (options.cameraWorker === false) return false;
-  return typeof Worker === "function" &&
-    typeof createImageBitmap === "function" &&
-    typeof OffscreenCanvas === "function";
+  // Do not treat createImageBitmap() as a hard requirement. WebKit/Safari can
+  // run the scanner worker reliably with a main-thread Canvas -> ImageData
+  // capture transport even when video-backed ImageBitmap creation/transfer is
+  // missing or unstable. Worker initialization performs the deeper capability
+  // check and startCameraScanner() still falls back to the main-thread engine.
+  return typeof Worker === "function";
 }
 
 function serializableCameraWorkerOptions(options = {}) {
@@ -12676,6 +12679,7 @@ async function initializeCameraWorker(options = {}) {
       worker,
       state,
       request,
+      get fatalError() { return fatalError; },
       terminate() {
         rejectPending(new Error("QuadQR camera worker stopped."));
         worker.terminate();
@@ -12728,6 +12732,107 @@ async function captureCameraBitmap(video, source, maxDimension) {
   }
 }
 
+
+function captureCameraImageData(video, source, maxDimension, canvas) {
+  assert(typeof document !== "undefined", "Canvas camera capture requires a browser document.");
+  const cap = Math.max(1, Math.round(maxDimension));
+  const videoWidth = Math.max(1, Math.round(video.videoWidth || source.width || 1));
+  const videoHeight = Math.max(1, Math.round(video.videoHeight || source.height || 1));
+  const sx = clampNumber(Math.round(source.x || 0), 0, Math.max(0, videoWidth - 1));
+  const sy = clampNumber(Math.round(source.y || 0), 0, Math.max(0, videoHeight - 1));
+  const sw = Math.max(1, Math.min(videoWidth - sx, Math.round(source.width || videoWidth)));
+  const sh = Math.max(1, Math.min(videoHeight - sy, Math.round(source.height || videoHeight)));
+  const scale = Math.min(1, cap / Math.max(sw, sh));
+  const width = Math.max(1, Math.round(sw * scale));
+  const height = Math.max(1, Math.round(sh * scale));
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
+  if (!ctx) throw new Error("Unable to create camera capture canvas context.");
+  if ("imageSmoothingEnabled" in ctx) ctx.imageSmoothingEnabled = true;
+  if ("imageSmoothingQuality" in ctx) ctx.imageSmoothingQuality = "medium";
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, width, height);
+  const imageData = ctx.getImageData(0, 0, width, height);
+  return {
+    imageData: { width, height, data: imageData.data },
+    source: { x: 0, y: 0, width, height, cropped: Boolean(source.cropped) },
+    originalSource: { ...source },
+    preScaled: true,
+    transport: "image-data"
+  };
+}
+
+function closeCapturedCameraFrame(captured) {
+  try { captured?.bitmap?.close?.(); } catch {}
+}
+
+function capturedCameraFrameSize(captured) {
+  const width = Number(captured?.bitmap?.width ?? captured?.imageData?.width ?? captured?.source?.width) || 0;
+  const height = Number(captured?.bitmap?.height ?? captured?.imageData?.height ?? captured?.source?.height) || 0;
+  return { width, height };
+}
+
+function scaleCameraGeometryHint(geometry, fromWidth, fromHeight, toWidth, toHeight) {
+  if (!geometry?.homography || !fromWidth || !fromHeight || !toWidth || !toHeight) return null;
+  const sx = toWidth / fromWidth;
+  const sy = toHeight / fromHeight;
+  if (!Number.isFinite(sx) || !Number.isFinite(sy) || sx <= 0 || sy <= 0) return null;
+  const moduleScale = Math.sqrt(sx * sy);
+  const scalePoint = (point) => point ? { ...point, x: point.x * sx, y: point.y * sy } : point;
+  const scaleFinder = (finder) => finder ? {
+    ...finder,
+    x: finder.x * sx,
+    y: finder.y * sy,
+    moduleSize: Number(finder.moduleSize) * moduleScale
+  } : finder;
+  const h = geometry.homography;
+  const scaled = {
+    ...geometry,
+    homography: [
+      h[0] * sx, h[1] * sx, h[2] * sx,
+      h[3] * sy, h[4] * sy, h[5] * sy,
+      h[6], h[7], h[8]
+    ],
+    sourcePoints: Array.isArray(geometry.sourcePoints) ? geometry.sourcePoints.map(scalePoint) : geometry.sourcePoints,
+    finders: geometry.finders ? {
+      topLeft: scaleFinder(geometry.finders.topLeft),
+      topRight: scaleFinder(geometry.finders.topRight),
+      bottomLeft: scaleFinder(geometry.finders.bottomLeft)
+    } : geometry.finders
+  };
+  if (geometry.alignment) {
+    scaled.alignment = {
+      ...geometry.alignment,
+      center: scalePoint(geometry.alignment.center),
+      predicted: scalePoint(geometry.alignment.predicted),
+      refinementPoints: Array.isArray(geometry.alignment.refinementPoints)
+        ? geometry.alignment.refinementPoints.map((point) => ({
+            ...point,
+            ...(Number.isFinite(point?.x) ? { x: point.x * sx } : {}),
+            ...(Number.isFinite(point?.y) ? { y: point.y * sy } : {})
+          }))
+        : geometry.alignment.refinementPoints
+    };
+  }
+  return scaled;
+}
+
+function cameraWorkerFrameRequest(captured, frame, extra = {}) {
+  if (captured?.bitmap) {
+    return {
+      payload: { ...extra, bitmap: captured.bitmap, source: captured.source, frame },
+      transfer: [captured.bitmap]
+    };
+  }
+  if (captured?.imageData?.data?.buffer) {
+    return {
+      payload: { ...extra, imageData: captured.imageData, source: captured.source, frame },
+      transfer: [captured.imageData.data.buffer]
+    };
+  }
+  throw new Error("Camera capture did not produce a transferable frame.");
+}
+
 function maximumFinderCount(workerResult) {
   let count = 0;
   for (const diagnostic of workerResult?.diagnostics ?? []) {
@@ -12748,22 +12853,21 @@ async function startCameraScannerWorker(video, options = {}) {
   assert(video, "A video element is required.");
   if (options.signal?.aborted) throw makeCameraAbortError();
 
-  // Keep fresh-frame scanning independent from the expensive damaged/color
-  // recovery pipeline. Finder detection itself remains JavaScript; WASM is
-  // only an optional grayscale/binary + CRC accelerator beneath both workers.
-  // The fast worker can therefore inspect the newest frame even while the
-  // recovery worker is spending hundreds of milliseconds on an older difficult
-  // frame. No recovery method is removed.
   const stopOnResult = cameraScannerStopsOnResult(options);
   const workerOptions = { ...options, stopOnResult };
+  const locatorCaptureMaxDimension = Math.max(
+    256,
+    Math.min(640, Math.round(options.cameraLocatorMaxDimension ?? 384))
+  );
+  const normalCaptureMaxDimension = Math.max(480, Math.round(options.maxDimension ?? 640));
+  const recoveryCaptureMaxDimension = Math.max(
+    normalCaptureMaxDimension,
+    Math.round(options.cameraHighResolutionMaxDimension ?? 960)
+  );
   const fastWorkerOptions = {
     ...workerOptions,
     cameraPipelineMode: "fast",
-    // The fresh-frame worker is intentionally detection/decode only. Recovery
-    // must never become more expensive merely because the camera has been
-    // looking at an empty scene for a while. The parallel recovery worker is
-    // armed only after finder/geometry evidence says a QuadQR candidate is in
-    // view.
+    cameraLocatorMaxDimension: locatorCaptureMaxDimension,
     finderRecovery: false,
     cameraHighResolutionRecovery: false,
     cameraAutoColorRecovery: false,
@@ -12771,7 +12875,7 @@ async function startCameraScannerWorker(video, options = {}) {
     fullFrameAutoEnhanceRecovery: false,
     multiFrame: false
   };
-  const fastWorkerClient = await initializeCameraWorker(fastWorkerOptions);
+  let fastWorkerClient = await initializeCameraWorker(fastWorkerOptions);
 
   let stream = null;
   try {
@@ -12787,7 +12891,6 @@ async function startCameraScannerWorker(video, options = {}) {
       }
     );
     await improveCameraTrack(stream);
-
     video.srcObject = stream;
     video.setAttribute("playsinline", "");
     video.muted = true;
@@ -12800,22 +12903,25 @@ async function startCameraScannerWorker(video, options = {}) {
   }
 
   const scanInterval = Math.max(24, Number(options.scanInterval ?? 33));
-  const fastCaptureMaxDimension = Math.max(480, Math.round(options.maxDimension ?? 640));
-  const recoveryCaptureMaxDimension = Math.max(
-    fastCaptureMaxDimension,
-    Math.round(options.cameraHighResolutionMaxDimension ?? 960)
-  );
-  const recoveryStrongFinderInterval = Math.max(80, Number(options.cameraRecoveryStrongFinderInterval ?? 120));
-  const recoveryWeakFinderInterval = Math.max(recoveryStrongFinderInterval, Number(options.cameraRecoveryWeakFinderInterval ?? 260));
+  const recoveryStrongFinderInterval = Math.max(40, Number(options.cameraRecoveryStrongFinderInterval ?? 80));
+  const recoveryWeakFinderInterval = Math.max(recoveryStrongFinderInterval, Number(options.cameraRecoveryWeakFinderInterval ?? 220));
   const recoveryWeakFinderFrames = Math.max(2, Math.round(options.cameraRecoveryWeakFinderFrames ?? 2));
   const useVideoFrameCallback = options.useVideoFrameCallback !== false &&
     typeof video.requestVideoFrameCallback === "function";
-
   const duplicateCooldown = Math.max(0, Number(options.duplicateCooldown ?? (stopOnResult ? 0 : 1200)));
   const pauseWhenHidden = options.pauseWhenHidden !== false;
+
+  let fastCaptureCanvas = null;
+  let recoveryCaptureCanvas = null;
+  let captureBackend = options.cameraFrameTransport === "image-data"
+    ? "image-data"
+    : (typeof createImageBitmap === "function" ? "bitmap" : "image-data");
+  let transportErrorStreak = 0;
+  let runtimeMainThread = false;
   let stopped = false;
   let paused = false;
   let busy = false;
+  let pendingFreshFrame = false;
   let recoveryBusy = false;
   let recoveryWorkerClient = null;
   let recoveryWorkerPromise = null;
@@ -12844,25 +12950,104 @@ async function startCameraScannerWorker(video, options = {}) {
       options.onDiagnostic({
         timestamp: Date.now(),
         frame: event?.frame ?? frameNumber,
-        cameraWorker: true,
+        cameraWorker: !runtimeMainThread,
         ...event
       });
-    } catch {
-      // Diagnostics are UI-only and must never interrupt scanning.
-    }
+    } catch {}
   };
 
   const emitCameraState = (state, extra = {}) => {
     try { options.onCameraState?.({ state, timestamp: Date.now(), ...extra }); } catch {}
   };
 
+  const captureForWorker = async (source, maxDimension, lane = "fast") => {
+    if (captureBackend === "bitmap" && typeof createImageBitmap === "function") {
+      try {
+        const captured = await captureCameraBitmap(video, source, maxDimension);
+        captured.transport = "bitmap";
+        return captured;
+      } catch (error) {
+        captureBackend = "image-data";
+        emitDiagnostic({
+          type: "camera-transport-fallback",
+          state: "fallback",
+          method: "image-data-worker-transport",
+          message: `ImageBitmap camera capture unavailable · switching to Canvas/ImageData worker transport (${error?.message ?? String(error)})`
+        });
+      }
+    }
+    assert(typeof document !== "undefined" && typeof document.createElement === "function", "Canvas camera capture is unavailable.");
+    let canvas = lane === "recovery" ? recoveryCaptureCanvas : fastCaptureCanvas;
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      if (lane === "recovery") recoveryCaptureCanvas = canvas;
+      else fastCaptureCanvas = canvas;
+    }
+    return captureCameraImageData(video, source, maxDimension, canvas);
+  };
+
+  const replaceFastWorker = async () => {
+    const previous = fastWorkerClient;
+    const replacement = await initializeCameraWorker(fastWorkerOptions);
+    fastWorkerClient = replacement;
+    try { previous?.terminate?.(); } catch {}
+    fastWorkerGeneration = freshnessGeneration;
+    return replacement;
+  };
+
+  const registerTransportError = async (error) => {
+    transportErrorStreak++;
+    if (captureBackend === "bitmap" && transportErrorStreak >= 2) {
+      captureBackend = "image-data";
+      emitDiagnostic({
+        type: "camera-transport-fallback",
+        state: "fallback",
+        method: "image-data-worker-transport",
+        message: `Repeated ImageBitmap/worker transport failures · switching to transferable ImageData (${error?.message ?? String(error)})`
+      });
+      if (fastWorkerClient?.fatalError) {
+        try { await replaceFastWorker(); } catch {}
+      }
+      transportErrorStreak = 0;
+      return;
+    }
+    if (captureBackend === "image-data" && transportErrorStreak >= 2 && fastWorkerClient?.fatalError) {
+      try {
+        await replaceFastWorker();
+        transportErrorStreak = 0;
+        emitDiagnostic({
+          type: "camera-worker-restarted",
+          state: "recovered",
+          method: "image-data-worker-transport",
+          message: "Camera scanner worker restarted after a transport failure"
+        });
+        return;
+      } catch {}
+    }
+    if (captureBackend === "image-data" && transportErrorStreak >= 3) {
+      runtimeMainThread = true;
+      try { fastWorkerClient?.terminate?.(); } catch {}
+      try { recoveryWorkerClient?.terminate?.(); } catch {}
+      recoveryWorkerClient = null;
+      recoveryWorkerFailed = true;
+      emitDiagnostic({
+        type: "worker-fallback",
+        state: "fallback",
+        method: "camera-main-thread-runtime",
+        message: `Worker camera transport remained unavailable · continuing with the main-thread compatibility scanner (${error?.message ?? String(error)})`
+      });
+      transportErrorStreak = 0;
+    }
+  };
+
   const ensureRecoveryWorker = async () => {
+    if (runtimeMainThread) return null;
     if (recoveryWorkerClient) return recoveryWorkerClient;
     if (recoveryWorkerFailed) return null;
     if (!recoveryWorkerPromise) {
       recoveryWorkerPromise = initializeCameraWorker({ ...workerOptions, cameraPipelineMode: "full" })
         .then((client) => {
-          if (stopped || paused) {
+          if (stopped || paused || runtimeMainThread) {
             client.terminate();
             return null;
           }
@@ -12875,23 +13060,55 @@ async function startCameraScannerWorker(video, options = {}) {
             type: "recovery-worker-error",
             state: "fallback",
             method: "camera-fast-worker",
-            message: `Parallel recovery worker unavailable · fast scanner remains active (${error?.message ?? String(error)})`
+            message: `Parallel recovery worker unavailable · single-worker recovery remains available (${error?.message ?? String(error)})`
           });
           return null;
         })
-        .finally(() => {
-          recoveryWorkerPromise = null;
-        });
+        .finally(() => { recoveryWorkerPromise = null; });
     }
     return recoveryWorkerPromise;
   };
+
+  // End-to-end runtime capability probe. Constructor checks alone are not enough
+  // on Safari/WebKit because video-backed ImageBitmap transfer may fail after a
+  // worker and OffscreenCanvas have initialized successfully.
+  try {
+    const source = visibleVideoSourceRect(video, options);
+    let captured = await captureForWorker(source, locatorCaptureMaxDimension, "fast");
+    try {
+      const request = cameraWorkerFrameRequest(captured, 0);
+      await fastWorkerClient.request("probe", request.payload, request.transfer);
+      captured = null;
+    } catch (error) {
+      closeCapturedCameraFrame(captured);
+      if (captureBackend === "bitmap") captureBackend = "image-data";
+      if (fastWorkerClient?.fatalError) await replaceFastWorker();
+      captured = await captureCameraImageData(video, source, locatorCaptureMaxDimension, fastCaptureCanvas ?? (fastCaptureCanvas = document.createElement("canvas")));
+      const request = cameraWorkerFrameRequest(captured, 0);
+      await fastWorkerClient.request("probe", request.payload, request.transfer);
+      captured = null;
+      emitDiagnostic({
+        type: "camera-transport-fallback",
+        state: "ready",
+        method: "image-data-worker-transport",
+        message: "Using Safari-compatible Canvas/ImageData camera transport"
+      });
+    } finally {
+      closeCapturedCameraFrame(captured);
+    }
+  } catch (error) {
+    try { fastWorkerClient.terminate(); } catch {}
+    for (const cameraTrack of stream?.getTracks?.() ?? []) cameraTrack.stop();
+    if (video.srcObject === stream) video.srcObject = null;
+    throw error;
+  }
 
   const track = stream.getVideoTracks?.()[0];
   const settings = track?.getSettings?.() ?? {};
   emitDiagnostic({
     type: "camera-ready",
     method: "camera-dual-worker",
-    message: `Camera ready · ${settings.width ?? video.videoWidth}×${settings.height ?? video.videoHeight} · fast fresh-frame scanner + candidate-gated parallel recovery`,
+    message: `Camera ready · ${settings.width ?? video.videoWidth}×${settings.height ?? video.videoHeight} · ${locatorCaptureMaxDimension}px locator + candidate-gated full decoder`,
     camera: {
       width: settings.width ?? video.videoWidth,
       height: settings.height ?? video.videoHeight,
@@ -12899,9 +13116,15 @@ async function startCameraScannerWorker(video, options = {}) {
       facingMode: settings.facingMode ?? null
     },
     worker: fastWorkerClient.state,
-    scanMaxDimension: fastCaptureMaxDimension,
+    frameTransport: captureBackend,
+    locatorMaxDimension: locatorCaptureMaxDimension,
+    scanMaxDimension: normalCaptureMaxDimension,
     recoveryMaxDimension: recoveryCaptureMaxDimension
   });
+
+  // Warm the full decoder in parallel. Candidate detection never waits for this
+  // startup work, but the first real QuadQR usually finds the recovery worker ready.
+  void ensureRecoveryWorker();
 
   const cancelScheduledScan = () => {
     if (timer) clearTimeout(timer);
@@ -12910,6 +13133,7 @@ async function startCameraScannerWorker(video, options = {}) {
     }
     timer = null;
     frameCallbackId = null;
+    pendingFreshFrame = false;
   };
 
   const invalidateFreshness = () => {
@@ -12918,6 +13142,7 @@ async function startCameraScannerWorker(video, options = {}) {
     recoveryToken++;
     weakFinderStreak = 0;
     lastRecoveryStartedAt = -Infinity;
+    pendingFreshFrame = false;
   };
 
   const stop = () => {
@@ -12929,7 +13154,7 @@ async function startCameraScannerWorker(video, options = {}) {
     if (visibilityHandler && typeof document !== "undefined") document.removeEventListener("visibilitychange", visibilityHandler);
     if (abortHandler && options.signal?.removeEventListener) options.signal.removeEventListener("abort", abortHandler);
     if (trackEndedHandler && track?.removeEventListener) track.removeEventListener("ended", trackEndedHandler);
-    fastWorkerClient.terminate();
+    try { fastWorkerClient?.terminate?.(); } catch {}
     if (recoveryWorkerClient) {
       recoveryWorkerClient.terminate();
       recoveryWorkerClient = null;
@@ -12959,41 +13184,31 @@ async function startCameraScannerWorker(video, options = {}) {
     paused = false;
     invalidateFreshness();
     lastScanStartedAt = -Infinity;
-    emitDiagnostic({ type: "camera-resumed", state: "running", method: "camera-dual-worker", message: "Camera scanning resumed with fresh worker state" });
+    emitDiagnostic({ type: "camera-resumed", state: "running", method: runtimeMainThread ? "camera-main-thread-runtime" : "camera-dual-worker", message: "Camera scanning resumed with fresh state" });
     emitCameraState("running", { resumed: true });
+    if (!runtimeMainThread) void ensureRecoveryWorker();
     scheduleNextScan();
   };
 
-  // Preserve the historical immediate/manual helper as a synchronous scan of
-  // the current video element. The continuous scanner itself stays off-thread.
   const scanNow = () => scanVideoFrame(video, {
     ...options,
-    maxDimension: fastCaptureMaxDimension
+    maxDimension: normalCaptureMaxDimension
   });
 
   const emitResult = (result, frameMeta = null) => {
     if (stopped) return true;
-    const normalizedMeta = frameMeta
-      ? { frame: frameMeta.frame ?? frameNumber, ...frameMeta }
-      : null;
-
+    const normalizedMeta = frameMeta ? { frame: frameMeta.frame ?? frameNumber, ...frameMeta } : null;
     if (!stopOnResult) invalidateFreshness();
     const identity = cameraResultIdentity(result);
     const decodedAt = nowMs();
     if (!stopOnResult && duplicateCooldown > 0 && identity && identity === lastResultIdentity && decodedAt - lastResultAt < duplicateCooldown) {
-      emitDiagnostic({
-        type: "duplicate-suppressed",
-        state: "ignored",
-        method: "continuous-scan",
-        message: `Duplicate QuadQR result suppressed for ${Math.round(duplicateCooldown)} ms`
-      });
+      emitDiagnostic({ type: "duplicate-suppressed", state: "ignored", method: "continuous-scan", message: `Duplicate QuadQR result suppressed for ${Math.round(duplicateCooldown)} ms` });
       return false;
     }
     if (identity) {
       lastResultIdentity = identity;
       lastResultAt = decodedAt;
     }
-
     options.onResult?.(result, normalizedMeta);
     options.onDecode?.(result, normalizedMeta);
     if (stopOnResult) {
@@ -13003,22 +13218,23 @@ async function startCameraScannerWorker(video, options = {}) {
     return false;
   };
 
-  const runRecovery = async (triggerFrame, finderCount) => {
-    if (stopped || paused || recoveryBusy) return;
+  const runRecovery = async (triggerFrame, candidateInfo = {}) => {
+    if (stopped || paused || recoveryBusy || runtimeMainThread) return;
+    const finderCount = Math.max(0, Number(candidateInfo?.finderCount) || 0);
+    const locatorGeometry = candidateInfo?.geometry?.homography && Number.isInteger(candidateInfo?.geometry?.version)
+      ? candidateInfo.geometry
+      : null;
     recoveryBusy = true;
     lastRecoveryStartedAt = nowMs();
     const token = ++recoveryToken;
-    let bitmap = null;
+    let captured = null;
     try {
       const client = await ensureRecoveryWorker();
-      if (stopped || paused || token !== recoveryToken) return;
+      if (stopped || paused || token !== recoveryToken || runtimeMainThread) return;
       const recoveryClient = client ?? fastWorkerClient;
       const singleWorkerFallback = !client;
       if (!stopOnResult) {
         if (singleWorkerFallback) {
-          // The fast worker guard already resets itself after a successful
-          // continuous decode. Avoid concurrent reset/scan messages when one
-          // worker is temporarily serving both lanes.
           fastWorkerGeneration = freshnessGeneration;
         } else if (recoveryWorkerGeneration !== freshnessGeneration) {
           await recoveryClient.request("reset");
@@ -13026,15 +13242,99 @@ async function startCameraScannerWorker(video, options = {}) {
         }
       }
       const dispatchGeneration = freshnessGeneration;
-
-      // Capture only after the recovery execution path is ready. This guarantees
-      // the expensive path receives a fresh frame rather than a bitmap that sat
-      // in memory while a recovery worker was starting.
       const visibleSource = visibleVideoSourceRect(video, options);
-      const captured = await captureCameraBitmap(video, visibleSource, recoveryCaptureMaxDimension);
-      bitmap = captured.bitmap;
+
+      // Geometry fast decode: if the locator already solved orientation/version/
+      // homography, reuse that work on a normal-detail fresh frame before any
+      // finder rediscovery or expensive recovery stages.
+      if (locatorGeometry) {
+        captured = await captureForWorker(visibleSource, normalCaptureMaxDimension, "recovery");
+        if (stopped || paused || token !== recoveryToken || dispatchGeneration !== freshnessGeneration) {
+          closeCapturedCameraFrame(captured);
+          captured = null;
+          return;
+        }
+        const targetSize = capturedCameraFrameSize(captured);
+        const scaledGeometry = scaleCameraGeometryHint(
+          locatorGeometry,
+          Number(candidateInfo.scanWidth) || locatorCaptureMaxDimension,
+          Number(candidateInfo.scanHeight) || locatorCaptureMaxDimension,
+          targetSize.width,
+          targetSize.height
+        );
+        if (scaledGeometry) {
+          emitDiagnostic({
+            type: "recovery-dispatch",
+            state: "trying",
+            method: "geometry-fast-decode",
+            frame: triggerFrame,
+            finderCount,
+            version: locatorGeometry.version,
+            frameTransport: captureBackend,
+            message: `Locator v${locatorGeometry.version} confirmed · decoding directly from reused geometry`
+          });
+          try {
+            const extra = {
+              geometryHint: scaledGeometry,
+              ...(singleWorkerFallback ? { options: serializableCameraWorkerOptions(workerOptions) } : {})
+            };
+            const request = cameraWorkerFrameRequest(captured, triggerFrame, extra);
+            const hintedResult = await recoveryClient.request("scan-hinted", request.payload, request.transfer);
+            captured = null;
+            transportErrorStreak = 0;
+            if (stopped || paused || token !== recoveryToken || dispatchGeneration !== freshnessGeneration) return;
+            for (const diagnostic of hintedResult?.diagnostics ?? []) {
+              emitDiagnostic({
+                ...diagnostic,
+                recoveryWorker: !singleWorkerFallback,
+                singleWorkerRecoveryFallback: singleWorkerFallback,
+                frame: triggerFrame
+              });
+            }
+            if (hintedResult?.ok) {
+              emitDiagnostic({
+                type: "success",
+                state: "decoded",
+                method: "geometry-fast-decode",
+                frame: triggerFrame,
+                finderCount,
+                version: hintedResult.result?.version ?? locatorGeometry.version,
+                message: `Locator geometry decoded v${hintedResult.result?.version ?? locatorGeometry.version} without finder rediscovery`
+              });
+              emitResult({
+                ...hintedResult.result,
+                cameraGeometryFastDecode: true,
+                cameraProgressiveRecovery: false,
+                recoveryMode: hintedResult.result?.recoveryMode ?? "geometry-fast-decode"
+              }, { ...hintedResult.frameMeta, frame: triggerFrame });
+              return;
+            }
+          } catch (error) {
+            closeCapturedCameraFrame(captured);
+            captured = null;
+            emitDiagnostic({
+              type: "method",
+              state: "failed",
+              method: "geometry-fast-decode",
+              frame: triggerFrame,
+              finderCount,
+              version: locatorGeometry.version,
+              message: `Direct locator-geometry decode missed · escalating to full recovery (${error?.message ?? String(error)})`
+            });
+          }
+        } else {
+          closeCapturedCameraFrame(captured);
+          captured = null;
+        }
+      }
+
+      // Existing full recovery remains the authoritative fallback. It runs only
+      // after the cheap geometry-reuse path has failed or when the locator had
+      // insufficient geometry.
+      captured = await captureForWorker(visibleSource, recoveryCaptureMaxDimension, "recovery");
       if (stopped || paused || token !== recoveryToken || dispatchGeneration !== freshnessGeneration) {
-        bitmap.close?.();
+        closeCapturedCameraFrame(captured);
+        captured = null;
         return;
       }
 
@@ -13044,40 +13344,25 @@ async function startCameraScannerWorker(video, options = {}) {
         method: "parallel-full-recovery",
         frame: triggerFrame,
         finderCount,
+        frameTransport: captureBackend,
         message: `QuadQR candidate detected (${finderCount} finder${finderCount === 1 ? "" : "s"}) · full recovery running in parallel`
       });
 
-      const recoveryPayload = { bitmap, source: captured.source, frame: triggerFrame };
-      if (singleWorkerFallback) recoveryPayload.options = serializableCameraWorkerOptions(workerOptions);
-      const workerResult = await recoveryClient.request(
-        singleWorkerFallback ? "scan-full" : "scan",
-        recoveryPayload,
-        [bitmap]
-      );
-      bitmap = null;
+      const extra = singleWorkerFallback ? { options: serializableCameraWorkerOptions(workerOptions) } : {};
+      const request = cameraWorkerFrameRequest(captured, triggerFrame, extra);
+      const workerResult = await recoveryClient.request(singleWorkerFallback ? "scan-full" : "scan", request.payload, request.transfer);
+      captured = null;
+      transportErrorStreak = 0;
       if (stopped || paused || token !== recoveryToken || dispatchGeneration !== freshnessGeneration) return;
-
       for (const diagnostic of workerResult?.diagnostics ?? []) {
-        emitDiagnostic({
-          ...diagnostic,
-          recoveryWorker: !singleWorkerFallback,
-          singleWorkerRecoveryFallback: singleWorkerFallback,
-          frame: triggerFrame
-        });
+        emitDiagnostic({ ...diagnostic, recoveryWorker: !singleWorkerFallback, singleWorkerRecoveryFallback: singleWorkerFallback, frame: triggerFrame });
       }
-      if (workerResult?.ok) {
-        emitResult(workerResult.result, { ...workerResult.frameMeta, frame: triggerFrame });
-      }
+      if (workerResult?.ok) emitResult(workerResult.result, { ...workerResult.frameMeta, frame: triggerFrame });
     } catch (error) {
-      try { bitmap?.close?.(); } catch {}
+      closeCapturedCameraFrame(captured);
+      await registerTransportError(error);
       if (!stopped && !paused) {
-        emitDiagnostic({
-          type: "recovery-worker-error",
-          state: "error",
-          method: "parallel-full-recovery",
-          frame: triggerFrame,
-          message: error?.message ?? String(error)
-        });
+        emitDiagnostic({ type: "recovery-worker-error", state: "error", method: "parallel-full-recovery", frame: triggerFrame, message: error?.message ?? String(error) });
       }
     } finally {
       recoveryBusy = false;
@@ -13085,16 +13370,22 @@ async function startCameraScannerWorker(video, options = {}) {
   };
 
   const maybeDispatchRecovery = (workerResult, triggerFrame) => {
-    if (stopped || paused || recoveryBusy) return;
-    const finderCount = maximumFinderCount(workerResult);
-
-    // Do not run Auto Color, high-resolution, multi-frame, or damaged-code
-    // recovery just because time has passed. An empty scene stays on the cheap
-    // fresh-frame detector forever. Two or more finders are strong evidence and
-    // arm recovery immediately. One finder is treated as weak evidence and must
-    // persist across consecutive fresh frames before recovery is allowed.
+    if (stopped || paused || recoveryBusy || runtimeMainThread) return;
+    const rawCandidate = workerResult?.candidate ?? {};
+    const finderCount = Math.max(
+      Number(rawCandidate.finderCount) || 0,
+      maximumFinderCount(workerResult)
+    );
+    const candidateInfo = {
+      ...rawCandidate,
+      finderCount
+    };
     let minimumInterval = null;
-    if (finderCount >= 2) {
+    if (rawCandidate.geometry?.homography && Number.isInteger(rawCandidate.geometry?.version)) {
+      // Geometry is already a complete locator solution. Dispatch immediately.
+      weakFinderStreak = 0;
+      minimumInterval = 0;
+    } else if (finderCount >= 2) {
       weakFinderStreak = 0;
       minimumInterval = recoveryStrongFinderInterval;
     } else if (finderCount === 1) {
@@ -13105,9 +13396,7 @@ async function startCameraScannerWorker(video, options = {}) {
       weakFinderStreak = 0;
       return;
     }
-
-    const elapsed = nowMs() - lastRecoveryStartedAt;
-    if (elapsed >= minimumInterval) void runRecovery(triggerFrame, finderCount);
+    if (nowMs() - lastRecoveryStartedAt >= minimumInterval) void runRecovery(triggerFrame, candidateInfo);
   };
 
   const scheduleNextScan = () => {
@@ -13123,9 +13412,16 @@ async function startCameraScannerWorker(video, options = {}) {
         }, remaining);
         return;
       }
+      if (busy) {
+        // Latest-frame-wins: do not queue old ImageBitmaps. Remember only that a
+        // newer video frame is available, then capture it as soon as the current
+        // locator request finishes.
+        pendingFreshFrame = true;
+        scheduleNextScan();
+        return;
+      }
       void loop();
     };
-
     if (useVideoFrameCallback) {
       frameCallbackId = video.requestVideoFrameCallback(runWhenDue);
     } else {
@@ -13139,77 +13435,87 @@ async function startCameraScannerWorker(video, options = {}) {
 
   const loop = async () => {
     if (stopped || paused) return;
-    if (!busy && video.readyState >= 2) {
-      busy = true;
-      frameNumber++;
-      const currentFrame = frameNumber;
-      lastScanStartedAt = nowMs();
-      const token = ++requestToken;
-      let bitmap = null;
-      try {
-        if (!stopOnResult && fastWorkerGeneration !== freshnessGeneration) {
-          await fastWorkerClient.request("reset");
-          fastWorkerGeneration = freshnessGeneration;
-        }
-        const dispatchGeneration = freshnessGeneration;
-        const visibleSource = visibleVideoSourceRect(video, options);
-        const captured = await captureCameraBitmap(video, visibleSource, fastCaptureMaxDimension);
-        bitmap = captured.bitmap;
-        if (stopped || paused || token !== requestToken || dispatchGeneration !== freshnessGeneration) {
-          bitmap.close?.();
-          if (!stopped && !paused) scheduleNextScan();
-          return;
-        }
-        const workerResult = await fastWorkerClient.request(
-          "scan",
-          { bitmap, source: captured.source, frame: currentFrame },
-          [bitmap]
-        );
-        bitmap = null;
-        if (stopped || paused || token !== requestToken || dispatchGeneration !== freshnessGeneration) {
-          if (!stopped && !paused) scheduleNextScan();
-          return;
-        }
+    if (busy) {
+      pendingFreshFrame = true;
+      return;
+    }
+    if (video.readyState < 2) {
+      scheduleNextScan();
+      return;
+    }
 
-        for (const diagnostic of workerResult?.diagnostics ?? []) {
-          emitDiagnostic({ ...diagnostic, fastWorker: true, frame: currentFrame });
-        }
-        if (workerResult?.ok) {
-          if (emitResult(workerResult.result, { ...workerResult.frameMeta, frame: currentFrame })) return;
-        } else {
-          // Full perspective/color/damage recovery runs independently. Do not
-          // await it here: the next camera callback must remain free to inspect
-          // a newer frame immediately.
-          maybeDispatchRecovery(workerResult, currentFrame);
-          const error = new Error(workerResult?.error?.message ?? "Unable to decode QuadQR frame.");
-          error.name = workerResult?.error?.name ?? "Error";
-          error.debug = workerResult?.error?.debug ?? null;
-          options.onScanMiss?.(error);
-        }
-      } catch (error) {
-        try { bitmap?.close?.(); } catch {}
-        if (!stopped && !paused) {
-          emitDiagnostic({
-            type: "worker-error",
-            state: "error",
-            method: "camera-fast-worker",
-            frame: currentFrame,
-            message: error?.message ?? String(error)
+    busy = true;
+    frameNumber++;
+    const currentFrame = frameNumber;
+    lastScanStartedAt = nowMs();
+    const token = ++requestToken;
+    let captured = null;
+    try {
+      if (runtimeMainThread) {
+        try {
+          const result = scanVideoFrame(video, {
+            ...options,
+            maxDimension: normalCaptureMaxDimension
           });
+          if (emitResult(result, null)) return;
+        } catch (error) {
           options.onScanMiss?.(error);
         }
-      } finally {
-        busy = false;
+        return;
+      }
+
+      if (!stopOnResult && fastWorkerGeneration !== freshnessGeneration) {
+        await fastWorkerClient.request("reset");
+        fastWorkerGeneration = freshnessGeneration;
+      }
+      const dispatchGeneration = freshnessGeneration;
+      const visibleSource = visibleVideoSourceRect(video, options);
+      captured = await captureForWorker(visibleSource, locatorCaptureMaxDimension, "fast");
+      if (stopped || paused || token !== requestToken || dispatchGeneration !== freshnessGeneration) {
+        closeCapturedCameraFrame(captured);
+        captured = null;
+        return;
+      }
+      const request = cameraWorkerFrameRequest(captured, currentFrame);
+      const workerResult = await fastWorkerClient.request("scan", request.payload, request.transfer);
+      captured = null;
+      transportErrorStreak = 0;
+      if (stopped || paused || token !== requestToken || dispatchGeneration !== freshnessGeneration) return;
+
+      for (const diagnostic of workerResult?.diagnostics ?? []) {
+        emitDiagnostic({ ...diagnostic, fastWorker: true, frame: currentFrame, frameTransport: captureBackend });
+      }
+      if (workerResult?.ok) {
+        if (emitResult(workerResult.result, { ...workerResult.frameMeta, frame: currentFrame })) return;
+      } else {
+        maybeDispatchRecovery(workerResult, currentFrame);
+        const error = new Error(workerResult?.error?.message ?? "Unable to locate QuadQR frame.");
+        error.name = workerResult?.error?.name ?? "Error";
+        error.debug = workerResult?.error?.debug ?? null;
+        options.onScanMiss?.(error);
+      }
+    } catch (error) {
+      closeCapturedCameraFrame(captured);
+      await registerTransportError(error);
+      if (!stopped && !paused) {
+        emitDiagnostic({ type: "worker-error", state: "error", method: runtimeMainThread ? "camera-main-thread-runtime" : "camera-fast-worker", frame: currentFrame, message: error?.message ?? String(error) });
+        options.onScanMiss?.(error);
+      }
+    } finally {
+      busy = false;
+      if (!stopped && !paused) {
+        if (pendingFreshFrame) {
+          pendingFreshFrame = false;
+          queueMicrotask(() => { if (!stopped && !paused) void loop(); });
+        } else {
+          scheduleNextScan();
+        }
       }
     }
-    scheduleNextScan();
   };
 
   if (pauseWhenHidden && typeof document !== "undefined" && document.addEventListener) {
-    visibilityHandler = () => {
-      if (document.hidden) pause();
-      else resume();
-    };
+    visibilityHandler = () => { if (document.hidden) pause(); else resume(); };
     document.addEventListener("visibilitychange", visibilityHandler);
     if (document.hidden) paused = true;
   }
@@ -13224,14 +13530,13 @@ async function startCameraScannerWorker(video, options = {}) {
   if (track?.addEventListener) {
     trackEndedHandler = () => {
       if (stopped) return;
-      emitDiagnostic({ type: "camera-ended", state: "ended", method: "camera-dual-worker", message: "Camera track ended unexpectedly" });
+      emitDiagnostic({ type: "camera-ended", state: "ended", method: runtimeMainThread ? "camera-main-thread-runtime" : "camera-dual-worker", message: "Camera track ended unexpectedly" });
       emitCameraState("ended");
       stop();
     };
     track.addEventListener("ended", trackEndedHandler);
   }
-  emitCameraState(paused ? "paused" : "running", { ready: true });
-
+  emitCameraState(paused ? "paused" : "running", { ready: true, frameTransport: captureBackend });
   if (!paused) scheduleNextScan();
   return {
     stream,
@@ -13241,8 +13546,9 @@ async function startCameraScannerWorker(video, options = {}) {
     scanNow,
     video,
     worker: true,
-    workerMode: "dual-pipeline",
-    workerState: fastWorkerClient.state,
+    get workerMode() { return runtimeMainThread ? "main-thread-runtime-fallback" : "locator-plus-recovery"; },
+    get frameTransport() { return runtimeMainThread ? "main-thread" : captureBackend; },
+    get workerState() { return fastWorkerClient?.state ?? null; },
     get paused() { return paused; },
     continuous: !stopOnResult
   };

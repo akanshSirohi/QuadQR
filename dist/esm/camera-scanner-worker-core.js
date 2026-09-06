@@ -4,7 +4,7 @@ import {
   scanImageData,
   internals
 } from "./quadqr.js";
-import { autoColorImageData } from "./vision.js";
+import { autoColorImageData, detectCodeGeometry } from "./vision.js";
 import { initWasm } from "./wasm.js";
 
 const {
@@ -306,7 +306,206 @@ function pushDiagnostic(events, event) {
   events.push(event);
 }
 
-function processFrame(bitmap, source, frameNumber) {
+function makeImageDataFrameProvider(imageData, source) {
+  const frames = new Map();
+  const original = {
+    imageData,
+    scanWidth: imageData.width,
+    scanHeight: imageData.height,
+    source: { ...source }
+  };
+
+  return (maxDimension) => {
+    const cap = Math.max(1, Math.round(maxDimension));
+    if (frames.has(cap)) return frames.get(cap);
+    const scale = Math.min(1, cap / Math.max(imageData.width, imageData.height));
+    if (scale >= 0.999) {
+      frames.set(cap, original);
+      return original;
+    }
+
+    const width = Math.max(1, Math.round(imageData.width * scale));
+    const height = Math.max(1, Math.round(imageData.height * scale));
+    let resized = null;
+
+    // Prefer OffscreenCanvas for quality, but keep a pure pixel fallback so the
+    // Safari-compatible ImageData transport does not depend on ImageBitmap.
+    try {
+      if (typeof OffscreenCanvas === "function" && typeof ImageData === "function") {
+        const sourceEntry = pooledFrameCanvas(`image-data-source:${imageData.width}x${imageData.height}`, imageData.width, imageData.height);
+        sourceEntry.ctx.putImageData(new ImageData(imageData.data, imageData.width, imageData.height), 0, 0);
+        const targetEntry = pooledFrameCanvas(`image-data-target:${cap}`, width, height);
+        if ("imageSmoothingEnabled" in targetEntry.ctx) targetEntry.ctx.imageSmoothingEnabled = true;
+        if ("imageSmoothingQuality" in targetEntry.ctx) targetEntry.ctx.imageSmoothingQuality = "high";
+        targetEntry.ctx.drawImage(sourceEntry.canvas, 0, 0, imageData.width, imageData.height, 0, 0, width, height);
+        resized = targetEntry.ctx.getImageData(0, 0, width, height);
+      }
+    } catch {
+      resized = null;
+    }
+
+    if (!resized) {
+      const data = new Uint8ClampedArray(width * height * 4);
+      for (let y = 0; y < height; y++) {
+        const sy = Math.min(imageData.height - 1, Math.floor((y + 0.5) * imageData.height / height));
+        for (let x = 0; x < width; x++) {
+          const sx = Math.min(imageData.width - 1, Math.floor((x + 0.5) * imageData.width / width));
+          const src = (sy * imageData.width + sx) * 4;
+          const dst = (y * width + x) * 4;
+          data[dst] = imageData.data[src];
+          data[dst + 1] = imageData.data[src + 1];
+          data[dst + 2] = imageData.data[src + 2];
+          data[dst + 3] = imageData.data[src + 3];
+        }
+      }
+      resized = { width, height, data };
+    }
+
+    const frame = {
+      imageData: resized,
+      scanWidth: width,
+      scanHeight: height,
+      source: { ...source }
+    };
+    frames.set(cap, frame);
+    return frame;
+  };
+}
+
+function locatorGeometryModulePixels(geometry) {
+  const values = Object.values(geometry?.finders ?? {})
+    .map((finder) => Number(finder?.moduleSize))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (values.length) return Math.min(...values);
+  return 0;
+}
+
+function processLocatorFrame(frame, frameNumber) {
+  const events = [];
+  const frameStarted = nowMs();
+  const visionDiagnostics = { passes: [] };
+  const geometries = detectCodeGeometry(frame.imageData, {
+    ...scanOptions,
+    maxCandidates: 1,
+    finderRecovery: false,
+    localFinderThreshold: false,
+    componentFinderFallback: false,
+    legacyAlignmentRecovery: false,
+    diagnostics: visionDiagnostics,
+    diagnosticLabel: "camera-locator"
+  });
+  const frameDiagnostics = {};
+  normalizeFrameDiagnostics(
+    frameDiagnostics,
+    frame.source,
+    frame.scanWidth,
+    frame.scanHeight,
+    visionDiagnostics
+  );
+  if (geometries[0]) frameDiagnostics.geometry = geometries[0];
+  const geometry = frameDiagnostics.geometry ?? null;
+  const finderCount = Math.max(
+    Number(frameDiagnostics.finderCount) || 0,
+    Number(frameDiagnostics.bestPass?.finderCount) || 0
+  );
+  const candidate = finderCount > 0 || Boolean(geometry);
+  const modulePixels = locatorGeometryModulePixels(geometry);
+  const minimumDirectModulePixels = Math.max(2, Number(scanOptions.cameraLocatorDecodeMinModulePixels ?? 3.25));
+  const shouldDirectDecode = scanOptions.cameraLocatorDirectDecode !== false &&
+    Boolean(geometry?.homography) &&
+    Number.isInteger(geometry?.version) &&
+    modulePixels >= minimumDirectModulePixels;
+
+  if (shouldDirectDecode) {
+    const directStarted = nowMs();
+    try {
+      const decoded = scanImageData(frame.imageData, {
+        ...scanOptions,
+        _diagnosticLabel: "locator-geometry-decode",
+        _geometryHints: [geometry],
+        _geometryHintOnly: true,
+        finderRecovery: false,
+        autoEnhanceRecovery: false,
+        autoEnhanceWhenNoGeometry: false,
+        fullFrameAutoEnhanceRecovery: false,
+        preciseAlignmentRecovery: false,
+        multiFrame: false,
+        debug: false
+      });
+      const elapsedMs = nowMs() - frameStarted;
+      pushDiagnostic(events, {
+        type: "success",
+        state: "decoded",
+        method: "locator-geometry-decode",
+        elapsedMs: nowMs() - directStarted,
+        finderCount,
+        locatorModulePixels: modulePixels,
+        message: `Locator geometry decoded v${decoded.version} directly · ${Math.round(nowMs() - directStarted)} ms`,
+        ...frameDiagnostics
+      });
+      return {
+        ok: true,
+        result: {
+          ...decoded,
+          locatorDirectDecoded: true,
+          cameraProgressiveRecovery: false,
+          recoveryMode: decoded.recoveryMode ?? "locator-geometry-decode"
+        },
+        frameMeta: makeFrameMeta(frame, frameDiagnostics),
+        diagnostics: events,
+        elapsedMs,
+        missStreak,
+        fastPipeline: true,
+        frame: frameNumber
+      };
+    } catch (error) {
+      pushDiagnostic(events, {
+        type: "method",
+        state: "failed",
+        method: "locator-geometry-decode",
+        elapsedMs: nowMs() - directStarted,
+        finderCount,
+        locatorModulePixels: modulePixels,
+        message: "Locator geometry was valid but same-frame color decode needs a higher-detail frame",
+        error: error?.message ?? String(error),
+        ...frameDiagnostics
+      });
+    }
+  }
+
+  const elapsedMs = nowMs() - frameStarted;
+  pushDiagnostic(events, {
+    type: "frame",
+    state: candidate ? "candidate" : "miss",
+    method: "locator-only",
+    elapsedMs,
+    missStreak,
+    finderCount,
+    locatorModulePixels: modulePixels || null,
+    locatorDirectDecodeAttempted: shouldDirectDecode,
+    ...frameDiagnostics
+  });
+  return {
+    ok: false,
+    locatorOnly: true,
+    candidate: {
+      finderCount,
+      geometry,
+      scanWidth: frame.scanWidth,
+      scanHeight: frame.scanHeight,
+      modulePixels: modulePixels || null,
+      directDecodeAttempted: shouldDirectDecode
+    },
+    error: serializeError(new Error(candidate ? "QuadQR candidate requires higher-detail decode." : "No QuadQR candidate found.")),
+    diagnostics: events,
+    elapsedMs,
+    missStreak,
+    fastPipeline: true,
+    frame: frameNumber
+  };
+}
+
+function processFrame(frameSource, source, frameNumber) {
   const events = [];
   const observations = [];
   const frameDiagnostics = {};
@@ -320,7 +519,12 @@ function processFrame(bitmap, source, frameNumber) {
   const cameraAutoEnhanceEvery = Math.max(1, Math.round(scanOptions.cameraAutoEnhanceEvery ?? 2));
   const cameraFinderRecoveryEvery = Math.max(1, Math.round(scanOptions.cameraFinderRecoveryEvery ?? 2));
   const cameraHighResolutionEvery = Math.max(1, Math.round(scanOptions.cameraHighResolutionEvery ?? 2));
-  const getFrame = makeCanvasFrameProvider(bitmap, source);
+  const bitmap = (typeof ImageBitmap === "function" && frameSource instanceof ImageBitmap) ? frameSource : null;
+  const directImageData = !bitmap && frameSource?.data && frameSource?.width && frameSource?.height ? frameSource : null;
+  if (!bitmap && !directImageData) throw new Error("Camera worker expected an ImageBitmap or ImageData frame.");
+  const getFrame = bitmap
+    ? makeCanvasFrameProvider(bitmap, source)
+    : makeImageDataFrameProvider(directImageData, source);
   const baseFrame = getFrame(baseCameraMaxDimension);
 
   let allowFinderRecovery = false;
@@ -335,6 +539,9 @@ function processFrame(bitmap, source, frameNumber) {
       ? "progressive-color-recovery"
       : (allowFinderRecovery ? "finder-recovery" : "fast-scan");
 
+    const explicitGeometryHints = Array.isArray(scanOptions._geometryHints)
+      ? scanOptions._geometryHints.filter((item) => item?.homography && Number.isInteger(item.version))
+      : null;
     const result = scanCapturedFrame(baseFrame, {
       ...scanOptions,
       _diagnosticLabel: method,
@@ -342,7 +549,10 @@ function processFrame(bitmap, source, frameNumber) {
       autoEnhanceRecovery: allowAutoEnhance,
       autoEnhanceWhenNoGeometry: allowAutoEnhance,
       fullFrameAutoEnhanceRecovery: scanOptions.fullFrameAutoEnhanceRecovery ?? false,
-      _geometryHints: scanOptions.cameraGeometryReuse === false || !cameraGeometryHint ? undefined : [cameraGeometryHint]
+      _geometryHints: explicitGeometryHints?.length
+        ? explicitGeometryHints
+        : (scanOptions.cameraGeometryReuse === false || !cameraGeometryHint ? undefined : [cameraGeometryHint]),
+      _geometryHintOnly: scanOptions._geometryHintOnly === true
     }, observations, frameDiagnostics);
 
     const elapsedMs = nowMs() - frameStarted;
@@ -388,6 +598,20 @@ function processFrame(bitmap, source, frameNumber) {
       error: error?.message ?? String(error),
       ...frameDiagnostics
     });
+
+    // A geometry-hint-only request is deliberately bounded: if direct sampling
+    // from the known homography misses, return immediately so the caller can
+    // choose whether to spend time on the full recovery stack.
+    if (scanOptions._geometryHintOnly === true) {
+      return {
+        ok: false,
+        error: serializeError(error),
+        diagnostics: events,
+        elapsedMs: nowMs() - frameStarted,
+        missStreak,
+        geometryHintOnly: true
+      };
+    }
 
     // The continuous camera engine can dedicate one worker to fresh-frame
     // acquisition. In fast mode we intentionally stop here after the normal
@@ -726,7 +950,7 @@ function processFrame(bitmap, source, frameNumber) {
       missStreak
     };
   } finally {
-    try { bitmap.close(); } catch {}
+    try { bitmap?.close?.(); } catch {}
   }
 }
 
@@ -766,19 +990,82 @@ self.addEventListener("message", async (event) => {
       self.postMessage({ id, ok: true, type: "reset" });
       return;
     }
-    if (message.type === "scan" || message.type === "scan-full") {
-      if (!(message.bitmap instanceof ImageBitmap)) throw new Error("Camera worker expected an ImageBitmap frame.");
-      if (typeof OffscreenCanvas !== "function") throw new Error("OffscreenCanvas is unavailable in the camera worker.");
+    if (message.type === "probe") {
+      const bitmap = typeof ImageBitmap === "function" && message.bitmap instanceof ImageBitmap
+        ? message.bitmap
+        : null;
+      const imageData = message.imageData?.data && message.imageData?.width && message.imageData?.height
+        ? message.imageData
+        : null;
+      if (!bitmap && !imageData) throw new Error("Camera worker probe expected an ImageBitmap or ImageData frame.");
+      try {
+        const source = message.source ?? {
+          x: 0, y: 0,
+          width: bitmap?.width ?? imageData.width,
+          height: bitmap?.height ?? imageData.height,
+          cropped: false
+        };
+        // Force one small canvas readback so the probe verifies the actual
+        // WebKit-sensitive frame -> worker -> OffscreenCanvas -> pixels path.
+        const cap = Math.max(32, Math.min(96, Math.round(Math.min(source.width, source.height) / 2)));
+        const frame = bitmap
+          ? makeCanvasFrameProvider(bitmap, source)(cap)
+          : makeImageDataFrameProvider(imageData, source)(cap);
+        if (!frame?.imageData?.data?.length) throw new Error("Camera worker probe could not read frame pixels.");
+        self.postMessage({ id, ok: true, type: "probe", result: { probe: true, transport: bitmap ? "bitmap" : "image-data" } });
+      } finally {
+        try { bitmap?.close?.(); } catch {}
+      }
+      return;
+    }
+    if (message.type === "scan" || message.type === "scan-full" || message.type === "scan-hinted") {
+      const bitmap = typeof ImageBitmap === "function" && message.bitmap instanceof ImageBitmap
+        ? message.bitmap
+        : null;
+      const imageData = message.imageData?.data && message.imageData?.width && message.imageData?.height
+        ? message.imageData
+        : null;
+      if (!bitmap && !imageData) throw new Error("Camera worker expected an ImageBitmap or ImageData frame.");
       const previousOptions = scanOptions;
       if (message.type === "scan-full") {
         // Safety fallback for browsers that allow one module worker but reject
         // creation of the second recovery worker. Run the exact full pipeline
         // in the existing worker rather than silently losing recovery power.
         scanOptions = { ...previousOptions, ...(message.options ?? {}), cameraPipelineMode: "full" };
+      } else if (message.type === "scan-hinted") {
+        if (!message.geometryHint?.homography || !Number.isInteger(message.geometryHint?.version)) {
+          throw new Error("Geometry-hinted camera decode requires a valid locator homography.");
+        }
+        scanOptions = {
+          ...previousOptions,
+          ...(message.options ?? {}),
+          cameraPipelineMode: "full",
+          _geometryHints: [message.geometryHint],
+          _geometryHintOnly: true,
+          finderRecovery: false,
+          cameraHighResolutionRecovery: false,
+          cameraAutoColorRecovery: false,
+          autoEnhanceRecovery: false,
+          fullFrameAutoEnhanceRecovery: false,
+          preciseAlignmentRecovery: false,
+          multiFrame: false
+        };
       }
       let result;
       try {
-        result = processFrame(message.bitmap, message.source, message.frame ?? 0);
+        if (scanOptions.cameraPipelineMode === "fast") {
+          const locatorMaxDimension = Math.max(256, Math.round(scanOptions.cameraLocatorMaxDimension ?? 384));
+          let frame;
+          if (imageData) {
+            frame = makeImageDataFrameProvider(imageData, message.source)(locatorMaxDimension);
+          } else {
+            frame = makeCanvasFrameProvider(bitmap, message.source)(locatorMaxDimension);
+          }
+          result = processLocatorFrame(frame, message.frame ?? 0);
+          try { bitmap?.close?.(); } catch {}
+        } else {
+          result = processFrame(bitmap ?? imageData, message.source, message.frame ?? 0);
+        }
       } finally {
         scanOptions = previousOptions;
       }
