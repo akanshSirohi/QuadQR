@@ -1,18 +1,19 @@
 <!DOCTYPE html>
 
-<html data-theme="light" lang="en">
+<html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1" name="viewport"/>
 <meta content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format." name="description"/>
 <meta content="light dark" name="color-scheme"/>
+<script>try{const theme=localStorage.getItem("quadqr-docs-theme");if(theme==="light"||theme==="dark")document.querySelector('meta[name="color-scheme"]').content=theme}catch{}</script>
 <title>API Reference | QuadQR Documentation</title>
 <link href="./styles.css" rel="stylesheet"/>
 </head>
 <body data-page="api">
 <header class="topbar">
 <div class="topbar-left">
-<button aria-label="Open navigation" class="icon-button mobile-menu" data-menu-button="" type="button">☰</button>
+<button aria-controls="docs-sidebar" aria-expanded="false" aria-label="Open navigation" class="icon-button mobile-menu" data-menu-button="" type="button">☰</button>
 <a aria-label="QuadQR documentation home" class="brand" href="index.html">
 <span aria-hidden="true" class="brand-mark"><i></i><i></i><i></i><i></i></span>
 <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
@@ -28,8 +29,9 @@
 </header>
 <div class="mobile-backdrop" data-mobile-backdrop=""></div>
 <div class="docs-shell">
-<aside class="sidebar" data-sidebar="">
+<aside aria-label="Documentation navigation" class="sidebar" data-sidebar="" id="docs-sidebar">
 <div class="sidebar-inner">
+<button aria-label="Close navigation" class="icon-button mobile-close" data-menu-close="" type="button">×</button>
 <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a class="active" href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
 <div class="version-pill">quadqr-js <strong>v1.5.5</strong></div>
 </div>
@@ -432,13 +434,13 @@ const verified = await QuadQR.verifyDecodedSignature(decoded, {
 <aside class="toc"><div class="toc-title">On this page</div><a href="#core-encoding">Core encoding</a><a class="toc-sub" href="#encodetexttext-options">encodeText(text, options?)</a><a class="toc-sub" href="#encodebytesbytes-options">encodeBytes(bytes, options?)</a><a href="#secure-encoding">Secure encoding</a><a class="toc-sub" href="#encodesecuretexttext-options">encodeSecureText(text, options)</a><a class="toc-sub" href="#encodesecurebytesbytes-options">encodeSecureBytes(bytes, options)</a><a class="toc-sub" href="#decryptdecodedresult-credentials">decryptDecoded(result, credentials)</a><a href="#matrix-decoding">Matrix decoding</a><a class="toc-sub" href="#decodematrixmatrix-options">decodeMatrix(matrix, options?)</a><a href="#rendering">Rendering</a><a class="toc-sub" href="#rendertocanvascodeormatrix-canvas-options">renderToCanvas(codeOrMatrix, canvas, options?)</a><a class="toc-sub" href="#rendertoimagedatacodeormatrix-options">renderToImageData(codeOrMatrix, options?)</a><a class="toc-sub" href="#rendertosvgcodeormatrix-options">renderToSVG(codeOrMatrix, options?)</a><a href="#image-and-camera-scanning">Image and camera scanning</a><a class="toc-sub" href="#scanimagedataimagedata-options">scanImageData(imageData, options?)</a><a class="toc-sub" href="#browser-scanfilefile-options">Browser scanFile(file, options?)</a><a class="toc-sub" href="#scanvideoframevideo-options">scanVideoFrame(video, options?)</a><a class="toc-sub" href="#startcamerascannervideo-options">startCameraScanner(video, options?)</a><a class="toc-sub" href="#rectifydetectedcodeimagedata-options">rectifyDetectedCode(imageData, options?)</a><a class="toc-sub" href="#rotatematrixmatrix-quarterturns">rotateMatrix(matrix, quarterTurns?)</a><a href="#nodejs-helpers">Node.js helpers</a><a class="toc-sub" href="#topngcodeormatrix-options">toPNG(codeOrMatrix, options?)</a><a class="toc-sub" href="#savepngcodeormatrix-filename-options">savePNG(codeOrMatrix, filename, options?)</a><a class="toc-sub" href="#tosvgcodeormatrix-options">toSVG(codeOrMatrix, options?)</a><a class="toc-sub" href="#savesvgcodeormatrix-filename-options">saveSVG(codeOrMatrix, filename, options?)</a><a class="toc-sub" href="#scanbufferbuffer-options">scanBuffer(buffer, options?)</a><a class="toc-sub" href="#node-scanfilefilename-options">Node scanFile(filename, options?)</a><a class="toc-sub" href="#decodepngbuffer">decodePNG(buffer)</a><a class="toc-sub" href="#encodepngimagedata-options">encodePNG(imageData, options?)</a><a href="#security-utilities">Security utilities</a><a class="toc-sub" href="#generateraw256key">generateRaw256Key()</a><a class="toc-sub" href="#normalizeraw256keykey">normalizeRaw256Key(key)</a><a class="toc-sub" href="#bytestohexbytes">bytesToHex(bytes)</a><a href="#wasm">WASM</a><a class="toc-sub" href="#initwasmoptions">initWasm(options?)</a><a class="toc-sub" href="#getwasmstate">getWasmState()</a><a class="toc-sub" href="#disablewasm">disableWasm()</a><a href="#version-and-capacity">Version and capacity</a><a class="toc-sub" href="#getversioninfoversion-options">getVersionInfo(version, options?)</a><a href="#crc-utilities">CRC utilities</a><a class="toc-sub" href="#crc32bytes">crc32(bytes)</a><a class="toc-sub" href="#installcrc32acceleratoraccelerator">installCrc32Accelerator(accelerator?)</a><a href="#constants">Constants</a><a href="#benchmark-entry">Benchmark entry</a><a class="toc-sub" href="#calculatecapacityplanoptions">calculateCapacityPlan(options)</a><a href="#compression">Compression</a><a class="toc-sub" href="#encodetexttext-options-encodebytesinput-options">encodeText(text, options?) / encodeBytes(input, options?)</a><a class="toc-sub" href="#compresspayloadinput-options-decompresspayloadinput-expectedlength">compressPayload(input, options?) / decompressPayload(input, expectedLength?)</a><a class="toc-sub" href="#compressdeflatepayloadinput-options-decompressdeflatepayloadinput-expectedlength">compressDeflatePayload(input, options?) / decompressDeflatePayload(input, expectedLength?)</a><a class="toc-sub" href="#compressbrotlipayloadinput-options-decompressbrotlipayloadinput-expectedlength">compressBrotliPayload(input, options?) / decompressBrotliPayload(input, expectedLength?)</a><a href="#binary-convenience-apis">Binary convenience APIs</a><a class="toc-sub" href="#encodeuint8arrayinput-options">encodeUint8Array(input, options?)</a><a class="toc-sub" href="#decodeuint8arraymatrix-options">decodeUint8Array(matrix, options?)</a><a href="#signed-quadqr">Signed QuadQR</a><a class="toc-sub" href="#generatesigningkeypair">generateSigningKeyPair()</a><a class="toc-sub" href="#encodesignedtexttext-options-encodesignedbytesinput-options">encodeSignedText(text, options) / encodeSignedBytes(input, options)</a><a class="toc-sub" href="#verifydecodedsignatureresult-options">verifyDecodedSignature(result, options?)</a><a class="toc-sub" href="#signing-encryption">Signing + encryption</a><a href="#print-rendering">Print rendering</a><a class="toc-sub" href="#getprintguidancecodeormatrix-options">getPrintGuidance(codeOrMatrix, options?)</a><a href="#automatic-logo-safety">Automatic logo safety</a><a href="#scanner-confidence-and-debug-mode">Scanner confidence and debug mode</a><a href="#scanability-and-stress-testing">Scanability and stress testing</a><a class="toc-sub" href="#applystressdistortionimagedata-type-severity-options">applyStressDistortion(imageData, type, severity?, options?)</a><a class="toc-sub" href="#runimagestresstestimagedata-expected-options">runImageStressTest(imageData, expected?, options?)</a><a class="toc-sub" href="#assessscanabilitycode-renderoptions-options">assessScanability(code, renderOptions?, options?)</a><a class="toc-sub" href="#runreliabilitylabimagedata-expected-options">runReliabilityLab(imageData, expected?, options?)</a><a class="toc-sub" href="#runperspectivesweepimagedata-expected-options">runPerspectiveSweep(imageData, expected?, options?)</a></aside>
 </main>
 </div>
-<div aria-hidden="true" class="search-modal" data-search-modal="">
-<div class="search-backdrop" data-search-close=""></div>
-<div aria-label="Search QuadQR documentation" aria-modal="true" class="search-panel" role="dialog">
-<div class="search-input-wrap"><span>⌕</span><input autocomplete="off" data-search-input="" placeholder="Search documentation…" type="search"/><kbd>Esc</kbd></div>
-<div class="search-results" data-search-results=""><div class="search-empty">Type to search pages and sections.</div></div>
+<dialog aria-labelledby="search-title" class="search-dialog" closedby="any" data-search-modal="" id="search-dialog">
+<h2 class="visually-hidden" id="search-title">Search QuadQR documentation</h2>
+<div class="search-panel">
+<div class="search-input-wrap"><span aria-hidden="true">⌕</span><label class="visually-hidden" for="search-input">Search documentation</label><input autofocus autocomplete="off" data-search-input="" id="search-input" placeholder="Search documentation…" type="search"/><form method="dialog"><button aria-label="Close search" class="icon-button search-close" data-search-close="" type="submit">×</button></form></div>
+<div aria-live="polite" class="search-results" data-search-results=""><div class="search-empty">Type to search pages and sections.</div></div>
 </div>
-</div>
+</dialog>
 <script src="./search-index.js"></script>
 <script src="../dist/quadqr.min.js"></script>
 <script src="./app.js"></script>

@@ -1,14 +1,42 @@
 
 (() => {
-  const root = document.documentElement;
-  const savedTheme = localStorage.getItem("quadqr-docs-theme");
-  const systemDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
-  root.dataset.theme = savedTheme || (systemDark ? "dark" : "light");
+  const themeMeta = document.querySelector('meta[name="color-scheme"]');
+  const themeToggle = document.querySelector("[data-theme-toggle]");
+  const themeStorageKey = "quadqr-docs-theme";
+  const themeMedia = window.matchMedia?.("(prefers-color-scheme: dark)");
+  const isTheme = (value) => value === "light" || value === "dark";
+  const getStoredTheme = () => {
+    try {
+      const value = localStorage.getItem(themeStorageKey);
+      return isTheme(value) ? value : null;
+    } catch {
+      return null;
+    }
+  };
+  const getSystemTheme = () => themeMedia?.matches ? "dark" : "light";
+  const applyTheme = (theme) => {
+    const storedTheme = isTheme(theme) ? theme : null;
+    themeMeta?.setAttribute("content", storedTheme || "light dark");
+    const currentTheme = storedTheme || getSystemTheme();
+    themeToggle?.setAttribute("aria-label", `Switch to ${currentTheme === "dark" ? "light" : "dark"} theme`);
+  };
 
-  document.querySelector("[data-theme-toggle]")?.addEventListener("click", () => {
-    const next = root.dataset.theme === "dark" ? "light" : "dark";
-    root.dataset.theme = next;
-    localStorage.setItem("quadqr-docs-theme", next);
+  applyTheme(getStoredTheme());
+  themeToggle?.addEventListener("click", () => {
+    const currentTheme = getStoredTheme() || getSystemTheme();
+    const nextTheme = currentTheme === "dark" ? "light" : "dark";
+    const nextStoredTheme = nextTheme === getSystemTheme() ? null : nextTheme;
+    try {
+      if (nextStoredTheme) localStorage.setItem(themeStorageKey, nextStoredTheme);
+      else localStorage.removeItem(themeStorageKey);
+    } catch {
+      // Theme still applies for this page when storage is unavailable.
+    }
+    applyTheme(nextStoredTheme);
+  });
+  themeMedia?.addEventListener?.("change", () => applyTheme(getStoredTheme()));
+  window.addEventListener("storage", (event) => {
+    if (event.key === themeStorageKey) applyTheme(isTheme(event.newValue) ? event.newValue : null);
   });
 
   document.querySelectorAll("[data-copy]").forEach((button) => {
@@ -26,13 +54,45 @@
   });
 
   const sidebar = document.querySelector("[data-sidebar]");
+  const menuButton = document.querySelector("[data-menu-button]");
+  const menuCloseButton = document.querySelector("[data-menu-close]");
+  const mainContent = document.querySelector("main.main-content");
   const backdrop = document.querySelector("[data-mobile-backdrop]");
-  const closeMenu = () => { sidebar?.classList.remove("open"); backdrop?.classList.remove("open"); };
-  document.querySelector("[data-menu-button]")?.addEventListener("click", () => {
-    sidebar?.classList.toggle("open"); backdrop?.classList.toggle("open");
-  });
-  backdrop?.addEventListener("click", closeMenu);
-  sidebar?.querySelectorAll("a").forEach((a) => a.addEventListener("click", closeMenu));
+  const mobileQuery = window.matchMedia?.("(max-width: 900px)");
+  let menuOpen = false;
+  const syncMenuState = (focusTrigger = false) => {
+    const mobile = mobileQuery?.matches ?? false;
+    if (mobile) {
+      sidebar?.toggleAttribute("inert", !menuOpen);
+      sidebar?.setAttribute("aria-hidden", String(!menuOpen));
+      mainContent?.toggleAttribute("inert", menuOpen);
+    } else {
+      sidebar?.removeAttribute("inert");
+      sidebar?.removeAttribute("aria-hidden");
+      mainContent?.removeAttribute("inert");
+    }
+    menuButton?.setAttribute("aria-expanded", String(mobile && menuOpen));
+    if (focusTrigger) menuButton?.focus();
+  };
+  const closeMenu = (focusTrigger = true) => {
+    menuOpen = false;
+    sidebar?.classList.remove("open");
+    backdrop?.classList.remove("open");
+    syncMenuState(focusTrigger);
+  };
+  const openMenu = () => {
+    menuOpen = true;
+    sidebar?.classList.add("open");
+    backdrop?.classList.add("open");
+    syncMenuState();
+    sidebar?.querySelector("a")?.focus();
+  };
+  menuButton?.addEventListener("click", () => menuOpen ? closeMenu() : openMenu());
+  menuCloseButton?.addEventListener("click", () => closeMenu());
+  backdrop?.addEventListener("click", () => closeMenu());
+  sidebar?.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => closeMenu(false)));
+  mobileQuery?.addEventListener?.("change", () => closeMenu(false));
+  syncMenuState(false);
 
   const tocLinks = [...document.querySelectorAll(".toc a[href^='#']")];
   if (tocLinks.length && "IntersectionObserver" in window) {
@@ -49,12 +109,35 @@
   const input = document.querySelector("[data-search-input]");
   const results = document.querySelector("[data-search-results]");
   const index = Array.isArray(window.QUADQR_SEARCH_INDEX) ? window.QUADQR_SEARCH_INDEX : [];
-  const openSearch = () => { modal?.classList.add("open"); modal?.setAttribute("aria-hidden","false"); setTimeout(() => input?.focus(), 0); };
-  const closeSearch = () => { modal?.classList.remove("open"); modal?.setAttribute("aria-hidden","true"); if (input) input.value=""; renderSearch(""); };
+  const showEmpty = (message) => {
+    const empty = document.createElement("div");
+    empty.className = "search-empty";
+    empty.textContent = message;
+    results?.replaceChildren(empty);
+  };
+  const safeUrl = (value) => {
+    try {
+      const url = new URL(String(value), document.baseURI);
+      return ["file:", "http:", "https:"].includes(url.protocol) ? url.href : null;
+    } catch {
+      return null;
+    }
+  };
+  const openSearch = () => {
+    if (!modal?.open) modal?.showModal();
+    input?.focus();
+  };
+  const closeSearch = () => {
+    if (modal?.open) modal.close();
+    else {
+      if (input) input.value = "";
+      renderSearch("");
+    }
+  };
   const renderSearch = (query) => {
     if (!results) return;
     const q = query.trim().toLowerCase();
-    if (!q) { results.innerHTML = '<div class="search-empty">Type to search pages and sections.</div>'; return; }
+    if (!q) { showEmpty("Type to search pages and sections."); return; }
     const words = q.split(/\s+/).filter(Boolean);
     const scored = index.map((item) => {
       const hay = `${item.title} ${item.page} ${item.text}`.toLowerCase();
@@ -65,17 +148,37 @@
       score += words.reduce((n,w) => n + (item.title.toLowerCase().includes(w) ? 2 : 0), 0);
       return { item, score };
     }).filter(Boolean).sort((a,b) => b.score-a.score).slice(0,12);
-    if (!scored.length) { results.innerHTML = '<div class="search-empty">No matching documentation found.</div>'; return; }
-    results.innerHTML = scored.map(({item}) => `<a class="search-result" href="${item.url}"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml(item.page)}</span></a>`).join("");
+    if (!scored.length) { showEmpty("No matching documentation found."); return; }
+    const fragment = document.createDocumentFragment();
+    scored.forEach(({ item }) => {
+      const url = safeUrl(item.url);
+      if (!url) return;
+      const link = document.createElement("a");
+      link.className = "search-result";
+      link.href = url;
+      const title = document.createElement("strong");
+      title.textContent = item.title;
+      const page = document.createElement("span");
+      page.textContent = item.page;
+      link.append(title, page);
+      fragment.append(link);
+    });
+    if (fragment.childNodes.length) results.replaceChildren(fragment);
+    else showEmpty("No matching documentation found.");
   };
-  const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
+  modal?.addEventListener("click", (event) => {
+    if (event.target === modal) closeSearch();
+  });
+  modal?.addEventListener("close", () => {
+    if (input) input.value = "";
+    renderSearch("");
+  });
   document.querySelector("[data-search-open]")?.addEventListener("click", openSearch);
-  document.querySelector("[data-search-close]")?.addEventListener("click", closeSearch);
   input?.addEventListener("input", () => renderSearch(input.value));
   document.addEventListener("keydown", (event) => {
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "");
-    if (event.key === "/" && !typing && !modal?.classList.contains("open")) { event.preventDefault(); openSearch(); }
-    if (event.key === "Escape" && modal?.classList.contains("open")) closeSearch();
+    if (event.key === "/" && !typing && !modal?.open) { event.preventDefault(); openSearch(); }
+    if (event.key === "Escape" && menuOpen) closeMenu();
   });
 
   const canvas = document.querySelector("#docQr");

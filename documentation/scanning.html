@@ -1,18 +1,19 @@
 <!DOCTYPE html>
 
-<html data-theme="light" lang="en">
+<html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1" name="viewport"/>
 <meta content="Complete QuadQR documentation for JavaScript, Node.js, browser scanning, compression, security, reliability, CLI, WASM, and the QuadQR format." name="description"/>
 <meta content="light dark" name="color-scheme"/>
+<script>try{const theme=localStorage.getItem("quadqr-docs-theme");if(theme==="light"||theme==="dark")document.querySelector('meta[name="color-scheme"]').content=theme}catch{}</script>
 <title>Scanning &amp; Camera | QuadQR Documentation</title>
 <link href="./styles.css" rel="stylesheet"/>
 </head>
 <body data-page="scanning">
 <header class="topbar">
 <div class="topbar-left">
-<button aria-label="Open navigation" class="icon-button mobile-menu" data-menu-button="" type="button">☰</button>
+<button aria-controls="docs-sidebar" aria-expanded="false" aria-label="Open navigation" class="icon-button mobile-menu" data-menu-button="" type="button">☰</button>
 <a aria-label="QuadQR documentation home" class="brand" href="index.html">
 <span aria-hidden="true" class="brand-mark"><i></i><i></i><i></i><i></i></span>
 <span class="brand-name">QuadQR</span><span class="brand-divider"></span><span class="brand-section">Documentation</span>
@@ -28,8 +29,9 @@
 </header>
 <div class="mobile-backdrop" data-mobile-backdrop=""></div>
 <div class="docs-shell">
-<aside class="sidebar" data-sidebar="">
+<aside aria-label="Documentation navigation" class="sidebar" data-sidebar="" id="docs-sidebar">
 <div class="sidebar-inner">
+<button aria-label="Close navigation" class="icon-button mobile-close" data-menu-close="" type="button">×</button>
 <div class="nav-group"><div class="nav-label">Start</div><a href="index.html">Overview</a><a href="getting-started.html">Getting Started</a></div><div class="nav-group"><div class="nav-label">Runtime guides</div><a href="browser.html">Browser &amp; CDN</a><a href="node.html">Node.js</a><a class="active" href="scanning.html">Scanning &amp; Camera</a></div><div class="nav-group"><div class="nav-label">Payload &amp; reliability</div><a href="compression.html">Compression</a><a href="security.html">Secure Payloads</a><a href="high-density.html">High Density Mode</a><a href="reliability.html">Reliability Lab</a></div><div class="nav-group"><div class="nav-label">Reference</div><a href="api.html">API Reference</a><a href="options.html">Configuration Reference</a><a href="cli.html">CLI Reference</a><a href="wasm.html">WebAssembly</a><a href="format.html">Format Reference</a><a href="specification.html">Technical Specification</a></div>
 <div class="version-pill">quadqr-js <strong>v1.5.5</strong></div>
 </div>
@@ -59,13 +61,13 @@ scanner.stop();</code></pre></div><p>The returned controller contains <code>stre
 <aside class="toc"><div class="toc-title">On this page</div><a href="#scanner-pipeline">Scanner pipeline</a><a href="#image-scanner-options">Image scanner options</a><a href="#live-camera-scanning">Live camera scanning</a><a href="#progressive-camera-recovery">Progressive camera recovery</a><a href="#recovery-sequence">Recovery sequence</a><a href="#multi-frame-confidence-fusion">Multi-frame fusion</a><a href="#camera-callbacks">Callbacks</a><a href="#scanner-confidence">Confidence</a><a href="#secure-scans">Secure scans</a><a href="#reliability-testing">Reliability testing</a></aside>
 </main>
 </div>
-<div aria-hidden="true" class="search-modal" data-search-modal="">
-<div class="search-backdrop" data-search-close=""></div>
-<div aria-label="Search QuadQR documentation" aria-modal="true" class="search-panel" role="dialog">
-<div class="search-input-wrap"><span>⌕</span><input autocomplete="off" data-search-input="" placeholder="Search documentation…" type="search"/><kbd>Esc</kbd></div>
-<div class="search-results" data-search-results=""><div class="search-empty">Type to search pages and sections.</div></div>
+<dialog aria-labelledby="search-title" class="search-dialog" closedby="any" data-search-modal="" id="search-dialog">
+<h2 class="visually-hidden" id="search-title">Search QuadQR documentation</h2>
+<div class="search-panel">
+<div class="search-input-wrap"><span aria-hidden="true">⌕</span><label class="visually-hidden" for="search-input">Search documentation</label><input autofocus autocomplete="off" data-search-input="" id="search-input" placeholder="Search documentation…" type="search"/><form method="dialog"><button aria-label="Close search" class="icon-button search-close" data-search-close="" type="submit">×</button></form></div>
+<div aria-live="polite" class="search-results" data-search-results=""><div class="search-empty">Type to search pages and sections.</div></div>
 </div>
-</div>
+</dialog>
 <script src="./search-index.js"></script>
 <script src="../dist/quadqr.min.js"></script>
 <script src="./app.js"></script>
